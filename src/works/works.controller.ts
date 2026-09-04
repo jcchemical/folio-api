@@ -13,7 +13,11 @@ import type { Request } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
-import { WorksService } from './works.service.js';
+import {
+  WorksService,
+  type WorkInput,
+  type WorkUpdateInput,
+} from './works.service.js';
 import type { Work } from '@prisma/client';
 
 @ApiTags('works')
@@ -38,30 +42,18 @@ export class WorksController {
 
   @Post()
   async create(
-    @Body()
-    body: {
-      title: string;
-      description?: string | null;
-      year?: number | null;
-      institutionId?: string | null;
-    },
+    @Body() body: WorkInput,
     @Req() request: Request,
-  ): Promise<Work> {
+  ): Promise<Work | null> {
     return this.worksService.create(this.getUserId(request), body);
   }
 
   @Put(':id')
   async update(
     @Param('id') id: string,
-    @Body()
-    body: {
-      title?: string;
-      description?: string | null;
-      year?: number | null;
-      institutionId?: string | null;
-    },
+    @Body() body: WorkUpdateInput,
     @Req() request: Request,
-  ): Promise<Work> {
+  ): Promise<Work | null> {
     return this.worksService.update(id, this.getUserId(request), body);
   }
 

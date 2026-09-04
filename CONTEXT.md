@@ -62,6 +62,16 @@ folio-api/
       works.module.ts
       works.controller.ts
       works.service.ts
+    editions/
+      editions.service.ts
+    contributors/
+      contributors.service.ts
+    external-identifiers/
+      external_identifiers.service.ts
+    bibliographic-records/
+      bibliographic_records.service.ts
+    items/
+      items.service.ts
   package.json
   tsconfig.json
   .env
@@ -109,8 +119,7 @@ model Institution {
 model Work {
   id          String   @id @default(cuid())
   title       String
-  description String?
-  year        Int?
+  subtitle    String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -119,8 +128,18 @@ model Work {
 
   institutionId String?
   institution   Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+
+  editions Edition[]
 }
 ```
+
+### Bibliographic catalogue
+
+- `Edition` belongs to a `Work` and stores ISBN, publisher, publication date, language, format and page count.
+- `Contributor` is shared by works and editions through `WorkContributor` and `EditionContributor`, with a role and sort order.
+- `ExternalIdentifier` belongs to an edition and enforces uniqueness for `(type, value)`.
+- `BibliographicRecord` stores raw MARC or other source records and can point to a work, an edition, or both.
+- `Item` represents a user's copy of an edition. It always has `userId` and `editionId`, and may have an `institutionId` for storage or management.
 
 ## Endpoints
 
@@ -178,13 +197,24 @@ model Work {
   ```json
   {
     "title": "Obra Exemplo",
-    "description": "Descriçªº da obra",
-    "year": 2025,
+    "subtitle": "Subtítulo opcional",
     "institutionId": "id-opcional"
   }
   ```
 - `PUT /works/:id`
 - `DELETE /works/:id`
+
+The work create/update payload also accepts an optional `editions` array. The `WorksService` persists edition changes with the work; sending `editions` during update replaces that work's current editions.
+
+### Planned catalogue endpoints
+
+The data services are implemented first so the catalogue layer can be tested independently. Controllers can expose these endpoints next:
+
+- `GET/POST/PUT/DELETE /editions` — editions scoped through the authenticated user's works.
+- `GET/POST/PUT/DELETE /contributors` — contributor registry and work/edition links.
+- `GET/POST/PUT/DELETE /external-identifiers` — ISBN and external catalogue identifiers.
+- `GET/POST/PUT/DELETE /bibliographic-records` — raw records linked to works and/or editions.
+- `GET/POST/PUT/DELETE /items` — user-owned copies, optionally associated with an institution.
 
 Swagger UI: http://localhost:3000/docs
 
@@ -231,6 +261,13 @@ Swagger UI: http://localhost:3000/docs
      ```
    - UI em `/docs`.
 
+6. **Catálogo bibliográfico**
+  - A `Work` is the intellectual work; an `Edition` is its publication-specific manifestation.
+  - `WorksService` owns the work-to-edition write flow and includes editions in work reads.
+  - User-owned resources are scoped through the authenticated user's `userId`.
+  - `Item` deliberately contains both `userId` and optional `institutionId`: ownership belongs to the user, while the institution represents where the copy is held or managed.
+  - Migration `20260904213703_add_bibliographic_catalog` adds the catalogue tables and removes the legacy `Work.description` and `Work.year` fields. The database was disposable when it was applied.
+
 ## Comandos Úteis
 
 ```bash
@@ -242,6 +279,9 @@ npx prisma generate
 
 # Criar e aplicar migration
 npx prisma migrate dev --name <nome>
+
+# Ver estado das migrations
+npx prisma migrate status
 
 # Resetar base de dados (dev)
 npx prisma migrate reset

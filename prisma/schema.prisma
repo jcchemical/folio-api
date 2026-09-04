@@ -6,6 +6,10 @@ datasource db {
   provider = "postgresql"
 }
 
+// =========================
+// Utilizadores e instituições
+// =========================
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -16,6 +20,7 @@ model User {
 
   institutions Institution[]
   works        Work[]
+  items        Item[]
 }
 
 model Institution {
@@ -30,18 +35,139 @@ model Institution {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   works Work[]
+  items Item[]
 }
+
+// =========================
+// Núcleo bibliográfico
+// =========================
 
 model Work {
   id          String   @id @default(cuid())
   title       String
-  description String?
-  year        Int?
+  subtitle    String?
+  // Outros campos de obra: série, língua original, etc., podem vir depois
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  userId       String
-  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  institutionId String?
+  institution   Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+
+  editions       Edition[]
+  workContributors WorkContributor[]
+  bibliographicRecords BibliographicRecord[]
+}
+
+model Edition {
+  id            String   @id @default(cuid())
+  title         String   // título da edição (pode ser igual ao da obra)
+  subtitle      String?
+  isbn10        String?  @db.Char(10)
+  isbn13        String?  @db.Char(13)
+  publisher     String?
+  publishDate   DateTime?
+  language      String?
+  country       String?
+  format        String?  // ex: "Hardcover", "Paperback", "eBook"
+  pages         Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workId String
+  work   Work   @relation(fields: [workId], references: [id], onDelete: Cascade)
+
+  items            Item[]
+  editionContributors EditionContributor[]
+  externalIdentifiers ExternalIdentifier[]
+  bibliographicRecords  BibliographicRecord[]
+}
+
+model Contributor {
+  id        String   @id @default(cuid())
+  name      String
+  variantNames String[] // outros nomes, formas alternativas
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workContributors   WorkContributor[]
+  editionContributors EditionContributor[]
+}
+
+model WorkContributor {
+  id            String   @id @default(cuid())
+  role          String   // ex: "author", "translator", "editor"
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workId      String
+  work        Work      @relation(fields: [workId], references: [id], onDelete: Cascade)
+
+  contributorId String
+  contributor   Contributor @relation(fields: [contributorId], references: [id], onDelete: Cascade)
+}
+
+model EditionContributor {
+  id            String   @id @default(cuid())
+  role          String   // ex: "author", "translator", "editor"
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  editionId String
+  edition   Edition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+
+  contributorId String
+  contributor   Contributor @relation(fields: [contributorId], references: [id], onDelete: Cascade)
+}
+
+model ExternalIdentifier {
+  id        String   @id @default(cuid())
+  type      String   // ex: "ISBN-10", "ISBN-13", "BNP", "OPENLIBRARY", "OCLC", "LCCN"
+  value     String
+  source    String?  // ex: "BNP", "Open Library"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  editionId String
+  edition   Edition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+
+  @@unique([type, value])
+}
+
+model BibliographicRecord {
+  id          String   @id @default(cuid())
+  format      String   // ex: "MARCXML", "ISO2709", "MARCJSON"
+  rawContent  String   @db.Text // registo bruto (pode ser grande)
+  source      String?  // ex: "BNP", "Open Library"
+  remoteId    String?  // identificador na fonte
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workId    String?
+  work      Work?     @relation(fields: [workId], references: [id], onDelete: SetNull)
+
+  editionId String?
+  edition   Edition?  @relation(fields: [editionId], references: [id], onDelete: SetNull)
+}
+
+model Item {
+  id            String   @id @default(cuid())
+  label         String?  // etiqueta interna (ex: "Meu exemplar principal")
+  location      String?  // estante, caixa, etc.
+  status        String   @default("OWNED") // OWNED, BORROWED, LOST, etc.
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  editionId String
+  edition   Edition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   institutionId String?
   institution   Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
