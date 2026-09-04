@@ -1,71 +1,42 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { CreateUserDto } from './dto/create-user.dto.js';
+import type { User } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(createUserDto: CreateUserDto) {
-    const email = createUserDto.email.trim().toLowerCase();
-
-    try {
-      return await this.prisma.user.create({
-        data: {
-          email,
-          name: createUserDto.name?.trim() ?? null,
-        },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
-    } catch (error) {
-      if (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        error.code === 'P2002'
-      ) {
-        throw new ConflictException('Já existe um utilizador com este email.');
-      }
-
-      throw error;
-    }
+  async findAll(): Promise<User[]> {
+    return this.prisma.user.findMany();
   }
 
-  findAll() {
-    return this.prisma.user.findMany({
-      orderBy: { createdAt: 'asc' },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+  async findOne(id: string): Promise<User | null> {
+    return this.prisma.user.findUnique({ where: { id } });
+  }
+
+  async create(data: {
+    email: string;
+    name?: string | null;
+    passwordHash: string;
+  }): Promise<User> {
+    return this.prisma.user.create({
+      data,
     });
   }
 
-  async findOne(id: string) {
-    const user = await this.prisma.user.findUnique({
+  async update(
+    id: string,
+    data: { email?: string; name?: string | null },
+  ): Promise<User> {
+    return this.prisma.user.update({
       where: { id },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      data,
     });
+  }
 
-    if (!user) {
-      throw new NotFoundException('Utilizador não encontrado.');
-    }
-
-    return user;
+  async remove(id: string): Promise<User> {
+    return this.prisma.user.delete({
+      where: { id },
+    });
   }
 }
