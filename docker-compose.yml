@@ -1,0 +1,37 @@
+name: folio-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: folio-dev-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: folio
+      POSTGRES_USER: folio_owner
+      POSTGRES_PASSWORD: folio_dev_password_change_me
+      TZ: Europe/Lisbon
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - folio_dev_postgres:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U folio_owner -d folio"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    container_name: folio-dev-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - folio_dev_redis:/data
+    ports:
+      - "6379:6379"
+
+volumes:
+  folio_dev_postgres:
+  folio_dev_redis:
