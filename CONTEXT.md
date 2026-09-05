@@ -87,6 +87,10 @@ folio-api/
       dto/
         porbase-search-query.dto.ts
         porbase-search-response.dto.ts
+        import-preview-query.dto.ts
+        import-preview-response.dto.ts
+      import-preview.service.ts
+      import-preview.controller.ts
   package.json
   tsconfig.json
   .env
@@ -235,6 +239,46 @@ External identifier CRUD remains available through `ExternalIdentifiersService`;
 ### PORBASE catalogue integration
 
 - `GET /catalogues/porbase/search?isbn=9789724426495` searches the PORBASE URN MARCXchange endpoint through the API.
+- `POST /catalogues/porbase/import-preview` builds a Work/Edition/contributor/identifier suggestion from an ISBN without persisting anything.
+- Request:
+  ```json
+  { "isbn": "9789724426495" }
+  ```
+- Response shape:
+  ```json
+  {
+    "work": { "title": "Vida e andanças de Alexis Zorbás" },
+    "edition": {
+      "title": "Vida e andanças de Alexis Zorbás",
+      "isbn13": "9789724426495",
+      "publisher": "Edições 70",
+      "publishDate": "2022",
+      "language": "por",
+      "placeOfPublication": "Coimbra",
+      "pages": 383
+    },
+    "contributors": [
+      { "name": "Kazantzákis, Níkos", "role": "author" },
+      { "name": "Leite, Carlos", "role": "translator" }
+    ],
+    "externalIdentifiers": [
+      { "type": "ISBN-13", "value": "9789724426495", "source": "PORBASE" },
+      { "type": "PORBASE", "value": "3664836", "source": "PORBASE" }
+    ],
+    "bibliographicRecord": {
+      "format": "MARCXCHANGE",
+      "schema": "UNIMARC",
+      "source": "PORBASE",
+      "remoteId": "3664836",
+      "rawContent": "..."
+    },
+    "warnings": []
+  }
+  ```
+- The preview is a stable proposal for a future confirmation/import endpoint. It never creates or updates Prisma records.
+- `POST /catalogues/porbase/import` confirms a corrected preview and persists Work, Edition, contributors, external identifiers, the bibliographic record, and an Item atomically from the authenticated user's `request.user.id`.
+- Confirmation never calls PORBASE again. It stores the body submitted by the user and returns HTTP 409 when an ISBN-13, or otherwise ISBN-10, already exists on an Edition belonging to that user. Imports without ISBN are allowed.
+- The confirmation transaction validates institution ownership, reuses contributors only on exact case-insensitive name matches after whitespace normalization, and rolls back all records if any internal creation fails. Contributor matching is not yet a true authority-control system.
 - The endpoint requires a JWT Bearer token and does not persist the result automatically.
 - ISBN-10 and ISBN-13 values are normalized by removing spaces and hyphens and are checksum-validated before any upstream request.
 - The normalized response includes `source`, `query`, `found`, `detectedFormat`, `format`, `schema`, `metadata`, `warnings`, and the unmodified `rawContent`.

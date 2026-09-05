@@ -5,6 +5,8 @@ import { UsersModule } from './users/users.module.js';
 import { InstitutionsModule } from './institutions/institutions.module.js';
 import { WorksModule } from './works/works.module.js';
 import { CataloguesModule } from './catalogues/catalogues.module.js';
+import { AppController } from './app.controller.js';
+import { AppService } from './app.service.js';
 
 @Module({
   imports: [
@@ -15,5 +17,7 @@ import { CataloguesModule } from './catalogues/catalogues.module.js';
     WorksModule,
     CataloguesModule,
   ],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}

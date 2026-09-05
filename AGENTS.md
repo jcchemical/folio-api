@@ -17,6 +17,11 @@
 - Reuse the ownership checks in `EditionsService`, `ExternalIdentifiersService`, `BibliographicRecordsService`, and `ItemsService` when adding catalog controllers.
 - Catalog controllers belong to `WorksModule` and must use `JwtAuthGuard` plus `request.user.id`; never accept `userId` from request bodies.
 - `CataloguesModule` contains external catalogue adapters. Keep PORBASE calls server-side, behind `JwtAuthGuard`, with short timeouts and no automatic Prisma persistence.
+- `POST /catalogues/porbase/import-preview` is proposal-only: `ImportPreviewService` must call the PORBASE search service and must not create or update Work, Edition, Contributor, ExternalIdentifier, or BibliographicRecord rows.
+- Keep the import-preview DTO stable and explicit so it can later be reused as input to a separately authorized confirmation endpoint.
+- `POST /catalogues/porbase/import` is the confirmation step after preview. It must use one Prisma transaction, the JWT user id, and never call PORBASE again.
+- Confirmation must validate institution ownership, normalize/validate ISBNs, reject duplicate user-owned editions with `409 Conflict`, and preserve rollback semantics.
+- Contributor reuse is deliberately conservative: exact case-insensitive matching after whitespace normalization only; there is no authority-control service yet.
 - Detect PORBASE responses using Content-Type, leading content, and structure; never assume XML from the endpoint name alone.
 - Preserve the limited PORBASE parser field scope unless the integration is intentionally expanded. Current XML/text support covers `001`, `003`, `010$a`, `101$a`, `200$a/f/g`, `210$a/c/d`, `215$a`, `035$a`, `675$3`, `700/701`, `702$4=730`, and `966$s`.
 - Validate and normalize ISBNs before calling external providers; never make the Flutter client call PORBASE directly.

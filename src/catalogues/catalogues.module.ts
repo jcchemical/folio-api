@@ -5,6 +5,10 @@ import { AuthModule } from '../auth/auth.module.js';
 import { CataloguesController } from './catalogues.controller.js';
 import { CataloguesService } from './catalogues.service.js';
 import { PorbaseAdapter } from './adapters/porbase.adapter.js';
+import { ImportPreviewController } from './import-preview.controller.js';
+import { ImportPreviewService } from './import-preview.service.js';
+import { PorbaseImportController } from './porbase-import.controller.js';
+import { PorbaseImportService } from './porbase-import.service.js';
 
 const timeout = readPositiveEnvironmentNumber('PORBASE_URN_TIMEOUT_MS', 5_000);
 
@@ -17,8 +21,17 @@ const timeout = readPositiveEnvironmentNumber('PORBASE_URN_TIMEOUT_MS', 5_000);
       maxRedirects: 0,
     }),
   ],
-  controllers: [CataloguesController],
-  providers: [CataloguesService, PorbaseAdapter],
+  controllers: [
+    CataloguesController,
+    ImportPreviewController,
+    PorbaseImportController,
+  ],
+  providers: [
+    CataloguesService,
+    PorbaseAdapter,
+    ImportPreviewService,
+    PorbaseImportService,
+  ],
   exports: [CataloguesService],
 })
 export class CataloguesModule {}

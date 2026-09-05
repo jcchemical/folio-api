@@ -14,6 +14,10 @@ import { notFoundResponse, parsePorbaseResponse } from './porbase.parser.js';
 export class CataloguesService {
   constructor(private readonly porbaseAdapter: PorbaseAdapter) {}
 
+  searchPorbaseByIsbn(isbnInput: string): Promise<PorbaseSearchResponseDto> {
+    return this.searchPorbase(isbnInput);
+  }
+
   async searchPorbase(isbnInput: string): Promise<PorbaseSearchResponseDto> {
     const query = normalizeIsbn(isbnInput);
     if (!isValidIsbn(query)) {
