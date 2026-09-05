@@ -15,6 +15,11 @@
 - Treat `Work` as the intellectual work and `Edition` as its publication-specific child. Keep edition writes scoped to the authenticated user's work.
 - Keep `Item.userId` as the ownership boundary; `Item.institutionId` is optional location/management metadata and must be checked against the same user.
 - Reuse the ownership checks in `EditionsService`, `ExternalIdentifiersService`, `BibliographicRecordsService`, and `ItemsService` when adding catalog controllers.
+- Catalog controllers belong to `WorksModule` and must use `JwtAuthGuard` plus `request.user.id`; never accept `userId` from request bodies.
+- `CataloguesModule` contains external catalogue adapters. Keep PORBASE calls server-side, behind `JwtAuthGuard`, with short timeouts and no automatic Prisma persistence.
+- Detect PORBASE responses using Content-Type, leading content, and structure; never assume XML from the endpoint name alone.
+- Preserve the limited PORBASE parser field scope unless the integration is intentionally expanded. Current XML/text support covers `001`, `003`, `010$a`, `101$a`, `200$a/f/g`, `210$a/c/d`, `215$a`, `035$a`, `675$3`, `700/701`, `702$4=730`, and `966$s`.
+- Validate and normalize ISBNs before calling external providers; never make the Flutter client call PORBASE directly.
 - Keep request validation compatible with the global `ValidationPipe` in `src/main.ts` (`whitelist` and `transform` are enabled).
 - Update `CONTEXT.md` when routes, schema, development assumptions, or architectural decisions change.
 - Do not commit `.env` or other secrets.
@@ -38,4 +43,4 @@ Before finishing a change, run the narrowest relevant tests plus `npm run build`
 
 `POST /auth/login` issues JWTs. Protected `institutions` and `works` routes use the authenticated user's `sub` claim as `userId`.
 
-The bibliographic catalog services are registered by `WorksModule`. Future controllers for editions, contributors, identifiers, bibliographic records, and items should use those services instead of accessing Prisma directly.
+The bibliographic catalog services and controllers are registered by `WorksModule`. `CataloguesModule` exposes the read-only PORBASE search integration; it must not persist search results automatically.

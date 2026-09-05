@@ -63,15 +63,30 @@ folio-api/
       works.controller.ts
       works.service.ts
     editions/
+      editions.controller.ts
       editions.service.ts
     contributors/
+      contributors.controller.ts
       contributors.service.ts
     external-identifiers/
       external_identifiers.service.ts
     bibliographic-records/
+      bibliographic_records.controller.ts
       bibliographic_records.service.ts
     items/
+      items.controller.ts
       items.service.ts
+    catalogues/
+      catalogues.module.ts
+      catalogues.controller.ts
+      catalogues.service.ts
+      isbn.utils.ts
+      porbase.parser.ts
+      adapters/
+        porbase.adapter.ts
+      dto/
+        porbase-search-query.dto.ts
+        porbase-search-response.dto.ts
   package.json
   tsconfig.json
   .env
@@ -206,15 +221,27 @@ model Work {
 
 The work create/update payload also accepts an optional `editions` array. The `WorksService` persists edition changes with the work; sending `editions` during update replaces that work's current editions.
 
-### Planned catalogue endpoints
+### Catalogue endpoints
 
-The data services are implemented first so the catalogue layer can be tested independently. Controllers can expose these endpoints next:
+All catalogue endpoints require `Authorization: Bearer <token>` and scope data to the authenticated user:
 
-- `GET/POST/PUT/DELETE /editions` — editions scoped through the authenticated user's works.
-- `GET/POST/PUT/DELETE /contributors` — contributor registry and work/edition links.
-- `GET/POST/PUT/DELETE /external-identifiers` — ISBN and external catalogue identifiers.
-- `GET/POST/PUT/DELETE /bibliographic-records` — raw records linked to works and/or editions.
-- `GET/POST/PUT/DELETE /items` — user-owned copies, optionally associated with an institution.
+- `GET/POST/PUT/DELETE /editions` — editions scoped through the authenticated user's works. Creation requires `workId`.
+- `GET/POST/PUT/DELETE /contributors` — contributors linked to the user's works or editions. Creation requires `workId` or `editionId`.
+- `GET/POST/PUT/DELETE /bibliographic-records` — raw records linked to the user's works and/or editions.
+- `GET/POST/PUT/DELETE /items` — user-owned copies, optionally associated with the user's institution.
+
+External identifier CRUD remains available through `ExternalIdentifiersService`; its controller is not exposed yet.
+
+### PORBASE catalogue integration
+
+- `GET /catalogues/porbase/search?isbn=9789724426495` searches the PORBASE URN MARCXchange endpoint through the API.
+- The endpoint requires a JWT Bearer token and does not persist the result automatically.
+- ISBN-10 and ISBN-13 values are normalized by removing spaces and hyphens and are checksum-validated before any upstream request.
+- The normalized response includes `source`, `query`, `found`, `detectedFormat`, `format`, `schema`, `metadata`, `warnings`, and the unmodified `rawContent`.
+- The observed live response for ISBN `9789724426495` was `HTTP 200` with `Content-Type: text/xml;charset=utf-8` and MARCXchange XML in one line. The adapter does not rely on the endpoint name and also supports line-oriented MARC text.
+- PORBASE URL and timeout are configured with `PORBASE_URN_BASE_URL` and `PORBASE_URN_TIMEOUT_MS`.
+- XML extraction supports `001`, `003`, `010$a`, `101$a`, `200$a/f/g`, `210$a/c/d`, `215$a`, `035$a`, `675$3`, `700/701`, `702$4=730`, and `966$s`. The text parser uses the same tags when visible and emits warnings when responsibility statements are ambiguous.
+- `detectedFormat` is one of `MARCXCHANGE_XML`, `MARC_TEXT`, `UNKNOWN`, or `ERROR`. HTTP 404, empty responses, and provider error messages return `found: false`; timeout returns 503; upstream 5xx and malformed XML return 502.
 
 Swagger UI: http://localhost:3000/docs
 
@@ -262,11 +289,14 @@ Swagger UI: http://localhost:3000/docs
    - UI em `/docs`.
 
 6. **Catálogo bibliográfico**
-  - A `Work` is the intellectual work; an `Edition` is its publication-specific manifestation.
-  - `WorksService` owns the work-to-edition write flow and includes editions in work reads.
-  - User-owned resources are scoped through the authenticated user's `userId`.
-  - `Item` deliberately contains both `userId` and optional `institutionId`: ownership belongs to the user, while the institution represents where the copy is held or managed.
-  - Migration `20260904213703_add_bibliographic_catalog` adds the catalogue tables and removes the legacy `Work.description` and `Work.year` fields. The database was disposable when it was applied.
+
+- A `Work` is the intellectual work; an `Edition` is its publication-specific manifestation.
+- `WorksService` owns the work-to-edition write flow and includes editions in work reads.
+- User-owned resources are scoped through the authenticated user's `userId`.
+- `Item` deliberately contains both `userId` and optional `institutionId`: ownership belongs to the user, while the institution represents where the copy is held or managed.
+- Migration `20260904213703_add_bibliographic_catalog` adds the catalogue tables and removes the legacy `Work.description` and `Work.year` fields. The database was disposable when it was applied.
+
+7. **Integração externa PORBASE** - `CataloguesModule` is an HTTP-only adapter layer and does not access Prisma or save bibliographic data during a search. - The Flutter client must call the Folio API; it must not call PORBASE directly. - The exact upstream body is preserved in `rawContent`; no automatic persistence or transformation replaces it. - No Z39.50, Open Library, or OAI-PMH integration is included in this iteration.
 
 ## Comandos Úteis
 
@@ -282,6 +312,9 @@ npx prisma migrate dev --name <nome>
 
 # Ver estado das migrations
 npx prisma migrate status
+
+# Executar a suite de testes
+npm run test
 
 # Resetar base de dados (dev)
 npx prisma migrate reset
