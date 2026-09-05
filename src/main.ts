@@ -16,8 +16,10 @@ async function bootstrap() {
       'http://localhost',
       'http://localhost:3000',
       'http://localhost:8080',
+      'http://localhost:56341',
       'http://127.0.0.1',
       'http://127.0.0.1:8080',
+      'http://127.0.0.1:56341',
     ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -53,7 +55,7 @@ async function bootstrap() {
     swaggerOptions,
   );
 
-  await app.listen(process.env.PORT ?? 3000);
+await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
 }
 
 void bootstrap();

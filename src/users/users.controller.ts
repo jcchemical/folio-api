@@ -9,6 +9,8 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { UsersService } from './users.service.js';
+import { CreateUserDto } from './dto/create-user.dto.js';
+import { UpdateUserDto } from './dto/update-user.dto.js';
 import type { User } from '@prisma/client';
 
 @ApiTags('users')
@@ -27,22 +29,13 @@ export class UsersController {
   }
 
   @Post()
-  async create(
-    @Body() body: {
-      email: string;
-      name?: string | null;
-      passwordHash: string;
-    },
-  ): Promise<User> {
-    return this.usersService.create(body);
+  async create(@Body() dto: CreateUserDto): Promise<User> {
+    return this.usersService.create(dto);
   }
 
   @Put(':id')
-  async update(
-    @Param('id') id: string,
-    @Body() body: { email?: string; name?: string | null },
-  ): Promise<User> {
-    return this.usersService.update(id, body);
+  async update(@Param('id') id: string, @Body() dto: UpdateUserDto): Promise<User> {
+    return this.usersService.update(id, dto);
   }
 
   @Delete(':id')
