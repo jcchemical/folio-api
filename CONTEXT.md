@@ -285,6 +285,8 @@ External identifier CRUD remains available through `ExternalIdentifiersService`;
 - The observed live response for ISBN `9789724426495` was `HTTP 200` with `Content-Type: text/xml;charset=utf-8` and MARCXchange XML in one line. The adapter does not rely on the endpoint name and also supports line-oriented MARC text.
 - PORBASE URL and timeout are configured with `PORBASE_URN_BASE_URL` and `PORBASE_URN_TIMEOUT_MS`.
 - XML extraction supports `001`, `003`, `010$a`, `101$a`, `200$a/f/g`, `210$a/c/d`, `215$a`, `035$a`, `675$3`, `700/701`, `702$4=730`, and `966$s`. The text parser uses the same tags when visible and emits warnings when responsibility statements are ambiguous.
+- PORBASE warnings are structured objects with `field`, `message`, `original`, `normalized`, and `type` where applicable. Normalizations are always explicit: `210$d` publication dates such as `D.L. 2009`, `2009.`, and `2009?` are reduced to `YYYY` with a `normalization` warning; unparseable dates such as `s.d.` produce `null` and a `parse_error` warning. The original provider body always remains unchanged in `rawContent`.
+- Fields that may be normalized or require review include `edition.publishDate` (UNIMARC `210$d`) and `edition.pages` (UNIMARC `215$a`); future normalization must emit an equivalent structured warning rather than silently changing provider data.
 - `detectedFormat` is one of `MARCXCHANGE_XML`, `MARC_TEXT`, `UNKNOWN`, or `ERROR`. HTTP 404, empty responses, and provider error messages return `found: false`; timeout returns 503; upstream 5xx and malformed XML return 502.
 
 Swagger UI: http://localhost:3000/docs

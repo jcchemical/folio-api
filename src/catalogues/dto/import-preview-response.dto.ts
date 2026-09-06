@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { PorbaseWarningDto } from './porbase-search-response.dto.js';
 
 export class ImportPreviewWorkDto {
   @ApiProperty({ example: 'Vida e andanças de Alexis Zorbás' })
@@ -21,8 +22,8 @@ export class ImportPreviewEditionDto {
   @ApiPropertyOptional({ example: 'Edições 70' })
   publisher?: string;
 
-  @ApiPropertyOptional({ example: '2022' })
-  publishDate?: string;
+  @ApiPropertyOptional({ example: '2022', nullable: true })
+  publishDate?: string | null;
 
   @ApiPropertyOptional({ example: 'por' })
   language?: string;
@@ -89,6 +90,6 @@ export class ImportPreviewResponseDto {
   @ApiProperty({ type: ImportPreviewBibliographicRecordDto })
   bibliographicRecord!: ImportPreviewBibliographicRecordDto;
 
-  @ApiProperty({ type: [String], example: [] })
-  warnings!: string[];
+  @ApiProperty({ type: [PorbaseWarningDto], example: [] })
+  warnings!: PorbaseWarningDto[];
 }

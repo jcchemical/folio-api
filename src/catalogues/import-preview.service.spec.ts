@@ -47,7 +47,9 @@ describe('ImportPreviewService', () => {
         identifiers: [],
       },
       fields: { authors: [], translators: [], shelfmarks: [], identifiers: [] },
-      warnings: ['No PORBASE record was found.'],
+      warnings: [
+        { message: 'No PORBASE record was found.', type: 'provider_error' },
+      ],
     } satisfies PorbaseSearchResponseDto);
 
     await expect(service.createPreview(isbn)).rejects.toBeInstanceOf(
@@ -106,16 +108,26 @@ describe('ImportPreviewService', () => {
       rawContent: '001 3664836',
       metadata: { authors: [], warnings: undefined },
       fields: { authors: [] },
-      warnings: ['No unambiguous title field was found in the MARC text.'],
+      warnings: [
+        {
+          field: 'work.title',
+          message: 'No unambiguous title field was found in the MARC text.',
+          type: 'missing_field',
+        },
+      ],
     } as unknown as PorbaseSearchResponseDto);
 
     const result = await service.createPreview(isbn);
 
-    expect(result.warnings).toContain(
-      'No unambiguous title field was found in the MARC text.',
+    expect(result.warnings).toContainEqual(
+      expect.objectContaining({
+        message: 'No unambiguous title field was found in the MARC text.',
+      }),
     );
-    expect(result.warnings).toContain(
-      'The import title was not identified safely.',
+    expect(result.warnings).toContainEqual(
+      expect.objectContaining({
+        message: 'The import title was not identified safely.',
+      }),
     );
   });
 });

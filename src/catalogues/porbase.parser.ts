@@ -3,6 +3,8 @@ import {
   PorbaseBibliographicFieldsDto,
   PorbaseDetectedFormat,
   PorbaseSearchResponseDto,
+  PorbaseWarningDto,
+  PorbaseWarningType,
 } from './dto/porbase-search-response.dto.js';
 import { PorbaseXmlError } from './catalogues.types.js';
 
@@ -23,13 +25,18 @@ export function parsePorbaseResponse(
 
   if (!trimmed) {
     return buildResponse(query, rawContent, 'UNKNOWN', false, {
-      warnings: ['PORBASE returned an empty response.'],
+      warnings: [warning('PORBASE returned an empty response.', 'provider_error')],
     });
   }
 
   if (isErrorMessage(trimmed)) {
     return buildResponse(query, rawContent, 'ERROR', false, {
-      warnings: ['PORBASE returned an error message instead of a record.'],
+      warnings: [
+        warning(
+          'PORBASE returned an error message instead of a record.',
+          'provider_error',
+        ),
+      ],
     });
   }
 
@@ -43,7 +50,10 @@ export function parsePorbaseResponse(
 
   return buildResponse(query, rawContent, 'UNKNOWN', false, {
     warnings: [
-      'PORBASE returned content whose format could not be identified safely.',
+      warning(
+        'PORBASE returned content whose format could not be identified safely.',
+        'parse_error',
+      ),
     ],
   });
 }
@@ -61,7 +71,7 @@ export function notFoundResponse(
       : 'UNKNOWN';
 
   return buildResponse(query, rawContent, detectedFormat, false, {
-    warnings: ['No PORBASE record was found.'],
+    warnings: [warning('No PORBASE record was found.', 'provider_error')],
   });
 }
 
@@ -79,7 +89,7 @@ function parseXmlResponse(
   const error = findText(findFirstValue(document, 'error'));
   if (error) {
     return buildResponse(query, rawContent, 'ERROR', false, {
-      warnings: [`PORBASE error: ${error}`],
+      warnings: [warning(`PORBASE error: ${error}`, 'provider_error')],
     });
   }
 
@@ -88,12 +98,13 @@ function parseXmlResponse(
     throw new PorbaseXmlError('PORBASE XML did not contain a MARC record');
   }
 
-  const metadata = extractXmlMetadata(record);
+  const warnings: PorbaseWarningDto[] = [];
+  const metadata = extractXmlMetadata(record, warnings);
   return buildResponse(query, rawContent, 'MARCXCHANGE_XML', true, {
     format: textValue(record['@_format']) ?? 'Unimarc',
     schema: 'UNIMARC',
     metadata,
-    warnings: [],
+    warnings,
   });
 }
 
@@ -101,7 +112,7 @@ function parseMarcTextResponse(
   query: string,
   rawContent: string,
 ): PorbaseSearchResponseDto {
-  const warnings: string[] = [];
+  const warnings: PorbaseWarningDto[] = [];
   const fields = parseMarcTextFields(rawContent, warnings);
   const metadata = extractTextMetadata(fields, warnings);
 
@@ -121,7 +132,7 @@ interface TextField {
 
 function parseMarcTextFields(
   rawContent: string,
-  warnings: string[],
+  warnings: PorbaseWarningDto[],
 ): TextField[] {
   const fields: TextField[] = [];
   for (const [index, line] of rawContent.split(/\r?\n/).entries()) {
@@ -131,7 +142,10 @@ function parseMarcTextFields(
     const match = /^(\d{3})(?:\s+|[:|])?(.*)$/.exec(trimmed);
     if (!match) {
       warnings.push(
-        `Ignored MARC text line ${index + 1}: field tag not found.`,
+        warning(
+          `Ignored MARC text line ${index + 1}: field tag not found.`,
+          'parse_warning',
+        ),
       );
       continue;
     }
@@ -150,7 +164,12 @@ function parseMarcTextFields(
       ? ''
       : remainder.replace(/^[#| ]+/, '').trim();
     if (!value && subfieldMatches.length === 0) {
-      warnings.push(`MARC text line ${index + 1} has no readable value.`);
+      warnings.push(
+        warning(
+          `MARC text line ${index + 1} has no readable value.`,
+          'parse_warning',
+        ),
+      );
     }
     fields.push({ tag, value, subfields });
   }
@@ -159,7 +178,7 @@ function parseMarcTextFields(
 
 function extractTextMetadata(
   fields: TextField[],
-  warnings: string[],
+  warnings: PorbaseWarningDto[],
 ): PorbaseBibliographicFieldsDto {
   const metadata: PorbaseBibliographicFieldsDto = {
     authors: [],
@@ -174,7 +193,10 @@ function extractTextMetadata(
   metadata.title = firstSubfieldValue(fields, '200', 'a');
   metadata.placeOfPublication = firstSubfieldValue(fields, '210', 'a');
   metadata.publisher = firstSubfieldValue(fields, '210', 'c');
-  metadata.publicationDate = firstSubfieldValue(fields, '210', 'd');
+  metadata.publicationDate = normalizePublicationDate(
+    firstSubfieldValue(fields, '210', 'd'),
+    warnings,
+  );
   metadata.extent = firstSubfieldValue(fields, '215', 'a');
 
   const authorFields = fields.filter((field) =>
@@ -195,7 +217,10 @@ function extractTextMetadata(
   if (metadata.authors.length === 0 && responsibilityAuthor) {
     metadata.authors = [responsibilityAuthor];
     warnings.push(
-      'Author was taken from 200$f because no 700/701 author field was available.',
+      warning(
+        'Author was taken from 200$f because no 700/701 author field was available.',
+        'parse_warning',
+      ),
     );
   }
 
@@ -206,7 +231,10 @@ function extractTextMetadata(
       metadata.translators = [translator];
     } else {
       warnings.push(
-        'A 200$g responsibility statement was present but could not be classified safely as a translator.',
+        warning(
+          'A 200$g responsibility statement was present but could not be classified safely as a translator.',
+          'parse_warning',
+        ),
       );
     }
   }
@@ -221,18 +249,32 @@ function extractTextMetadata(
     .filter(Boolean);
 
   if (!metadata.title) {
-    warnings.push('No unambiguous title field was found in the MARC text.');
+    warnings.push(
+      warning(
+        'No unambiguous title field was found in the MARC text.',
+        'missing_field',
+        'work.title',
+      ),
+    );
   }
   if (
     fields.some((field) => field.tag === '200' && field.subfields.size === 0)
   ) {
-    warnings.push('The 200 field had no visible subfield markers.');
+    warnings.push(
+      warning(
+        'The 200 field had no visible subfield markers.',
+        'parse_warning',
+      ),
+    );
   }
 
   return metadata;
 }
 
-function extractXmlMetadata(record: XmlObject): PorbaseBibliographicFieldsDto {
+function extractXmlMetadata(
+  record: XmlObject,
+  warnings: PorbaseWarningDto[],
+): PorbaseBibliographicFieldsDto {
   const metadata: PorbaseBibliographicFieldsDto = {
     authors: [],
     translators: [],
@@ -246,7 +288,10 @@ function extractXmlMetadata(record: XmlObject): PorbaseBibliographicFieldsDto {
   metadata.title = firstSubfield(record, '200', 'a');
   metadata.placeOfPublication = firstSubfield(record, '210', 'a');
   metadata.publisher = firstSubfield(record, '210', 'c');
-  metadata.publicationDate = firstSubfield(record, '210', 'd');
+  metadata.publicationDate = normalizePublicationDate(
+    firstSubfield(record, '210', 'd'),
+    warnings,
+  );
   metadata.extent = firstSubfield(record, '215', 'a');
 
   metadata.authors = ['700', '701']
@@ -284,7 +329,7 @@ function buildResponse(
     format?: string;
     schema?: string;
     metadata?: PorbaseBibliographicFieldsDto;
-    warnings: string[];
+    warnings: PorbaseWarningDto[];
   },
 ): PorbaseSearchResponseDto {
   const metadata = options.metadata ?? emptyMetadata();
@@ -300,6 +345,45 @@ function buildResponse(
     warnings: options.warnings,
     rawContent,
   };
+}
+
+function normalizePublicationDate(
+  value: string | undefined,
+  warnings: PorbaseWarningDto[],
+): string | null | undefined {
+  if (!value) return undefined;
+
+  const original = value.trim();
+  const match = /^(?:D\.?\s*L\.?\s*)?(\d{4})[.?]?$/.exec(original);
+  if (!match) {
+    warnings.push({
+      field: 'edition.publishDate',
+      message: `Não foi possível extrair data de '${original}'`,
+      original,
+      type: 'parse_error',
+    });
+    return null;
+  }
+
+  const normalized = match[1];
+  if (original !== normalized) {
+    warnings.push({
+      field: 'edition.publishDate',
+      message: `Data normalizada de '${original}' para '${normalized}'`,
+      original,
+      normalized,
+      type: 'normalization',
+    });
+  }
+  return normalized;
+}
+
+function warning(
+  message: string,
+  type: PorbaseWarningType,
+  field?: string,
+): PorbaseWarningDto {
+  return { field, message, type };
 }
 
 function emptyMetadata(): PorbaseBibliographicFieldsDto {

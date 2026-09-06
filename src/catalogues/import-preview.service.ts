@@ -5,7 +5,10 @@ import {
 } from '@nestjs/common';
 import { isValidIsbn, normalizeIsbn } from './isbn.utils.js';
 import { CataloguesService } from './catalogues.service.js';
-import type { PorbaseBibliographicFieldsDto } from './dto/porbase-search-response.dto.js';
+import type {
+  PorbaseBibliographicFieldsDto,
+  PorbaseWarningDto,
+} from './dto/porbase-search-response.dto.js';
 import type {
   ImportPreviewContributorDto,
   ImportPreviewEditionDto,
@@ -40,7 +43,7 @@ export class ImportPreviewService {
       detectedFormat: string;
       schema: string;
       rawContent: string;
-      warnings: string[];
+      warnings: PorbaseWarningDto[];
     },
   ): ImportPreviewResponseDto {
     const title = metadata.title ?? `Import preview for ${query}`;
@@ -65,23 +68,21 @@ export class ImportPreviewService {
     const warnings = [...result.warnings];
 
     if (!metadata.title)
-      warnings.push('The import title was not identified safely.');
-    if (!metadata.publisher) warnings.push('Publisher was not identified.');
-    if (!metadata.publicationDate)
-      warnings.push('Publication date was not identified.');
-    if (!metadata.language) warnings.push('Language was not identified.');
+      warnings.push(warning('The import title was not identified safely.', 'missing_field', 'work.title'));
+    if (!metadata.publisher)
+      warnings.push(warning('Publisher was not identified.', 'missing_field', 'edition.publisher'));
+    if (!metadata.publicationDate && !hasWarningForField(warnings, 'edition.publishDate'))
+      warnings.push(warning('Publication date was not identified.', 'missing_field', 'edition.publishDate'));
+    if (!metadata.language)
+      warnings.push(warning('Language was not identified.', 'missing_field', 'edition.language'));
     if (metadata.extent && edition.pages === undefined) {
-      warnings.push(
-        'The publication extent could not be converted to a page count.',
-      );
+      warnings.push(warning('The publication extent could not be converted to a page count.', 'parse_error', 'edition.pages'));
     }
     if (
       result.detectedFormat !== 'MARCXCHANGE_XML' &&
       result.detectedFormat !== 'MARC_TEXT'
     ) {
-      warnings.push(
-        'The detected response format is not a supported bibliographic format.',
-      );
+      warnings.push(warning('The detected response format is not a supported bibliographic format.', 'parse_error'));
     }
 
     return {
@@ -138,6 +139,23 @@ function parsePages(extent?: string): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
-function unique(values: string[]): string[] {
-  return [...new Set(values)];
+function hasWarningForField(warnings: PorbaseWarningDto[], field: string): boolean {
+  return warnings.some((warning) => warning.field === field);
+}
+
+function warning(
+  message: string,
+  type: PorbaseWarningDto['type'],
+  field?: string,
+): PorbaseWarningDto {
+  return { field, message, type };
+}
+
+function unique(values: PorbaseWarningDto[]): PorbaseWarningDto[] {
+  return values.filter(
+    (value, index) =>
+      values.findIndex(
+        (other) => JSON.stringify(other) === JSON.stringify(value),
+      ) === index,
+  );
 }

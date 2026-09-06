@@ -13,8 +13,8 @@ export class PorbaseBibliographicFieldsDto {
   @ApiPropertyOptional({ example: 'Asa' })
   publisher?: string;
 
-  @ApiPropertyOptional({ example: '2022' })
-  publicationDate?: string;
+  @ApiPropertyOptional({ example: '2022', nullable: true })
+  publicationDate?: string | null;
 
   @ApiPropertyOptional({ example: 'por' })
   language?: string;
@@ -42,6 +42,41 @@ export class PorbaseBibliographicFieldsDto {
 
 export type PorbaseDetectedFormat =
   'MARCXCHANGE_XML' | 'MARC_TEXT' | 'UNKNOWN' | 'ERROR';
+
+export type PorbaseWarningType =
+  | 'normalization'
+  | 'parse_error'
+  | 'missing_field'
+  | 'provider_error'
+  | 'parse_warning';
+
+export class PorbaseWarningDto {
+  @ApiPropertyOptional({ example: 'edition.publishDate' })
+  field?: string;
+
+  @ApiProperty({
+    example: "Data normalizada de 'D.L. 2009' para '2009'",
+  })
+  message!: string;
+
+  @ApiPropertyOptional({ example: 'D.L. 2009' })
+  original?: string;
+
+  @ApiPropertyOptional({ example: '2009' })
+  normalized?: string;
+
+  @ApiProperty({
+    enum: [
+      'normalization',
+      'parse_error',
+      'missing_field',
+      'provider_error',
+      'parse_warning',
+    ],
+    example: 'normalization',
+  })
+  type!: PorbaseWarningType;
+}
 
 export class PorbaseSearchResponseDto {
   @ApiProperty({ example: 'PORBASE' })
@@ -74,6 +109,6 @@ export class PorbaseSearchResponseDto {
   @ApiProperty({ type: PorbaseBibliographicFieldsDto, required: false })
   fields!: PorbaseBibliographicFieldsDto;
 
-  @ApiProperty({ type: [String], example: [] })
-  warnings!: string[];
+  @ApiProperty({ type: [PorbaseWarningDto], example: [] })
+  warnings!: PorbaseWarningDto[];
 }
