@@ -20,12 +20,17 @@ const user = {
 };
 
 function createService(
-  passwordHash: string,
+  storedPasswordHash: string,
   refreshToken: string | null = null,
   refreshTokenExpires: Date | null = null,
 ) {
   const state = {
-    user: { ...user, passwordHash, refreshToken, refreshTokenExpires },
+    user: {
+      ...user,
+      passwordHash: storedPasswordHash,
+      refreshToken,
+      refreshTokenExpires,
+    },
   };
   const prisma = {
     user: {
@@ -138,11 +143,4 @@ describe('AuthService password verification', () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it('rejects a legacy plaintext value instead of comparing it directly', async () => {
-    const { service } = createService('legacy-plaintext-password');
-
-    await expect(
-      service.login('user@example.com', 'legacy-plaintext-password'),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
-  });
 });

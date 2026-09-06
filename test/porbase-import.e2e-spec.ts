@@ -5,18 +5,20 @@ import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { PorbaseImportService } from '../src/catalogues/porbase-import.service.js';
+import { hashPassword } from '../src/auth/password.utils.js';
 
 describe('PORBASE import confirmation (e2e)', () => {
   let app: INestApplication<App>;
 
   beforeEach(async () => {
+    const storedPasswordHash = await hashPassword('password');
     const prisma = {
       user: {
         findUnique: async () => ({
           id: 'e2e-user',
           email: 'e2e@example.com',
           name: 'E2E User',
-          passwordHash: 'password',
+          passwordHash: storedPasswordHash,
         }),
       },
       $connect: async () => undefined,
@@ -59,7 +61,7 @@ describe('PORBASE import confirmation (e2e)', () => {
   it('logs in and confirms an authenticated import with HTTP 201', async () => {
     const login = await request(app.getHttpServer())
       .post('/auth/login')
-      .send({ email: 'e2e@example.com', passwordHash: 'password' })
+      .send({ email: 'e2e@example.com', password: 'password' })
       .expect(201);
 
     await request(app.getHttpServer())

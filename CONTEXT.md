@@ -173,7 +173,7 @@ Não criar empréstimos apenas adicionando flags a `Item`. `Loan` deve ser uma e
 - `POST /auth/login` emite JWT;
 - `JwtStrategy` valida Bearer tokens e confirma que o utilizador existe;
 - rotas protegidas usam o claim `sub` como identidade;
-- o contrato de entrada de password ainda é temporário e usa o nome histórico `passwordHash`;
+- o contrato público de autenticação usa `password`;
 - `UsersService` gera hashes Argon2id antes de persistir utilizadores;
 - `AuthService` verifica passwords com `argon2.verify`, nunca por comparação directa;
 - respostas públicas de utilizadores não incluem `passwordHash`.
@@ -184,14 +184,13 @@ Não criar empréstimos apenas adicionando flags a `Item`. `Loan` deve ser uma e
 
 Antes de produção ou utilização institucional:
 
-1. alterar o contrato público para `password`, mantendo “Palavra-passe” na UI;
-2. adicionar RBAC/memberships;
-3. adicionar rate limiting e auditoria;
-4. nunca expor hashes, tokens ou credenciais em respostas e logs.
+1. adicionar RBAC/memberships;
+2. adicionar rate limiting e auditoria;
+3. nunca expor hashes, tokens ou credenciais em respostas e logs.
 
 O hashing actual usa Argon2id através da biblioteca `argon2`, com `memoryCost: 65536` KiB, `timeCost: 3` e `parallelism: 1`. O salt é aleatório e gerado pela biblioteca para cada password; os parâmetros e o salt ficam codificados no hash Argon2id armazenado no campo `User.passwordHash`.
 
-O schema mantém `User.passwordHash String`, sem migration. Dados existentes que contenham passwords em plaintext ou hashes de outro formato não são comparados nem convertidos silenciosamente: devem ser recriados ou submetidos a um fluxo explícito de redefinição de password. O nome histórico `passwordHash` continua aceite temporariamente na entrada para preservar compatibilidade com o frontend actual, mas o valor recebido é tratado como password e nunca como hash fornecido pelo cliente.
+O schema mantém `User.passwordHash String` exclusivamente como armazenamento interno. Dados existentes que contenham passwords em plaintext ou hashes de outro formato não são comparados nem convertidos silenciosamente: devem ser recriados ou submetidos a um fluxo explícito de redefinição de password. O hash nunca é aceite na entrada pública, devolvido em respostas ou usado como nome de campo da API.
 
 Estas mudanças devem ser feitas com migrações e compatibilidade explícita, não através de alterações silenciosas aos contratos.
 
@@ -227,7 +226,7 @@ O modelo actual suporta uma sessão de refresh por utilizador. Suportar várias 
 - `PUT /users/:id`;
 - `DELETE /users/:id`.
 
-O contrato de criação e actualização deve deixar de aceitar passwords em formato de hash fornecido pelo cliente quando a migração de segurança for feita.
+`POST /users` recebe `email`, `name` opcional e `password`; o service gera e guarda o hash Argon2id. `passwordHash` não faz parte do contrato HTTP.
 
 ### Institutions
 
@@ -392,6 +391,29 @@ Mappers devem poder devolver `record`, `warnings`, `unmappedFields` e `lossy`. E
 ## Desempenho e escalabilidade
 
 Não migrar prematuramente para microserviços ou outra base de dados. O monólito modular NestJS + PostgreSQL é suficiente para a próxima fase.
+
+### Paginação de listas
+
+As listas HTTP usam paginação por cursor estável, com os campos `id` e a ordenação temporal ou alfabética da lista. Os parâmetros comuns são `cursor` e `limit`; o limite por página é no máximo **100** e o valor por defeito é **25**. A resposta tem a forma `{ items, nextCursor, hasMore }`.
+
+O cliente deve guardar `nextCursor` e enviá-lo no pedido seguinte até `hasMore` ser `false`. Cursors inválidos e limits fora do intervalo `1..100` são rejeitados com `400 Bad Request`. Listas protegidas continuam sempre filtradas pelo utilizador autenticado antes da paginação. Pesquisas PORBASE devolvem um resultado bibliográfico individual e não são convertidas artificialmente numa lista paginada.
+
+### Índices, pool e timeouts
+
+Os índices compostos actuais suportam os padrões de ownership, ordenação e paginação:
+
+- `User(createdAt, id)`;
+- `Institution(userId, createdAt, id)`;
+- `Work(userId, createdAt, id)` e `Work(institutionId, createdAt, id)`;
+- `Edition(workId, createdAt, id)`;
+- `Contributor(createdAt, id)`;
+- `WorkContributor(workId, sortOrder, id)` e `WorkContributor(contributorId)`;
+- `EditionContributor(editionId, sortOrder, id)` e `EditionContributor(contributorId)`;
+- `ExternalIdentifier(editionId, createdAt, id)`;
+- `BibliographicRecord(workId, createdAt, id)` e `BibliographicRecord(editionId, createdAt, id)`;
+- `Item(userId, createdAt, id)` e `Item(institutionId, status, createdAt, id)`.
+
+A migration `20260906151404_add_query_performance_indexes` cria estes índices sem alterar dados. A aplicação configura o `pg.Pool` com `DATABASE_POOL_MAX` (10 por defeito), `DATABASE_CONNECTION_TIMEOUT_MS` (5 segundos), `DATABASE_IDLE_TIMEOUT_MS` (10 segundos) e `DATABASE_QUERY_TIMEOUT_MS` (10 segundos). O servidor HTTP usa `APP_REQUEST_TIMEOUT_MS` (15 segundos), `APP_HEADERS_TIMEOUT_MS` (20 segundos) e `APP_KEEP_ALIVE_TIMEOUT_MS` (5 segundos). Estes valores podem ser substituídos por ambiente; valores inválidos ou não positivos recaem nos defaults seguros.
 
 Prioridades:
 

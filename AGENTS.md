@@ -38,8 +38,8 @@
 
 ## Authentication and security
 
-- The current `POST /auth/login` contract is temporary and uses the historical `passwordHash` field. Do not expose that name in user-facing responses or UI labels.
-- Do not silently change the authentication contract. A future password-hashing migration must update DTOs, storage, tests, Flutter integration, and documentation together.
+- The public authentication contract uses `password`; `User.passwordHash` is storage-only and must never be accepted or exposed through HTTP.
+- Passwords are hashed with Argon2id before persistence and verified with Argon2id; update DTOs, storage, tests, Flutter integration, and documentation together when changing the contract.
 - The planned security work includes password hashing, short-lived access tokens, rotating/revocable refresh tokens, `/auth/me`, RBAC/memberships, rate limiting, and audit events.
 - Never log or commit passwords, hashes, access tokens, refresh tokens, secrets, or `.env` files.
 - Set `JWT_SECRET` in `.env`; `.env.example` contains the required placeholder.
@@ -113,7 +113,7 @@ Before finishing a change, run the narrowest relevant tests plus `npm run build`
 
 ## Current development limitations
 
-- `POST /auth/login` issues JWTs using the temporary password contract.
+- `POST /auth/login` issues JWTs using the `password` contract and Argon2id verification.
 - Protected routes currently use the authenticated user's `sub` claim as `userId`.
 - Organizations, memberships, roles, branches, patrons and circulation are planned but not complete.
 - The bibliographic catalogue is a supported subset, not a complete UNIMARC implementation.

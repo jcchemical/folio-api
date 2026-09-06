@@ -5,6 +5,7 @@ import { AuthService } from './auth.service.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
 import type { AuthenticatedUser } from './auth.types.js';
 import { RefreshTokenDto } from './dto/refresh-token.dto.js';
+import { LoginDto } from './dto/login.dto.js';
 
 @ApiTags('auth')
 @ApiBearerAuth()
@@ -14,8 +15,8 @@ export class AuthController {
 
   @Post('login')
   @ApiOperation({ summary: 'Authenticate a user and issue a JWT' })
-  login(@Body() body: { email: string; passwordHash: string }) {
-    return this.authService.login(body.email, body.passwordHash);
+  login(@Body() body: LoginDto) {
+    return this.authService.login(body.email, body.password);
   }
 
   @Post('refresh')

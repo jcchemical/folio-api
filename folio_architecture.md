@@ -62,7 +62,7 @@ Loan / Reservation / Fine
 
 ### 2. Autenticação e autorização insuficientes para produção
 
-O contexto ainda descreve login temporário que compara `passwordHash` directamente, ausência de refresh tokens e ausência de perfil restaurado após reinício. Isto é aceitável no protótipo, mas deve ser tratado como bloqueador antes de dados reais de bibliotecas.[^3]
+O contexto inicial descrevia login temporário que comparava `passwordHash` directamente. A implementação actual usa o contrato público `password`, Argon2id, access tokens curtos, refresh tokens rotativos/revogáveis e `/auth/me`; RBAC/memberships e auditoria continuam prioritários antes de dados institucionais reais.[^3]
 
 A ordem recomendada é:
 
@@ -278,7 +278,7 @@ Os eventos podem ser usados mais tarde para notificações, sincronização e re
 - Rever ownership e autorização.
 - Adicionar paginação e limites a todas as listas.
 - Configurar índices e pool/timeouts.
-- Remover contratos temporários de `passwordHash`.
+- Manter `passwordHash` apenas como campo interno de armazenamento, sem o aceitar na API pública.
 - Adicionar CI com build, lint, testes e migrações.
 
 ### Fase 1 — fundação bibliográfica

@@ -14,9 +14,8 @@ export class CreateUserDto {
 
   @ApiProperty({
     example: 'password-do-utilizador',
-    description:
-      'Password em texto simples no contrato histórico passwordHash; é convertida em Argon2id antes de ser guardada',
+    description: 'Password do utilizador; é convertida em Argon2id antes de ser guardada',
   })
   @IsString()
-  passwordHash!: string;
+  password!: string;
 }
