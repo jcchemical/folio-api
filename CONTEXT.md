@@ -167,23 +167,35 @@ Não criar empréstimos apenas adicionando flags a `Item`. `Loan` deve ser uma e
 - `POST /auth/login` emite JWT;
 - `JwtStrategy` valida Bearer tokens e confirma que o utilizador existe;
 - rotas protegidas usam o claim `sub` como identidade;
-- o contrato de password ainda é temporário e usa o nome histórico `passwordHash`.
+- o contrato de entrada de password ainda é temporário e usa o nome histórico `passwordHash`;
+- `UsersService` gera hashes Argon2id antes de persistir utilizadores;
+- `AuthService` verifica passwords com `argon2.verify`, nunca por comparação directa;
+- respostas públicas de utilizadores não incluem `passwordHash`.
+- access tokens JWT têm validade de 15 minutos;
+- refresh tokens são hashes Argon2id guardados no utilizador, com validade de 7 dias, rotação e revogação.
 
 ### Dívida técnica prioritária
 
 Antes de produção ou utilização institucional:
 
-1. armazenar passwords com Argon2id ou bcrypt;
-2. deixar de comparar o valor recebido directamente;
-3. alterar o contrato público para `password`, mantendo “Palavra-passe” na UI;
-4. implementar access tokens curtos;
-5. implementar refresh tokens rotativos e revogáveis;
-6. criar `/auth/me`;
-7. adicionar RBAC/memberships;
-8. adicionar rate limiting e auditoria;
-9. nunca expor hashes, tokens ou credenciais em respostas e logs.
+1. alterar o contrato público para `password`, mantendo “Palavra-passe” na UI;
+2. adicionar RBAC/memberships;
+3. adicionar rate limiting e auditoria;
+4. nunca expor hashes, tokens ou credenciais em respostas e logs.
+
+O hashing actual usa Argon2id através da biblioteca `argon2`, com `memoryCost: 65536` KiB, `timeCost: 3` e `parallelism: 1`. O salt é aleatório e gerado pela biblioteca para cada password; os parâmetros e o salt ficam codificados no hash Argon2id armazenado no campo `User.passwordHash`.
+
+O schema mantém `User.passwordHash String`, sem migration. Dados existentes que contenham passwords em plaintext ou hashes de outro formato não são comparados nem convertidos silenciosamente: devem ser recriados ou submetidos a um fluxo explícito de redefinição de password. O nome histórico `passwordHash` continua aceite temporariamente na entrada para preservar compatibilidade com o frontend actual, mas o valor recebido é tratado como password e nunca como hash fornecido pelo cliente.
 
 Estas mudanças devem ser feitas com migrações e compatibilidade explícita, não através de alterações silenciosas aos contratos.
+
+### Estratégia de tokens
+
+O login devolve um access token JWT com validade de 15 minutos e um refresh token opaco com validade de 7 dias. O refresh token inclui apenas um identificador de utilizador e um UUID aleatório para permitir localizar a sessão; o valor completo nunca é persistido. Apenas o seu hash Argon2id e a data `refreshTokenExpires` são guardados em `User`.
+
+`POST /auth/refresh` valida o hash e a expiração, emite novos tokens e substitui atomicamente o hash anterior. Por isso, cada refresh token só pode ser usado uma vez. `POST /auth/logout` valida o token apresentado e limpa `refreshToken` e `refreshTokenExpires`, revogando a sessão. Tokens inválidos, expirados ou já rodados devolvem `401 Unauthorized`.
+
+O modelo actual suporta uma sessão de refresh por utilizador. Suportar várias sessões/dispositivos exigirá uma entidade de sessões/token families numa evolução futura.
 
 ## Endpoints actuais
 
@@ -194,7 +206,12 @@ Estas mudanças devem ser feitas com migrações e compatibilidade explícita, n
 ### Auth
 
 - `POST /auth/login` → `{ accessToken, user }`.
+- `GET /auth/me` → utilizador autenticado, protegido por JWT.
+- `POST /auth/refresh` → roda um refresh token e devolve novo `{ accessToken, refreshToken, user }`.
+- `POST /auth/logout` → revoga o refresh token apresentado.
 - Rotas privadas usam `Authorization: Bearer <token>`.
+
+`GET /auth/me` devolve apenas `id`, `email`, `name` e `roles`, sem `passwordHash`. Como o schema actual ainda não tem roles nem memberships, `roles` é devolvido como uma lista vazia (`[]`). O Flutter deve usar este endpoint depois de restaurar um token para validar a sessão e actualizar o utilizador actual; um token ausente, inválido ou expirado resulta em `401 Unauthorized`.
 
 ### Users
 

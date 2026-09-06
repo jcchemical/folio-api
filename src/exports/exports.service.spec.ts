@@ -145,7 +145,12 @@ describe('ExportsController', () => {
     const controller = new ExportsController({ exportMarcXchange } as never);
     const response = { setHeader: vi.fn() } as unknown as Response;
     const request = {
-      user: { id: ownerId, email: 'owner@example.com', name: null } satisfies AuthenticatedUser,
+      user: {
+        id: ownerId,
+        email: 'owner@example.com',
+        name: null,
+        roles: [],
+      } satisfies AuthenticatedUser,
     } as never;
 
     const result = await controller.exportEdition(editionId, request, response);

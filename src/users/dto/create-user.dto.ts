@@ -13,8 +13,9 @@ export class CreateUserDto {
   name?: string | null;
 
   @ApiProperty({
-    example: 'hash-da-password',
-    description: 'Hash da password do utilizador',
+    example: 'password-do-utilizador',
+    description:
+      'Password em texto simples no contrato histórico passwordHash; é convertida em Argon2id antes de ser guardada',
   })
   @IsString()
   passwordHash!: string;
