@@ -28,15 +28,22 @@ function createService() {
     },
   } as unknown as PrismaService;
 
+  const organizationMemberships = {
+      provisionPersonalOrganization: vi.fn().mockResolvedValue({
+        id: 'organization-1',
+      }),
+    };
+
   return {
     prisma,
-    service: new UsersService(prisma),
+    organizationMemberships,
+    service: new UsersService(prisma, organizationMemberships as never),
   };
 }
 
 describe('UsersService password hashing', () => {
   it('hashes the password before creating a user', async () => {
-    const { prisma, service } = createService();
+    const { prisma, service, organizationMemberships } = createService();
 
     const created = await service.create({
       email: 'user@example.com',
@@ -50,6 +57,10 @@ describe('UsersService password hashing', () => {
       true,
     );
     expect(created).not.toHaveProperty('passwordHash');
+    expect(organizationMemberships.provisionPersonalOrganization).toHaveBeenCalledWith(
+      'user-1',
+      'user@example.com',
+    );
   });
 
   it('uses Argon2id with an explicit memory, time and parallelism cost', () => {

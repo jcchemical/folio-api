@@ -29,7 +29,13 @@
 ## Ownership and authorization
 
 - Treat `Work` as the intellectual work and `Edition` as its publication-specific child.
-- Until organizations and memberships exist, keep edition writes scoped to the authenticated user's work.
+- `Organization` and `OrganizationMembership` provide the current optional tenancy boundary; use controlled roles `OWNER`, `ADMIN`, `STAFF`, and `READER`.
+- Keep `Work.organizationId` optional during migration. Legacy Works may fall back to `Work.userId`; organization-associated Works require membership for reads and at least `STAFF` for writes.
+- Never trust `organizationId` from a request body without checking the authenticated user's membership and role.
+- Organization routes must derive the authenticated user from `request.user.id`; never accept `userId` or ownership fields from request bodies.
+- Organization create and rename mutations must be transactional and must map only explicitly allowed fields.
+- Organization deletion must remain blocked with `409 Conflict` until Work/Item reassignment is defined safely; never cascade-delete bibliographic data.
+- Until organization-aware edition policies are migrated, keep legacy edition writes scoped to the authenticated user's work.
 - Keep `Item.userId` as the current ownership boundary; `Item.institutionId` is optional location/management metadata and must be checked against the same user.
 - Never accept `userId` from request bodies as an authority.
 - Reuse ownership checks in `EditionsService`, `ExternalIdentifiersService`, `BibliographicRecordsService`, and `ItemsService` when adding catalogue controllers.
@@ -40,7 +46,7 @@
 
 - The public authentication contract uses `password`; `User.passwordHash` is storage-only and must never be accepted or exposed through HTTP.
 - Passwords are hashed with Argon2id before persistence and verified with Argon2id; update DTOs, storage, tests, Flutter integration, and documentation together when changing the contract.
-- The planned security work includes password hashing, short-lived access tokens, rotating/revocable refresh tokens, `/auth/me`, RBAC/memberships, rate limiting, and audit events.
+- The security baseline includes password hashing, short-lived access tokens, rotating/revocable refresh tokens and `/auth/me`. Membership administration, active-organization selection, rate limiting, and audit events remain future work.
 - Never log or commit passwords, hashes, access tokens, refresh tokens, secrets, or `.env` files.
 - Set `JWT_SECRET` in `.env`; `.env.example` contains the required placeholder.
 
@@ -115,7 +121,8 @@ Before finishing a change, run the narrowest relevant tests plus `npm run build`
 
 - `POST /auth/login` issues JWTs using the `password` contract and Argon2id verification.
 - Protected routes currently use the authenticated user's `sub` claim as `userId`.
-- Organizations, memberships, roles, branches, patrons and circulation are planned but not complete.
+- Organization, OrganizationMembership, controlled roles, compatibility migration, and self-service organization endpoints are implemented.
+- Membership administration, active-organization selection, branch/library models, patrons, holdings, and circulation are not implemented.
 - The bibliographic catalogue is a supported subset, not a complete UNIMARC implementation.
 - The original-record export endpoint does not yet exist.
 - MARCXML, ISO 2709 input/output and MARC21 are future separate implementations.

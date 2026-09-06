@@ -1,11 +1,15 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { EditionInput } from '../works/works.service.js';
 import { paginate, paginationArgs, type PaginationInput } from '../common/pagination.js';
+import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
 
 @Injectable()
 export class EditionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly organizationMemberships: OrganizationMembershipService,
+  ) {}
 
   async findAllByUser(userId: string, query: PaginationInput = {}) {
     const { limit, prisma } = paginationArgs(query);
@@ -21,14 +25,16 @@ export class EditionsService {
   async findById(id: string, userId: string) {
     const edition = await this.prisma.edition.findUnique({
       where: { id },
-      include: { work: true, items: true },
+      include: { work: true, items: { where: { userId } } },
     });
-    this.assertEditionAccess(edition, userId);
+    await this.assertEditionAccess(edition, userId);
     return edition;
   }
 
   async create(userId: string, workId: string, data: EditionInput) {
-    await this.assertWorkOwnership(workId, userId);
+    const work = await this.prisma.work.findUnique({ where: { id: workId } });
+    if (!work) throw new NotFoundException('Work not found');
+    await this.organizationMemberships.assertWorkWriteAccess(userId, work);
     return this.prisma.edition.create({ data: { ...data, workId } });
   }
 
@@ -39,16 +45,8 @@ export class EditionsService {
 
   async remove(id: string, userId: string) {
     const edition = await this.prisma.edition.findUnique({ where: { id }, include: { work: true } });
-    this.assertEditionAccess(edition, userId);
+    await this.assertEditionAccess(edition, userId);
     return this.prisma.edition.delete({ where: { id } });
-  }
-
-  private async assertWorkOwnership(workId: string, userId: string) {
-    const work = await this.prisma.work.findUnique({ where: { id: workId } });
-    if (!work) throw new NotFoundException('Work not found');
-    if (work.userId !== userId) {
-      throw new ForbiddenException('Work does not belong to the authenticated user');
-    }
   }
 
   private async assertEditionOwnership(id: string, userId: string) {
@@ -56,16 +54,22 @@ export class EditionsService {
       where: { id },
       include: { work: true },
     });
-    this.assertEditionAccess(edition, userId);
+    await this.assertEditionWriteAccess(edition, userId);
   }
 
-  private assertEditionAccess(
-    edition: { work: { userId: string } } | null,
+  private async assertEditionAccess(
+    edition: { work: { userId: string; organizationId: string | null } } | null,
     userId: string,
-  ): asserts edition is { work: { userId: string } } {
+  ): Promise<void> {
     if (!edition) throw new NotFoundException('Edition not found');
-    if (edition.work.userId !== userId) {
-      throw new ForbiddenException('Edition does not belong to the authenticated user');
-    }
+    await this.organizationMemberships.assertWorkAccess(userId, edition.work);
+  }
+
+  private async assertEditionWriteAccess(
+    edition: { work: { userId: string; organizationId: string | null } } | null,
+    userId: string,
+  ): Promise<void> {
+    if (!edition) throw new NotFoundException('Edition not found');
+    await this.organizationMemberships.assertWorkWriteAccess(userId, edition.work);
   }
 }

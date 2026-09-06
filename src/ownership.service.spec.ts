@@ -19,19 +19,30 @@ function prismaWith(model: Record<string, unknown>): PrismaService {
   return { [Object.keys(model)[0]]: Object.values(model)[0] } as unknown as PrismaService;
 }
 
+function workMembershipPolicy() {
+  return {
+    assertWorkAccess: vi.fn(async (_user: string, work: { userId: string }) => {
+      if (work.userId !== userId) {
+        throw new ForbiddenException('Work does not belong to the authenticated user');
+      }
+    }),
+  };
+}
+
 describe('resource ownership', () => {
   it('allows a user to access their own work', async () => {
     const work = { id: 'work-1', userId, institution: null, editions: [] };
     const service = new WorksService(
       prismaWith({ work: { findUnique: vi.fn().mockResolvedValue(work) } }),
+      workMembershipPolicy() as never,
     );
 
     await expect(service.findById('work-1', userId)).resolves.toEqual(work);
   });
 
   it.each([
-    ['missing work', () => new WorksService(prismaWith({ work: { findUnique: vi.fn().mockResolvedValue(null) } })).findById('work-1', userId)],
-    ['missing edition', () => new EditionsService(prismaWith({ edition: { findUnique: vi.fn().mockResolvedValue(null) } })).findById('edition-1', userId)],
+    ['missing work', () => new WorksService(prismaWith({ work: { findUnique: vi.fn().mockResolvedValue(null) } }), workMembershipPolicy() as never).findById('work-1', userId)],
+    ['missing edition', () => new EditionsService(prismaWith({ edition: { findUnique: vi.fn().mockResolvedValue(null) } }), {} as never).findById('edition-1', userId)],
     ['missing item', () => new ItemsService(prismaWith({ item: { findUnique: vi.fn().mockResolvedValue(null) } })).findById('item-1', userId)],
     ['missing institution', () => new InstitutionsService(prismaWith({ institution: { findUnique: vi.fn().mockResolvedValue(null) } })).findById('institution-1', userId)],
   ])('%s returns 404 semantics', async (_name, action) => {
@@ -41,6 +52,7 @@ describe('resource ownership', () => {
   it('rejects a work belonging to another user with 403', async () => {
     const service = new WorksService(
       prismaWith({ work: { findUnique: vi.fn().mockResolvedValue({ id: 'work-1', userId: otherUserId }) } }),
+      workMembershipPolicy() as never,
     );
 
     await expect(service.findById('work-1', userId)).rejects.toBeInstanceOf(
@@ -54,10 +66,13 @@ describe('resource ownership', () => {
         edition: {
           findUnique: vi.fn().mockResolvedValue({
             id: 'edition-1',
-            work: { userId: otherUserId },
+            work: { userId: otherUserId, organizationId: null },
           }),
         },
       }),
+      {
+        assertWorkAccess: vi.fn().mockRejectedValue(new ForbiddenException()),
+      } as never,
     );
 
     await expect(service.findById('edition-1', userId)).rejects.toBeInstanceOf(

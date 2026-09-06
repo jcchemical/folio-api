@@ -12,14 +12,19 @@ describe('PORBASE import confirmation (e2e)', () => {
 
   beforeEach(async () => {
     const storedPasswordHash = await hashPassword('password');
+    const user = {
+      id: 'e2e-user',
+      email: 'e2e@example.com',
+      name: 'E2E User',
+      passwordHash: storedPasswordHash,
+      refreshToken: null,
+      refreshTokenExpires: null,
+    };
     const prisma = {
       user: {
-        findUnique: async () => ({
-          id: 'e2e-user',
-          email: 'e2e@example.com',
-          name: 'E2E User',
-          passwordHash: storedPasswordHash,
-        }),
+        findUnique: async () => user,
+        update: async ({ data }: { data: Partial<typeof user> }) =>
+          Object.assign(user, data),
       },
       $connect: async () => undefined,
       $disconnect: async () => undefined,

@@ -13,12 +13,14 @@ import { EditionsController } from '../editions/editions.controller.js';
 import { ContributorsController } from '../contributors/contributors.controller.js';
 import { BibliographicRecordsController } from '../bibliographic-records/bibliographic_records.controller.js';
 import { ItemsController } from '../items/items.controller.js';
+import { OrganizationsModule } from '../organizations/organizations.module.js';
 
 @Module({
   imports: [
     AuthModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     PrismaModule,
+    OrganizationsModule,
   ],
   providers: [
     WorksService,

@@ -96,7 +96,7 @@ A estrutura exacta deve ser confirmada no código antes de alterar módulos. Imp
 
 ### User e Institution
 
-O modelo actual contém `User` e `Institution`, com relações de propriedade entre utilizador, instituições e obras. Este modelo é suficiente para o início pessoal, mas ainda não representa memberships, roles ou acesso de vários utilizadores à mesma instituição.
+O modelo contém `User`, `Institution`, `Organization` e `OrganizationMembership`. `Institution` é uma entidade legada do MVP e continua associada ao seu `userId`; `Organization` é a fronteira de tenancy actual para Works partilhados. As memberships usam os roles controlados `OWNER`, `ADMIN`, `STAFF` e `READER`.
 
 ### Work, Edition e Item
 
@@ -137,7 +137,27 @@ Listagens são sempre filtradas pelo utilizador autenticado. Em operações por 
 
 Estão protegidos por JWT e scoped ao utilizador os endpoints de institutions, works, editions, items, contributors, bibliographic records e a exportação local. A criação pública de utilizadores (`POST /users`) é a excepção necessária para registo; leituras, alterações e remoções de utilizadores requerem JWT e só permitem o próprio utilizador. A pesquisa/preview PORBASE é protegida, não persiste dados e não expõe recursos de catálogo de outros utilizadores.
 
-Esta é uma fronteira de ownership pessoal transitória. A migração futura para `Organization`/`Membership`/roles substituirá `userId` por políticas de autorização por tenant, biblioteca/filial e papel, sem aceitar automaticamente acesso global a todos os recursos.
+Esta é uma fronteira de ownership em transição. `Organization`/`OrganizationMembership` já fornecem tenancy opcional para Works, enquanto `userId` continua como fallback compatível para dados pessoais e recursos ainda não migrados. A evolução futura acrescentará políticas por filial e papel sem aceitar acesso global automaticamente.
+
+### Tenancy compatível
+
+Foi implementada a fundação de tenancy pessoal com `Organization` e `OrganizationMembership`. Os roles controlados são `OWNER`, `ADMIN`, `STAFF` e `READER`. Cada utilizador existente recebe uma organização determinística chamada `Biblioteca de {email}` e uma membership `OWNER`; os Works existentes recebem essa organização através da migration `20260906170000_add_organizations_and_memberships`.
+
+`Work.organizationId` é opcional nesta fase. Works antigos continuam acessíveis pelo `userId`; Works associados a uma organização exigem membership para leitura e role mínima `STAFF` para escrita. A criação de novos utilizadores provisiona também a sua organização pessoal. A migration usa IDs determinísticos derivados do `User.id`, `ON CONFLICT DO NOTHING` e não altera IDs, títulos, `rawContent`, passwords ou tokens.
+
+Ainda não foram implementados endpoints de administração de memberships, convites, selecção de organização activa, Library/Branch, `libraryId` em Item, holdings institucionais ou circulação. Os roles já existem no schema e são usados pela política de acesso a Organizations/Works; a aplicação completa por endpoint continua em evolução.
+
+### Endpoints de organizações
+
+Estão implementados, protegidos por JWT e limitados às memberships do utilizador:
+
+- `GET /organizations` — lista `id`, `name`, `role` e `createdAt` das organizações onde o utilizador é membro;
+- `POST /organizations` — recebe apenas `name`, normaliza espaços, cria Organization e membership `OWNER` numa transacção;
+- `GET /organizations/:id` — exige membership e devolve a organização com o role do utilizador;
+- `PUT /organizations/:id` — exige `OWNER` ou `ADMIN` e permite apenas alterar `name`, sem aceitar ownership;
+- `DELETE /organizations/:id` — exige `OWNER`, mas devolve `409 Conflict` enquanto não existir política segura para reassociar Works e Items.
+
+Organizações inexistentes devolvem `404`; utilizadores sem membership devolvem `403`. Não existem ainda endpoints para administrar membros, convidar utilizadores, atribuir roles ou eliminar organizações.
 
 A evolução prevista é:
 
@@ -158,9 +178,8 @@ AuditEvent
 
 Antes de implementar circulação institucional, introduzir:
 
-- organização/tenant explícita;
-- memberships;
-- roles e permissões;
+- administração completa de memberships e roles;
+- selecção de organização activa;
 - filiais/bibliotecas;
 - fronteiras de autorização por organização e filial.
 
@@ -184,7 +203,7 @@ Não criar empréstimos apenas adicionando flags a `Item`. `Loan` deve ser uma e
 
 Antes de produção ou utilização institucional:
 
-1. adicionar RBAC/memberships;
+1. A fundação de memberships e roles e os endpoints self-service de Organizations já existem. Continua pendente a administração completa de memberships, a selecção de organização activa, políticas por filial, rate limiting e auditoria.
 2. adicionar rate limiting e auditoria;
 3. nunca expor hashes, tokens ou credenciais em respostas e logs.
 
@@ -210,13 +229,15 @@ O modelo actual suporta uma sessão de refresh por utilizador. Suportar várias 
 
 ### Auth
 
-- `POST /auth/login` → `{ accessToken, user }`.
+- `POST /auth/login` → { accessToken, refreshToken, user }.
 - `GET /auth/me` → utilizador autenticado, protegido por JWT.
 - `POST /auth/refresh` → roda um refresh token e devolve novo `{ accessToken, refreshToken, user }`.
 - `POST /auth/logout` → revoga o refresh token apresentado.
 - Rotas privadas usam `Authorization: Bearer <token>`.
 
-`GET /auth/me` devolve apenas `id`, `email`, `name` e `roles`, sem `passwordHash`. Como o schema actual ainda não tem roles nem memberships, `roles` é devolvido como uma lista vazia (`[]`). O Flutter deve usar este endpoint depois de restaurar um token para validar a sessão e actualizar o utilizador actual; um token ausente, inválido ou expirado resulta em `401 Unauthorized`.
+`GET /auth/me` devolve `id`, `email`, `name` e `roles: []`. Os roles de OrganizationMembership são usados internamente nas políticas de autorização, mas ainda não são projectados para o contrato de `/auth/me`; a selecção de organização activa ainda não existe. Não devolve `passwordHash`, refresh tokens ou outros segredos.
+
+A autorização de Works e Editions já consulta a fundação de tenancy através de `OrganizationMembership`, com os roles `OWNER`, `ADMIN`, `STAFF` e `READER`. A listagem de Editions, algumas mutações legadas e contributors/records ainda mantêm políticas pessoais ou parciais; a selecção de organização activa e a administração de memberships não estão completas.
 
 ### Users
 
@@ -398,13 +419,24 @@ As listas HTTP usam paginação por cursor estável, com os campos `id` e a orde
 
 O cliente deve guardar `nextCursor` e enviá-lo no pedido seguinte até `hasMore` ser `false`. Cursors inválidos e limits fora do intervalo `1..100` são rejeitados com `400 Bad Request`. Listas protegidas continuam sempre filtradas pelo utilizador autenticado antes da paginação. Pesquisas PORBASE devolvem um resultado bibliográfico individual e não são convertidas artificialmente numa lista paginada.
 
+### Institution versus Organization
+
+`Institution` é uma entidade legada do MVP e não é actualmente a fronteira de tenancy.
+
+`Organization` é a nova fronteira de tenancy e autorização, com `OrganizationMembership` e roles. Não criar novas regras de ownership baseadas em `Institution`.
+
+A migração de `Institution` será tratada numa iteração própria, depois de:
+- identificar todas as relações existentes;
+- decidir se `Institution` será renomeada, absorvida ou mantida como conceito bibliográfico/administrativo;
+- migrar dados sem quebrar `organizationId`;
+- actualizar APIs e cliente Flutter.
 ### Índices, pool e timeouts
 
 Os índices compostos actuais suportam os padrões de ownership, ordenação e paginação:
 
 - `User(createdAt, id)`;
 - `Institution(userId, createdAt, id)`;
-- `Work(userId, createdAt, id)` e `Work(institutionId, createdAt, id)`;
+- `Work(userId, createdAt, id)` e `Work(organizationId, createdAt, id)`;
 - `Edition(workId, createdAt, id)`;
 - `Contributor(createdAt, id)`;
 - `WorkContributor(workId, sortOrder, id)` e `WorkContributor(contributorId)`;
@@ -478,7 +510,7 @@ Um empréstimo deve guardar item, membro, filial, estado, datas previstas/efecti
 - hashing seguro;
 - refresh tokens;
 - `/auth/me`;
-- RBAC/memberships iniciais;
+- administração de memberships e políticas de autorização activas;
 - paginação e índices;
 - pool/timeouts;
 - CI/CD e testes de integração;
