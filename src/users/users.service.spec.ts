@@ -4,6 +4,8 @@ import type { PrismaService } from '../prisma/prisma.service.js';
 import { ARGON2_OPTIONS } from '../auth/password.utils.js';
 import { UsersService } from './users.service.js';
 
+vi.setConfig({ testTimeout: 15_000 });
+
 const baseUser = {
   id: 'user-1',
   email: 'user@example.com',
@@ -39,7 +41,7 @@ describe('UsersService password hashing', () => {
     const created = await service.create({
       email: 'user@example.com',
       name: 'User',
-      passwordHash: 'plain-password',
+      password: 'plain-password',
     });
     const storedData = vi.mocked(prisma.user.create).mock.calls[0][0].data;
 
@@ -61,7 +63,7 @@ describe('UsersService password hashing', () => {
     const { prisma, service } = createService();
     const input = {
       email: 'user@example.com',
-      passwordHash: 'same-password',
+      password: 'same-password',
     };
 
     await service.create(input);

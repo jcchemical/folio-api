@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { paginate, paginationArgs, type PaginationInput } from '../common/pagination.js';
 
 export interface ContributorInput {
   name: string;
@@ -19,16 +20,19 @@ export interface ContributorInput {
 export class ContributorsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAllByUser(userId: string) {
-    return this.prisma.contributor.findMany({
+  async findAllByUser(userId: string, query: PaginationInput = {}) {
+    const { limit, prisma } = paginationArgs(query);
+    const rows = await this.prisma.contributor.findMany({
       where: {
         OR: [
           { workContributors: { some: { work: { userId } } } },
           { editionContributors: { some: { edition: { work: { userId } } } } },
         ],
       },
-      orderBy: { name: 'asc' },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        ...prisma,
     });
+      return paginate(rows, limit);
   }
 
   findById(id: string, userId: string) {

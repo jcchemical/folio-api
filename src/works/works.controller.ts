@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -19,6 +20,7 @@ import {
   type WorkUpdateInput,
 } from './works.service.js';
 import type { Work } from '@prisma/client';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 
 @ApiTags('works')
 @ApiBearerAuth()
@@ -28,8 +30,11 @@ export class WorksController {
   constructor(private readonly worksService: WorksService) {}
 
   @Get()
-  async findAll(@Req() request: Request): Promise<Work[]> {
-    return this.worksService.findAllByUser(this.getUserId(request));
+  async findAll(
+    @Query() query: PaginationQueryDto,
+    @Req() request: Request,
+  ) {
+    return this.worksService.findAllByUser(this.getUserId(request), query);
   }
 
   @Get(':id')

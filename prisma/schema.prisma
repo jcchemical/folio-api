@@ -11,18 +11,20 @@ datasource db {
 // =========================
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String?
-  passwordHash String
-  refreshToken String?
+  id                  String    @id @default(cuid())
+  email               String    @unique
+  name                String?
+  passwordHash        String
+  refreshToken        String?
   refreshTokenExpires DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   institutions Institution[]
   works        Work[]
   items        Item[]
+
+  @@index([createdAt, id])
 }
 
 model Institution {
@@ -38,6 +40,8 @@ model Institution {
 
   works Work[]
   items Item[]
+
+  @@index([userId, createdAt, id])
 }
 
 // =========================
@@ -45,12 +49,12 @@ model Institution {
 // =========================
 
 model Work {
-  id          String   @id @default(cuid())
-  title       String
-  subtitle    String?
+  id        String   @id @default(cuid())
+  title     String
+  subtitle  String?
   // Outros campos de obra: série, língua original, etc., podem vir depois
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -58,79 +62,92 @@ model Work {
   institutionId String?
   institution   Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
 
-  editions       Edition[]
-  workContributors WorkContributor[]
+  editions             Edition[]
+  workContributors     WorkContributor[]
   bibliographicRecords BibliographicRecord[]
+
+  @@index([userId, createdAt, id])
+  @@index([institutionId, createdAt, id])
 }
 
 model Edition {
-  id            String   @id @default(cuid())
-  title         String   // título da edição (pode ser igual ao da obra)
-  subtitle      String?
-  isbn10        String?  @db.Char(10)
-  isbn13        String?  @db.Char(13)
-  publisher     String?
-  publishDate   DateTime?
-  language      String?
-  country       String?
-  format        String?  // ex: "Hardcover", "Paperback", "eBook"
-  pages         Int?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String    @id @default(cuid())
+  title       String // título da edição (pode ser igual ao da obra)
+  subtitle    String?
+  isbn10      String?   @db.Char(10)
+  isbn13      String?   @db.Char(13)
+  publisher   String?
+  publishDate DateTime?
+  language    String?
+  country     String?
+  format      String? // ex: "Hardcover", "Paperback", "eBook"
+  pages       Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   workId String
   work   Work   @relation(fields: [workId], references: [id], onDelete: Cascade)
 
-  items            Item[]
-  editionContributors EditionContributor[]
-  externalIdentifiers ExternalIdentifier[]
-  bibliographicRecords  BibliographicRecord[]
+  items                Item[]
+  editionContributors  EditionContributor[]
+  externalIdentifiers  ExternalIdentifier[]
+  bibliographicRecords BibliographicRecord[]
+
+  @@index([workId, createdAt, id])
 }
 
 model Contributor {
-  id        String   @id @default(cuid())
-  name      String
+  id           String   @id @default(cuid())
+  name         String
   variantNames String[] // outros nomes, formas alternativas
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  workContributors   WorkContributor[]
+  workContributors    WorkContributor[]
   editionContributors EditionContributor[]
+
+  @@index([createdAt, id])
 }
 
 model WorkContributor {
-  id            String   @id @default(cuid())
-  role          String   // ex: "author", "translator", "editor"
-  sortOrder     Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id        String   @id @default(cuid())
+  role      String // ex: "author", "translator", "editor"
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  workId      String
-  work        Work      @relation(fields: [workId], references: [id], onDelete: Cascade)
+  workId String
+  work   Work   @relation(fields: [workId], references: [id], onDelete: Cascade)
 
   contributorId String
   contributor   Contributor @relation(fields: [contributorId], references: [id], onDelete: Cascade)
+
+  @@index([workId, sortOrder, id])
+  @@index([contributorId])
 }
 
 model EditionContributor {
-  id            String   @id @default(cuid())
-  role          String   // ex: "author", "translator", "editor"
-  sortOrder     Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id        String   @id @default(cuid())
+  role      String // ex: "author", "translator", "editor"
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   editionId String
   edition   Edition @relation(fields: [editionId], references: [id], onDelete: Cascade)
 
   contributorId String
   contributor   Contributor @relation(fields: [contributorId], references: [id], onDelete: Cascade)
+
+  @@index([editionId, sortOrder, id])
+  @@index([contributorId])
 }
 
 model ExternalIdentifier {
   id        String   @id @default(cuid())
-  type      String   // ex: "ISBN-10", "ISBN-13", "BNP", "OPENLIBRARY", "OCLC", "LCCN"
+  type      String // ex: "ISBN-10", "ISBN-13", "BNP", "OPENLIBRARY", "OCLC", "LCCN"
   value     String
-  source    String?  // ex: "BNP", "Open Library"
+  source    String? // ex: "BNP", "Open Library"
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -138,32 +155,36 @@ model ExternalIdentifier {
   edition   Edition @relation(fields: [editionId], references: [id], onDelete: Cascade)
 
   @@unique([type, value])
+  @@index([editionId, createdAt, id])
 }
 
 model BibliographicRecord {
-  id          String   @id @default(cuid())
-  format      String   // ex: "MARCXML", "ISO2709", "MARCJSON"
-  rawContent  String   @db.Text // registo bruto (pode ser grande)
-  source      String?  // ex: "BNP", "Open Library"
-  remoteId    String?  // identificador na fonte
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(cuid())
+  format     String // ex: "MARCXML", "ISO2709", "MARCJSON"
+  rawContent String   @db.Text // registo bruto (pode ser grande)
+  source     String? // ex: "BNP", "Open Library"
+  remoteId   String? // identificador na fonte
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  workId    String?
-  work      Work?     @relation(fields: [workId], references: [id], onDelete: SetNull)
+  workId String?
+  work   Work?   @relation(fields: [workId], references: [id], onDelete: SetNull)
 
   editionId String?
-  edition   Edition?  @relation(fields: [editionId], references: [id], onDelete: SetNull)
+  edition   Edition? @relation(fields: [editionId], references: [id], onDelete: SetNull)
+
+  @@index([workId, createdAt, id])
+  @@index([editionId, createdAt, id])
 }
 
 model Item {
-  id            String   @id @default(cuid())
-  label         String?  // etiqueta interna (ex: "Meu exemplar principal")
-  location      String?  // estante, caixa, etc.
-  status        String   @default("OWNED") // OWNED, BORROWED, LOST, etc.
-  notes         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id        String   @id @default(cuid())
+  label     String? // etiqueta interna (ex: "Meu exemplar principal")
+  location  String? // estante, caixa, etc.
+  status    String   @default("OWNED") // OWNED, BORROWED, LOST, etc.
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   editionId String
   edition   Edition @relation(fields: [editionId], references: [id], onDelete: Cascade)
@@ -173,4 +194,8 @@ model Item {
 
   institutionId String?
   institution   Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+
+  @@index([editionId, createdAt, id])
+  @@index([userId, createdAt, id])
+  @@index([institutionId, status, createdAt, id])
 }

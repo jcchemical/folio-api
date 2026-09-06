@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { User } from '@prisma/client';
 import { hashPassword } from '../auth/password.utils.js';
+import { paginate, paginationArgs, type PaginationInput } from '../common/pagination.js';
 
 export type PublicUser = Omit<User, 'passwordHash'>;
 
@@ -9,9 +10,17 @@ export type PublicUser = Omit<User, 'passwordHash'>;
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(userId: string): Promise<PublicUser[]> {
-    const users = await this.prisma.user.findMany({ where: { id: userId } });
-    return users.map(({ passwordHash: _passwordHash, ...user }) => user);
+  async findAll(userId: string, query: PaginationInput = {}) {
+    const { limit, prisma } = paginationArgs(query);
+    const users = await this.prisma.user.findMany({
+      where: { id: userId },
+      orderBy: { id: 'asc' },
+      ...prisma,
+    });
+    return paginate(
+      users.map(({ passwordHash: _passwordHash, ...user }) => user),
+      limit,
+    );
   }
 
   async findOne(id: string, userId: string): Promise<PublicUser> {
@@ -25,12 +34,12 @@ export class UsersService {
   async create(data: {
     email: string;
     name?: string | null;
-    passwordHash: string;
+    password: string;
   }): Promise<PublicUser> {
-    const passwordHash = await hashPassword(data.passwordHash);
+    const passwordHash = await hashPassword(data.password);
 
     return this.prisma.user.create({
-      data: { ...data, passwordHash },
+      data: { email: data.email, name: data.name, passwordHash },
     }).then(({ passwordHash: _storedPasswordHash, ...user }) => user);
   }
 

@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -14,6 +15,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { ItemsService, type ItemInput } from './items.service.js';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 
 @ApiTags('items')
 @ApiBearerAuth()
@@ -23,8 +25,8 @@ export class ItemsController {
   constructor(private readonly itemsService: ItemsService) {}
 
   @Get()
-  findAll(@Req() request: Request) {
-    return this.itemsService.findAllByUser(this.getUserId(request));
+  findAll(@Query() query: PaginationQueryDto, @Req() request: Request) {
+    return this.itemsService.findAllByUser(this.getUserId(request), query);
   }
 
   @Get(':id')

@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -17,6 +18,7 @@ import {
   ContributorsService,
   type ContributorInput,
 } from './contributors.service.js';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 
 @ApiTags('contributors')
 @ApiBearerAuth()
@@ -26,8 +28,8 @@ export class ContributorsController {
   constructor(private readonly contributorsService: ContributorsService) {}
 
   @Get()
-  findAll(@Req() request: Request) {
-    return this.contributorsService.findAllByUser(this.getUserId(request));
+  findAll(@Query() query: PaginationQueryDto, @Req() request: Request) {
+    return this.contributorsService.findAllByUser(this.getUserId(request), query);
   }
 
   @Get(':id')

@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { paginate, paginationArgs, type PaginationInput } from '../common/pagination.js';
 
 export interface ExternalIdentifierInput {
   type: string;
@@ -12,11 +13,14 @@ export interface ExternalIdentifierInput {
 export class ExternalIdentifiersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAllByUser(userId: string) {
-    return this.prisma.externalIdentifier.findMany({
+  async findAllByUser(userId: string, query: PaginationInput = {}) {
+    const { limit, prisma } = paginationArgs(query);
+    const rows = await this.prisma.externalIdentifier.findMany({
       where: { edition: { work: { userId } } },
       orderBy: { createdAt: 'desc' },
+      ...prisma,
     });
+    return paginate(rows, limit);
   }
 
   async create(userId: string, data: ExternalIdentifierInput) {

@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -17,6 +18,7 @@ import {
   BibliographicRecordsService,
   type BibliographicRecordInput,
 } from './bibliographic_records.service.js';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 
 @ApiTags('bibliographic-records')
 @ApiBearerAuth()
@@ -28,9 +30,10 @@ export class BibliographicRecordsController {
   ) {}
 
   @Get()
-  findAll(@Req() request: Request) {
+  findAll(@Query() query: PaginationQueryDto, @Req() request: Request) {
     return this.bibliographicRecordsService.findAllByUser(
       this.getUserId(request),
+      query,
     );
   }
 

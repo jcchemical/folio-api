@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { InstitutionsService } from './institutions.service.js';
 import type { Institution } from '@prisma/client';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 
 @ApiTags('institutions')
 @ApiBearerAuth()
@@ -24,8 +26,8 @@ export class InstitutionsController {
   constructor(private readonly institutionsService: InstitutionsService) {}
 
   @Get()
-  async findAll(@Req() request: Request): Promise<Institution[]> {
-    return this.institutionsService.findAllByUser(this.getUserId(request));
+  async findAll(@Query() query: PaginationQueryDto, @Req() request: Request) {
+    return this.institutionsService.findAllByUser(this.getUserId(request), query);
   }
 
   @Get(':id')

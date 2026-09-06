@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { paginate, paginationArgs, type PaginationInput } from '../common/pagination.js';
 
 export interface BibliographicRecordInput {
   format: string;
@@ -18,11 +19,14 @@ export interface BibliographicRecordInput {
 export class BibliographicRecordsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAllByUser(userId: string) {
-    return this.prisma.bibliographicRecord.findMany({
+  async findAllByUser(userId: string, query: PaginationInput = {}) {
+    const { limit, prisma } = paginationArgs(query);
+    const rows = await this.prisma.bibliographicRecord.findMany({
       where: { OR: [{ work: { userId } }, { edition: { work: { userId } } }] },
       orderBy: { createdAt: 'desc' },
+      ...prisma,
     });
+    return paginate(rows, limit);
   }
 
   async create(userId: string, data: BibliographicRecordInput) {

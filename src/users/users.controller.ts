@@ -7,6 +7,7 @@ import {
   Post,
   Put,
   Req,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
@@ -14,6 +15,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 import { UsersService } from './users.service.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
@@ -27,8 +29,8 @@ export class UsersController {
 
   @Get()
   @UseGuards(JwtAuthGuard)
-  async findAll(@Req() request: Request): Promise<PublicUser[]> {
-    return this.usersService.findAll(this.getUserId(request));
+  async findAll(@Query() query: PaginationQueryDto, @Req() request: Request) {
+    return this.usersService.findAll(this.getUserId(request), query);
   }
 
   @Get(':id')

@@ -1,16 +1,20 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { Institution } from '@prisma/client';
+import { paginate, paginationArgs, type PaginationInput } from '../common/pagination.js';
 
 @Injectable()
 export class InstitutionsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAllByUser(userId: string): Promise<Institution[]> {
-    return this.prisma.institution.findMany({
+  async findAllByUser(userId: string, query: PaginationInput = {}) {
+    const { limit, prisma } = paginationArgs(query);
+    const rows = await this.prisma.institution.findMany({
       where: { userId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...prisma,
     });
+    return paginate(rows, limit);
   }
 
   async findById(id: string, userId: string): Promise<Institution | null> {

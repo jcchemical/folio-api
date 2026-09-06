@@ -6,12 +6,15 @@ import {
   SwaggerCustomOptions,
 } from '@nestjs/swagger';
 import { AppModule } from './app.module.js';
+import { getHttpTimeouts } from './prisma/runtime.config.js';
 
 const isDevelopment = process.env.NODE_ENV !== 'production';
 
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const server = app.getHttpServer();
+  Object.assign(server, getHttpTimeouts());
 
   // CORS para desenvolvimento (ajusta origins em produção)
  

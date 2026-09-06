@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { EditionsService } from './editions.service.js';
 import type { EditionInput } from '../works/works.service.js';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 
 @ApiTags('editions')
 @ApiBearerAuth()
@@ -24,8 +26,8 @@ export class EditionsController {
   constructor(private readonly editionsService: EditionsService) {}
 
   @Get()
-  findAll(@Req() request: Request) {
-    return this.editionsService.findAllByUser(this.getUserId(request));
+  findAll(@Query() query: PaginationQueryDto, @Req() request: Request) {
+    return this.editionsService.findAllByUser(this.getUserId(request), query);
   }
 
   @Get(':id')
