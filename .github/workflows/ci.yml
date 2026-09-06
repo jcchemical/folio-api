@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: folio_test
+          POSTGRES_USER: folio_owner
+          POSTGRES_PASSWORD: folio_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U folio_owner -d folio_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://folio_owner:folio_test_password@localhost:5432/folio_test?schema=public
+      JWT_SECRET: ci-only-jwt-secret-change-me
+      DATABASE_POOL_MAX: 5
+      DATABASE_CONNECTION_TIMEOUT_MS: 5000
+      DATABASE_IDLE_TIMEOUT_MS: 10000
+      DATABASE_QUERY_TIMEOUT_MS: 10000
+      APP_REQUEST_TIMEOUT_MS: 15000
+      APP_HEADERS_TIMEOUT_MS: 20000
+      APP_KEEP_ALIVE_TIMEOUT_MS: 5000
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply Prisma migrations
+        run: npx prisma migrate deploy
+
+      - name: Build
+        run: npm run build
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test

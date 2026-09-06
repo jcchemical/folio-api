@@ -551,6 +551,20 @@ npm run start:dev
 git diff --check
 ```
 
+## Integração contínua
+
+O workflow `.github/workflows/ci.yml` executa em todos os `push` e `pull_request`. Usa Node.js 24, PostgreSQL 16 como service de teste e uma `DATABASE_URL`/`JWT_SECRET` exclusivos de CI.
+
+Cada execução:
+
+1. instala dependências com `npm ci`;
+2. aplica as migrations com `npx prisma migrate deploy`;
+3. executa `npm run build`;
+4. executa `npm run lint`;
+5. executa `npm run test`.
+
+O merge deve exigir que este workflow termine com sucesso. O workflow não usa secrets de produção; a base de dados e o JWT são efémeros e exclusivos da execução. A execução remota do workflow só será possível depois de o ficheiro ser commitado e enviado para o GitHub.
+
 ## Como usar este ficheiro
 
 Antes de cada iteração:
