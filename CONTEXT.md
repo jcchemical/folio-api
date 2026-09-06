@@ -1,33 +1,65 @@
 # Contexto do Projeto Folio API
 
-> Atualizado em: 2026-09-04
+> Atualizado em: 2026-09-06
 
-## Vis Geral
+## Visão geral
 
-API NestJS para gestão de biblioteca (Folio), com:
+API NestJS para a Folio, uma plataforma de gestão de bibliotecas pessoais e, progressivamente, institucionais.
 
-- Users
-- Auth (JWT)
-- Institutions
-- Works
-- Health check
+A primeira versão suporta o caso de uso de biblioteca pessoal, mas a arquitectura deve permitir a evolução para bibliotecas municipais ou outras organizações, com:
 
-Stack moderna com Prisma 7, PostgreSQL, Swagger UI e CORS configurado para dev.
+- catálogo bibliográfico;
+- obras, edições e exemplares;
+- importação e exportação de formatos MARC;
+- pesquisa por ISBN e outros identificadores;
+- organizações, filiais e permissões;
+- utilizadores gestores, bibliotecários e leitores;
+- empréstimos, devoluções, reservas e auditoria.
+
+A prioridade actual é consolidar o domínio, a segurança e a proveniência bibliográfica antes de ampliar o número de formatos ou implementar circulação.
 
 ## Stack
 
-- **Runtime:** Node.js (ESM)
-- **Framework:** NestJS
-- **Linguagem:** TypeScript (ESM, `moduleResolution: "bundler"`)
-- **ORM:** Prisma 7
-  - Driver adapter: `@prisma/adapter-pg` + `pg`
-  - Config em `prisma.config.ts`
-  - Schema em `prisma/schema.prisma` (sem `url` no datasource)
-- **Base de dados:** PostgreSQL
-- **Documentacao:** Swagger UI em `/docs`
-- **CORS:** Aberto para localhost (portas 3000, 8080, etc.)
+- Runtime: Node.js (ESM);
+- Framework: NestJS 12;
+- Linguagem: TypeScript ESM;
+- ORM: Prisma 7;
+- Base de dados: PostgreSQL;
+- Driver: `@prisma/adapter-pg` + `pg`;
+- Documentação: Swagger UI em `/docs`;
+- CORS configurado para desenvolvimento local.
 
-## Estrutura do Projeto
+A configuração do Prisma 7 usa `prisma.config.ts`; o `datasource` do schema não contém `url`. O cliente gerado em `src/generated/prisma/` é output e não deve ser editado manualmente.
+
+## Arquitectura
+
+A API deve manter um monólito modular enquanto o domínio cresce:
+
+```text
+HTTP controllers
+→ application services / use cases
+→ domínio e políticas de autorização
+→ repositories / Prisma
+→ PostgreSQL e, futuramente, object storage e workers
+```
+
+Os controllers devem ser finos. Regras de importação, exportação, circulação e autorização devem viver em services/use cases testáveis sem NestJS sempre que possível.
+
+Módulos de domínio previstos:
+
+- Identity & Access;
+- Organizations & Memberships;
+- Cataloguing;
+- Bibliographic Sources & Provenance;
+- Holdings & Inventory;
+- Circulation;
+- Search;
+- Import/Export Jobs;
+- Audit & Observability.
+
+A divisão actual por entidades continua válida durante o MVP, mas `WorksModule` não deve permanecer como proprietário implícito de todas as regras bibliográficas e de circulação.
+
+## Estrutura actual
 
 ```text
 folio-api/
@@ -39,457 +71,447 @@ folio-api/
     main.ts
     app.module.ts
     auth/
-      auth.module.ts
-      auth.controller.ts
-      auth.service.ts
-      jwt.strategy.ts
-      jwt-auth.guard.ts
     prisma/
-      prisma.service.ts
-      prisma.module.ts
     health/
-      health.module.ts
-      health.controller.ts
     users/
-      users.module.ts
-      users.controller.ts
-      users.service.ts
     institutions/
-      institutions.module.ts
-      institutions.controller.ts
-      institutions.service.ts
     works/
-      works.module.ts
-      works.controller.ts
-      works.service.ts
     editions/
-      editions.controller.ts
-      editions.service.ts
     contributors/
-      contributors.controller.ts
-      contributors.service.ts
     external-identifiers/
-      external_identifiers.service.ts
     bibliographic-records/
-      bibliographic_records.controller.ts
-      bibliographic_records.service.ts
     items/
-      items.controller.ts
-      items.service.ts
+    exports/
     catalogues/
-      catalogues.module.ts
-      catalogues.controller.ts
-      catalogues.service.ts
-      isbn.utils.ts
-      porbase.parser.ts
       adapters/
-        porbase.adapter.ts
       dto/
-        porbase-search-query.dto.ts
-        porbase-search-response.dto.ts
-        import-preview-query.dto.ts
-        import-preview-response.dto.ts
       import-preview.service.ts
       import-preview.controller.ts
-  package.json
-  tsconfig.json
-  .env
+  test/
 ```
 
-## Models Prisma
+A estrutura exacta deve ser confirmada no código antes de alterar módulos. Imports locais TypeScript devem manter a extensão `.js` conforme a configuração ESM.
 
-### User
+## Modelo actual
 
-```prisma
-model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String?
-  passwordHash String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+### User e Institution
 
-  institutions Institution[]
-  works        Work[]
-}
+O modelo actual contém `User` e `Institution`, com relações de propriedade entre utilizador, instituições e obras. Este modelo é suficiente para o início pessoal, mas ainda não representa memberships, roles ou acesso de vários utilizadores à mesma instituição.
+
+### Work, Edition e Item
+
+- `Work` representa a obra intelectual;
+- `Edition` representa a publicação/manifestação específica;
+- `Item` representa uma cópia ou exemplar gerível;
+- `Contributor` é associado a works e editions através de relações com role e sort order;
+- `ExternalIdentifier` guarda ISBN, PORBASE e outros identificadores;
+- `BibliographicRecord` guarda a proveniência original recebida de fontes externas.
+
+O modelo actual usa `cuid()` para IDs. Controllers não devem assumir UUID sem validar o padrão real usado pelo schema.
+
+### Limitação de descrição física
+
+`Edition.pages: Int?` não é uma representação bibliográfica suficiente. A descrição física UNIMARC `215$a` pode conter texto como:
+
+```text
+146, [6] p.
 ```
 
-### Institution
+Pode também repetir e coexistir com outros subcampos de `215`, como dimensões e ilustrações.
 
-```prisma
-model Institution {
-  id          String   @id @default(cuid())
-  name        String
-  address     String?
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+Decisão:
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+- o texto bibliográfico completo é a fonte de verdade;
+- o número de páginas, quando existir, é um valor derivado opcional;
+- uma descrição não deve ser rejeitada por não ser um inteiro;
+- o parser deve preservar o original e emitir warning quando a extracção numérica for parcial ou impossível;
+- a evolução preferida é uma estrutura repetível para os subcampos `215$a`, `$b`, `$c` e `$d`, sem concatenar informação de forma irreversível.
 
-  works Work[]
-}
+Não remover `pages` sem uma migração de compatibilidade e sem rever todos os DTOs, parser, mapper e cliente Flutter.
+
+## Ownership e evolução institucional
+
+O ownership actual baseia-se principalmente em `userId`, com `institutionId` opcional. Isso funciona para bibliotecas pessoais, mas não para uma biblioteca municipal.
+
+A evolução prevista é:
+
+```text
+User
+Organization
+OrganizationMembership
+Library / Branch
+Work
+Edition
+Item / Holding
+Patron / Member
+Loan
+Reservation
+Fine / Fee
+AuditEvent
 ```
 
-### Work
+Antes de implementar circulação institucional, introduzir:
 
-```prisma
-model Work {
-  id          String   @id @default(cuid())
-  title       String
-  subtitle    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+- organização/tenant explícita;
+- memberships;
+- roles e permissões;
+- filiais/bibliotecas;
+- fronteiras de autorização por organização e filial.
 
-  userId       String
-  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+Não criar empréstimos apenas adicionando flags a `Item`. `Loan` deve ser uma entidade explícita, transaccional e capaz de impedir dois empréstimos activos para o mesmo item.
 
-  institutionId String?
-  institution   Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+## Autenticação e segurança
 
-  editions Edition[]
-}
-```
+### Estado actual
 
-### Bibliographic catalogue
+- `POST /auth/login` emite JWT;
+- `JwtStrategy` valida Bearer tokens e confirma que o utilizador existe;
+- rotas protegidas usam o claim `sub` como identidade;
+- o contrato de password ainda é temporário e usa o nome histórico `passwordHash`.
 
-- `Edition` belongs to a `Work` and stores ISBN, publisher, publication date, language, format and page count.
-- `Contributor` is shared by works and editions through `WorkContributor` and `EditionContributor`, with a role and sort order.
-- `ExternalIdentifier` belongs to an edition and enforces uniqueness for `(type, value)`.
-- `BibliographicRecord` stores raw MARC or other source records and can point to a work, an edition, or both.
-- `Item` represents a user's copy of an edition. It always has `userId` and `editionId`, and may have an `institutionId` for storage or management.
+### Dívida técnica prioritária
 
-## Endpoints
+Antes de produção ou utilização institucional:
+
+1. armazenar passwords com Argon2id ou bcrypt;
+2. deixar de comparar o valor recebido directamente;
+3. alterar o contrato público para `password`, mantendo “Palavra-passe” na UI;
+4. implementar access tokens curtos;
+5. implementar refresh tokens rotativos e revogáveis;
+6. criar `/auth/me`;
+7. adicionar RBAC/memberships;
+8. adicionar rate limiting e auditoria;
+9. nunca expor hashes, tokens ou credenciais em respostas e logs.
+
+Estas mudanças devem ser feitas com migrações e compatibilidade explícita, não através de alterações silenciosas aos contratos.
+
+## Endpoints actuais
 
 ### Health
 
-- `GET /health` → `{ status: 'ok' }`
-
-### Users
-
-- `GET /users`
-- `GET /users/:id`
-- `POST /users`
-  ```json
-  {
-    "email": "user@fol.io",
-    "name": "Nome Opcional",
-    "passwordHash": "hash-da-password"
-  }
-  ```
-- `PUT /users/:id`
-- `DELETE /users/:id`
+- `GET /health` → `{ status: 'ok' }`.
 
 ### Auth
 
-- `POST /auth/login` → emite `{ accessToken, user }` para um utilizador válido.
-  ```json
-  {
-    "email": "user@fol.io",
-    "passwordHash": "hash-da-password"
-  }
-  ```
-- Os endpoints de `institutions` e `works` exigem `Authorization: Bearer <token>`.
-- O `userId` desses endpoints vem do claim `sub` do JWT autenticado.
+- `POST /auth/login` → `{ accessToken, user }`.
+- Rotas privadas usam `Authorization: Bearer <token>`.
+
+### Users
+
+- `GET /users`;
+- `GET /users/:id`;
+- `POST /users`;
+- `PUT /users/:id`;
+- `DELETE /users/:id`.
+
+O contrato de criação e actualização deve deixar de aceitar passwords em formato de hash fornecido pelo cliente quando a migração de segurança for feita.
 
 ### Institutions
 
-- `GET /institutions`
-- `GET /institutions/:id`
-- `POST /institutions`
-  ```json
-  {
-    "name": "Instituiçªº Exemplo",
-    "address": "Rua Exemplo, 123",
-    "description": "Descriçªº de teste"
-  }
-  ```
-- `PUT /institutions/:id`
-- `DELETE /institutions/:id`
+- `GET/POST/PUT/DELETE /institutions`;
+- dados actualmente associados ao utilizador proprietário.
 
 ### Works
 
-- `GET /works`
-- `GET /works/:id`
-- `POST /works`
-  ```json
-  {
-    "title": "Obra Exemplo",
-    "subtitle": "Subtítulo opcional",
-    "institutionId": "id-opcional"
-  }
-  ```
-- `PUT /works/:id`
-- `DELETE /works/:id`
+- `GET /works`;
+- `GET /works/:id`;
+- `POST /works`;
+- `PUT /works/:id`;
+- `DELETE /works/:id`.
 
-The work create/update payload also accepts an optional `editions` array. The `WorksService` persists edition changes with the work; sending `editions` during update replaces that work's current editions.
+O payload de criação/actualização pode conter `editions`. A substituição de edições durante update deve continuar a ser transaccional e scoped ao utilizador autenticado até existir uma fronteira explícita de organização.
 
-### Catalogue endpoints
+### Catálogo
 
-All catalogue endpoints require `Authorization: Bearer <token>` and scope data to the authenticated user:
+Todas as rotas de catálogo devem usar JWT e aplicar ownership no servidor:
 
-- `GET/POST/PUT/DELETE /editions` — editions scoped through the authenticated user's works. Creation requires `workId`.
-- `GET/POST/PUT/DELETE /contributors` — contributors linked to the user's works or editions. Creation requires `workId` or `editionId`.
-- `GET/POST/PUT/DELETE /bibliographic-records` — raw records linked to the user's works and/or editions.
-- `GET/POST/PUT/DELETE /items` — user-owned copies, optionally associated with the user's institution.
+- `GET/POST/PUT/DELETE /editions`;
+- `GET/POST/PUT/DELETE /contributors`;
+- `GET/POST/PUT/DELETE /bibliographic-records`;
+- `GET/POST/PUT/DELETE /items`.
 
-External identifier CRUD remains available through `ExternalIdentifiersService`; its controller is not exposed yet.
+Nunca aceitar `userId` do body como autoridade. O utilizador deve vir do contexto autenticado.
 
-### Exportações
+### Exportação local
 
-- `GET /exports/marcxchange/edition/:editionId` — endpoint protegido por JWT que exporta a edição local pertencente ao utilizador autenticado como MARCXchange XML.
-- A resposta usa `Content-Type: application/xml; charset=utf-8` e `Content-Disposition` de download com o nome `folio-{editionId}.marcxchange.xml`.
-- A exportação local é construída a partir dos dados persistidos da `Edition`, da `Work`, dos contributors e dos identificadores externos através do mapper UNIMARC e do serializer MARCXchange. Não usa `BibliographicRecord.rawContent`.
-- O endpoint de registo original, que devolverá a proveniência preservada, ainda não existe.
-- MARCXML da Library of Congress será um formato/endpoint separado numa iteração futura; não é produzido por este endpoint MARCXchange.
+- `GET /exports/marcxchange/edition/:editionId`.
 
-### PORBASE catalogue integration
+O endpoint:
 
-- `GET /catalogues/porbase/search?isbn=9789724426495` searches the PORBASE URN MARCXchange endpoint through the API.
-- `POST /catalogues/porbase/import-preview` builds a Work/Edition/contributor/identifier suggestion from an ISBN without persisting anything.
-- Request:
-  ```json
-  { "isbn": "9789724426495" }
-  ```
-- Response shape:
-  ```json
-  {
-    "work": { "title": "Vida e andanças de Alexis Zorbás" },
-    "edition": {
-      "title": "Vida e andanças de Alexis Zorbás",
-      "isbn13": "9789724426495",
-      "publisher": "Edições 70",
-      "publishDate": "2022",
-      "language": "por",
-      "placeOfPublication": "Coimbra",
-      "pages": 383
-    },
-    "contributors": [
-      { "name": "Kazantzákis, Níkos", "role": "author" },
-      { "name": "Leite, Carlos", "role": "translator" }
-    ],
-    "externalIdentifiers": [
-      { "type": "ISBN-13", "value": "9789724426495", "source": "PORBASE" },
-      { "type": "PORBASE", "value": "3664836", "source": "PORBASE" }
-    ],
-    "bibliographicRecord": {
-      "format": "MARCXCHANGE",
-      "schema": "UNIMARC",
-      "source": "PORBASE",
-      "remoteId": "3664836",
-      "rawContent": "..."
-    },
-    "warnings": []
-  }
-  ```
-- The preview is a stable proposal for a future confirmation/import endpoint. It never creates or updates Prisma records.
-- `POST /catalogues/porbase/import` confirms a corrected preview and persists Work, Edition, contributors, external identifiers, the bibliographic record, and an Item atomically from the authenticated user's `request.user.id`.
-- Confirmation never calls PORBASE again. It stores the body submitted by the user and returns HTTP 409 when an ISBN-13, or otherwise ISBN-10, already exists on an Edition belonging to that user. Imports without ISBN are allowed.
-- The confirmation transaction validates institution ownership, reuses contributors only on exact case-insensitive name matches after whitespace normalization, and rolls back all records if any internal creation fails. Contributor matching is not yet a true authority-control system.
-- The endpoint requires a JWT Bearer token and does not persist the result automatically.
-- ISBN-10 and ISBN-13 values are normalized by removing spaces and hyphens and are checksum-validated before any upstream request.
-- The normalized response includes `source`, `query`, `found`, `detectedFormat`, `format`, `schema`, `metadata`, `warnings`, and the unmodified `rawContent`.
-- The observed live response for ISBN `9789724426495` was `HTTP 200` with `Content-Type: text/xml;charset=utf-8` and MARCXchange XML in one line. The adapter does not rely on the endpoint name and also supports line-oriented MARC text.
-- PORBASE URL and timeout are configured with `PORBASE_URN_BASE_URL` and `PORBASE_URN_TIMEOUT_MS`.
-- XML extraction supports `001`, `003`, `010$a`, `101$a`, `200$a/f/g`, `210$a/c/d`, `215$a`, `035$a`, `675$3`, `700/701`, `702$4=730`, and `966$s`. The text parser uses the same tags when visible and emits warnings when responsibility statements are ambiguous.
-- PORBASE warnings are structured objects with `field`, `message`, `original`, `normalized`, and `type` where applicable. Normalizations are always explicit: `210$d` publication dates such as `D.L. 2009`, `2009.`, and `2009?` are reduced to `YYYY` with a `normalization` warning; unparseable dates such as `s.d.` produce `null` and a `parse_error` warning. The original provider body always remains unchanged in `rawContent`.
-- Fields that may be normalized or require review include `edition.publishDate` (UNIMARC `210$d`) and `edition.pages` (UNIMARC `215$a`); future normalization must emit an equivalent structured warning rather than silently changing provider data.
-- `detectedFormat` is one of `MARCXCHANGE_XML`, `MARC_TEXT`, `UNKNOWN`, or `ERROR`. HTTP 404, empty responses, and provider error messages return `found: false`; timeout returns 503; upstream 5xx and malformed XML return 502.
+- exige JWT;
+- valida existência e ownership;
+- usa o mapper UNIMARC local;
+- usa o serializer MARCXchange;
+- devolve `application/xml; charset=utf-8`;
+- força download com `folio-{editionId}.marcxchange.xml`;
+- não usa `BibliographicRecord.rawContent`.
 
-Swagger UI: http://localhost:3000/docs
+O endpoint do registo original ainda não existe. MARCXML da Library of Congress será um serializer e endpoint separados.
 
-## Decisoes de Design
+## Integração PORBASE
 
-1. **Prisma 7**
-   - `url` removida do `datasource` em `schema.prisma`.
-   - Config de conexao em `prisma.config.ts`.
-   - Cliente usa driver adapter (`PrismaPg` + `Pool`).
+`CataloguesModule` é uma camada de adapters HTTP e não deve persistir resultados durante pesquisas ou previews.
 
-2. **PrismaService**
-   - Estende `PrismaClient`.
-   - Recebe adapter no construtor:
-     ```ts
-     const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-     const adapter = new PrismaPg(pool);
-     super({ adapter });
-     ```
+### Fluxo
 
-3. **Autenticação JWT**
-
-- `AuthService` valida o utilizador por `email` e `passwordHash` e assina tokens com `JWT_SECRET`.
-- `JwtStrategy` valida o token Bearer e confirma que o utilizador ainda existe.
-- `JwtAuthGuard` protege os controllers de `institutions` e `works`.
-- O segredo deve ser definido em `.env`; consultar `.env.example` para o formato.
-
-4. **CORS**
-   - Aberto para:
-     - `http://localhost`
-     - `http://localhost:3000`
-     - `http://localhost:8080`
-     - `http://127.0.0.1`
-     - `http://127.0.0.1:8080`
-   - Métodos: GET, POST, PUT, PATCH, DELETE, OPTIONS.
-
-5. **Swagger**
-   - `@nestjs/swagger` v8+.
-   - Documento criado com:
-     ```ts
-     SwaggerModule.createDocument(app, {
-       info: { title, description, version },
-       openapi: '3.1.0',
-     });
-     ```
-   - UI em `/docs`.
-
-6. **Catálogo bibliográfico**
-
-- A `Work` is the intellectual work; an `Edition` is its publication-specific manifestation.
-- `WorksService` owns the work-to-edition write flow and includes editions in work reads.
-- User-owned resources are scoped through the authenticated user's `userId`.
-- `Item` deliberately contains both `userId` and optional `institutionId`: ownership belongs to the user, while the institution represents where the copy is held or managed.
-- Migration `20260904213703_add_bibliographic_catalog` adds the catalogue tables and removes the legacy `Work.description` and `Work.year` fields. The database was disposable when it was applied.
-
-7. **Integração externa PORBASE** - `CataloguesModule` is an HTTP-only adapter layer and does not access Prisma or save bibliographic data during a search. - The Flutter client must call the Folio API; it must not call PORBASE directly. - The exact upstream body is preserved in `rawContent`; no automatic persistence or transformation replaces it. - No Z39.50, Open Library, or OAI-PMH integration is included in this iteration.
-
-## Comandos Úteis
-
-```bash
-# Instalar dependencias
-npm install
-
-# Gerar cliente Prisma
-npx prisma generate
-
-# Criar e aplicar migration
-npx prisma migrate dev --name <nome>
-
-# Ver estado das migrations
-npx prisma migrate status
-
-# Executar a suite de testes
-npm run test
-
-# Resetar base de dados (dev)
-npx prisma migrate reset
-
-# Iniciar em modo dev
-npm run start:dev
+```text
+GET /catalogues/porbase/search?isbn={isbn}
+→ POST /catalogues/porbase/import-preview
+→ revisão do utilizador
+→ POST /catalogues/porbase/import
 ```
 
-## Estratégia de formatos bibliográficos e exportação
+- pesquisa e preview são protegidos por JWT;
+- a app Flutter nunca contacta PORBASE directamente;
+- preview não cria nem actualiza Work, Edition, Contributor, ExternalIdentifier, BibliographicRecord ou Item;
+- confirmação é a única operação que persiste;
+- confirmação usa uma transacção Prisma;
+- confirmação não volta a contactar PORBASE;
+- institution ownership deve ser validado;
+- ISBNs devem ser normalizados e checksum-validados;
+- duplicados de edições do mesmo utilizador devem devolver `409 Conflict`;
+- falhas internas devem provocar rollback;
+- reuso de contributors continua conservador: correspondência exacta case-insensitive após normalização de espaços;
+- não existe ainda authority control completo.
 
-### Separação de responsabilidades
+### Proveniência e parsing
 
-O Folio separa explicitamente quatro responsabilidades:
+O parser deve detectar respostas por Content-Type, conteúdo inicial e estrutura, não apenas pelo nome do endpoint.
 
-1. **Registo original de proveniência:** a resposta recebida de uma fonte externa, preservada para auditoria e consulta.
-2. **Modelo bibliográfico normalizado local:** os dados bibliográficos persistidos pelo Folio, incluindo correcções feitas pelo utilizador; este é o modelo canónico do domínio e não é directamente UNIMARC, MARC 21 ou outro formato de intercâmbio.
-3. **Perfil de catalogação/exportação:** as regras que definem como o modelo local é mapeado para um perfil, inicialmente UNIMARC.
-4. **Formato serializado de exportação:** a representação final produzida, inicialmente MARCXchange/XML e, numa fase posterior, ISO 2709.
+O corpo exacto recebido deve permanecer em `BibliographicRecord.rawContent`, sem normalização ou reserialização. Os dados normalizados devem ser usados apenas no preview e no modelo local confirmado.
 
-### Registo original e `rawContent`
+O subconjunto PORBASE actualmente coberto inclui:
 
-`BibliographicRecord.rawContent` preserva exactamente a resposta original da fonte, sem normalização, correcção ou reserialização. Deve manter-se inalterado quando o utilizador corrige ou complementa os metadados locais. Em particular:
+- `001`;
+- `003`;
+- `010$a`;
+- `101$a`;
+- `200$a/f/g`;
+- `210$a/c/d`;
+- `215$a`;
+- `035$a`;
+- `675$3`;
+- `700/701`;
+- `702$4=730`;
+- `966$s`.
 
-- não deve ser actualizado pelas correcções do utilizador;
-- não deve ser usado para gerar a exportação do registo local;
-- pode ser disponibilizado separadamente como exportação ou consulta do **registo original**.
+Warnings devem ser objectos estruturados com `field`, `message`, `original`, `normalized` e `type` quando aplicável. Normalizações nunca devem ocorrer silenciosamente.
 
-O registo original de proveniência e o registo local não devem ser misturados. Os restantes metadados de `BibliographicRecord` (`source`, `format`, `schema` e `remoteId`) identificam a origem, mas não substituem o modelo local canónico.
+Exemplos:
 
-### Tipos de exportação
+- `210$d`: `D.L. 2009`, `2009.` e `2009?` podem normalizar para `YYYY` com warning;
+- `s.d.` deve produzir `null` e `parse_error`;
+- `215$a`: `146, [6] p.` deve ser preservado, mesmo que não seja possível derivar um inteiro;
+- o raw provider body permanece inalterado.
 
-Existem duas exportações distintas:
+## Proveniência bibliográfica
 
-- **`local`:** gerada a partir dos dados persistidos do Folio, incluindo as correcções e normalizações confirmadas pelo utilizador; nunca é uma cópia de `rawContent`.
-- **`original`:** devolve o registo preservado da fonte, com o `rawContent` exactamente como foi recebido.
+Existem dois conceitos que não devem ser misturados:
 
-Estas exportações não devem ser misturadas: uma alteração no modelo local não reescreve a proveniência, e a proveniência não deve sobrescrever dados locais corrigidos.
+- registo original: payload preservado da fonte;
+- modelo local: dados confirmados/corrigidos pelo utilizador.
 
-### Formatos prioritários
+`BibliographicRecord` deve evoluir para suportar múltiplas fontes e versões, com metadados como:
 
-A implementação será faseada:
+- source;
+- sourceRecordId/remoteId;
+- format;
+- schema;
+- characterEncoding;
+- contentHash;
+- acquiredAt;
+- parserVersion;
+- status;
+- warnings;
+- referência a object storage para ficheiros grandes.
 
-1. **UNIMARC** como perfil inicial prioritário de catalogação e exportação, em particular para o contexto português.
-2. **MARCXchange** como serialização XML inicial desse perfil.
-3. **ISO 2709** como serialização binária posterior do mesmo registo MARC estruturado.
-4. **MARC 21** e outros formatos como extensões futuras, através de mapeamentos próprios.
+Não é necessário implementar tudo já. A prioridade é não sobrescrever rawContent e permitir reprocessamento/auditoria no futuro.
 
-MARCXchange/XML e ISO 2709 são serializações diferentes de uma estrutura MARC comum; não devem ser tratados como o mesmo formato nem implementados como conversões directas entre si.
+## Formatos bibliográficos
 
-### Arquitectura de mapeamento e serialização
+A arquitectura de exportação é:
 
-As exportações devem usar uma representação intermédia estruturada chamada `MarcRecord`:
+```text
+modelo local canónico
+→ mapper de perfil
+→ MarcRecord
+→ serializer
+```
 
-1. Um mapper específico do perfil transforma o modelo bibliográfico local num `MarcRecord` (por exemplo, o mapper do perfil UNIMARC).
-2. Um serializador transforma o `MarcRecord` em MARCXchange/XML ou, posteriormente, em ISO 2709.
-3. O serializador não lê directamente o Prisma nem o modelo de persistência.
+O modelo Prisma não deve ser UNIMARC, MARC21 ou outro formato de intercâmbio.
 
-Não se deve gerar ISO 2709 directamente a partir do Prisma, nem transformar `rawContent` em exportação local. Esta separação permite adicionar perfis e serializadores sem acoplar o modelo local a um formato de intercâmbio.
+### Prioridade
 
-### Serialização MARCXchange/XML
+1. UNIMARC;
+2. MARCXchange/XML;
+3. ISO 2709;
+4. MARCXML;
+5. MARC21 e outros perfis.
 
-O **MARCXchange** é o primeiro formato XML de exportação implementado pelo Folio. A saída é gerada exclusivamente a partir de um `MarcRecord` já construído pelo mapper do perfil, nunca a partir de `BibliographicRecord.rawContent`.
+MARCXchange/XML e ISO 2709 são serializações distintas de uma estrutura MARC comum. MARCXML não é um alias de MARCXchange.
 
-O MARCXchange usado pela integração PORBASE utiliza a raiz `collection` com o namespace `info:lc/xmlns/marcxchange-v2`, um `record` bibliográfico UNIMARC e os elementos `leader`, `controlfield`, `datafield` e `subfield`. A ordem dos campos, subcampos, tags, indicadores, códigos e valores do `MarcRecord` é preservada na serialização.
+`MarcRecord` deve evoluir para preservar:
 
-MARCXchange não deve ser confundido com **MARCXML da Library of Congress**. MARCXML será suportado por um serializador distinto numa iteração futura; não é um alias nem uma variante implícita do serializador MARCXchange.
+- perfil (`UNIMARC`, `MARC21` ou desconhecido);
+- syntax/serialização;
+- encoding;
+- leader;
+- control fields;
+- data fields;
+- indicators;
+- subfields;
+- repetição;
+- ordem;
+- warnings e perda de informação.
 
-### Expansão incremental e preservação
+Mappers devem poder devolver `record`, `warnings`, `unmappedFields` e `lossy`. Exportações pequenas podem ser síncronas; ficheiros, lotes e conversões devem usar jobs assíncronos com progresso, idempotency key e erros por registo.
 
-A primeira versão suportará apenas o subconjunto de campos atualmente definido para a integração bibliográfica: `001`, `003`, `010$a`, `101$a`, `200$a/f/g`, `210$a/c/d`, `215$a`, `035$a`, `675$3`, `700/701`, `702$4=730` e `966$s`. O desenho deve, contudo, manter a capacidade de preservar:
+## Desempenho e escalabilidade
 
-- tags;
-- indicadores;
-- subcampos e os seus códigos;
-- ordem dos subcampos e dos campos;
-- leader e campos de controlo;
-- campos desconhecidos ou originais como informação de proveniência, sem os fazer desaparecer silenciosamente.
+Não migrar prematuramente para microserviços ou outra base de dados. O monólito modular NestJS + PostgreSQL é suficiente para a próxima fase.
 
-Os mapeamentos e as exportações devem devolver warnings estruturados quando existirem dados ausentes, normalizados, truncados ou não representáveis no perfil/formato escolhido. Uma normalização deve ser explícita e não deve alterar retroactivamente o `rawContent`; perda ou impossibilidade de representação também deve ser assinalada.
+Prioridades:
 
-### Preferências futuras
+- configurar explicitamente o pool `pg` e timeouts;
+- usar pool para tráfego da aplicação;
+- usar conexão adequada para migrações e ferramentas administrativas;
+- adicionar índices antes de optimizações exóticas;
+- usar paginação estável/cursor nas listas;
+- aplicar limites de tamanho e payload;
+- usar `select` explícito nas queries Prisma;
+- criar jobs assíncronos para imports/exports em lote;
+- medir com logs estruturados, métricas e tracing.
 
-Futuramente, o perfil de catalogação/exportação poderá ser definido por:
+Índices a considerar:
 
-- instituição;
-- utilizador;
-- configuração global por defeito.
+- `Work(userId, updatedAt, id)`;
+- `Edition(workId, updatedAt, id)`;
+- ISBN normalizado;
+- `Item(userId, editionId)`;
+- `Item(institutionId, status)`;
+- relações de contributors por entidade e `sortOrder`;
+- `BibliographicRecord(source, sourceRecordId)`;
+- `Loan(itemId, status)`;
+- `Loan(memberId, status)`.
 
-A precedência prevista é `instituição → utilizador → configuração global → UNIMARC`. Esta preferência controla o mapeamento e a exportação, não altera o modelo local canónico nem substitui o registo original. Nesta iteração não será implementado schema nem UI de preferências.
+A pesquisa de catálogo deve evoluir de filtros simples para pesquisa textual PostgreSQL, com uma representação pesquisável de título, subtítulo, autores, ISBN, assuntos e identificadores. Um motor de pesquisa externo só deve ser considerado depois de medir a necessidade.
 
-## Pr oximos Passos (Sugestoes)
+Para PORBASE, usar timeouts curtos, retries limitados e cache por ISBN com TTL quando houver necessidade comprovada. Não adicionar Redis sem uma necessidade medida.
 
-- [ ] Adicionar hashing de passwords (por exemplo, Argon2 ou bcrypt) em vez de comparar `passwordHash` diretamente.
-- [ ] Adicionar refresh tokens e rotação de tokens.
-- [ ] Criar `prisma/seed.ts` para dados de teste.
-- [ ] Refinar DTOs (class-validator, class-transformer).
-- [ ] Adicionar filtros, paginaçªº e ordenaçªº em listas.
-- [ ] Estruturar testes (unit arios e integraçªº).
-- [ ] Configurar CI/CD básico (lint, test, build).
+## Circulação futura
 
-## Como Usar Este Ficheiro
+Não implementar circulação em cima de flags em `Item`.
 
-Sempre que continuares o desenvolvimento com IA:
+Criar entidades explícitas:
 
-1. Atualiza este ficheiro quando houver:
-   - Novos módulos/endpoints.
-   - Mudançªºs importantes de arquitetura.
-   - Novas decisoes de design.
+- `Patron`/`LibraryMember`;
+- `Loan`;
+- `LoanPolicy`;
+- `Hold`/`Reservation`;
+- `ReturnEvent`;
+- `Fine`/`Fee`.
 
-2. Para dar contexto a uma nova sessa˜o:
-   - Copia este ficheiro (ou partes) para o chat.
-   - Ou faz upload dele como anexo.
+Um empréstimo deve guardar item, membro, filial, estado, datas previstas/efectivas, actor e timestamps. A operação deve ser transaccional e garantir que um item não tem dois empréstimos activos simultâneos.
 
-3. Podes complementar com:
-   - `tree -L 2` da estrutura atual.
-   - Trechos de código relevantes (controllers, services, schema).
+## Decisões de design
 
----
+1. **Prisma 7:** configuração em `prisma.config.ts`, driver adapter e cliente gerado sem edição manual.
+2. **PostgreSQL:** base relacional principal para catálogo, permissões, inventário e circulação.
+3. **PrismaService:** encapsula `PrismaClient` e o adapter `PrismaPg`.
+4. **JWT:** autenticação actual; autorização deve evoluir para memberships e roles.
+5. **CORS:** actualmente aberto apenas para origens locais de desenvolvimento; restringir explicitamente em produção.
+6. **Swagger:** documentação OpenAPI em `/docs`.
+7. **PORBASE:** adapter server-side; nunca chamada directa pelo Flutter.
+8. **Proveniência:** rawContent é imutável e separado do modelo local.
+9. **MARC:** mapper de perfil e serializer independentes do Prisma.
+10. **Monólito modular:** manter até que métricas justifiquem workers ou serviços separados.
 
-Se quiseres, pede à IA para:
+## Roadmap
 
-- “Ler este CONTEXT.md e sugerir os próximos passos de arquitetura.”
-- “Gerar um seed com base nos models descritos aqui.”
-- “Revisar a estrutura de módulos e sugerir melhorias.”
+### Fase 0 — segurança e estabilização
+
+- hashing seguro;
+- refresh tokens;
+- `/auth/me`;
+- RBAC/memberships iniciais;
+- paginação e índices;
+- pool/timeouts;
+- CI/CD e testes de integração;
+- auditoria básica.
+
+### Fase 1 — fundação bibliográfica
+
+- descrição física repetível;
+- datas com precisão e texto original;
+- contributions com roles e identificadores;
+- proveniência versionada;
+- `MarcRecord` com encoding, syntax e warnings;
+- normalizações não destrutivas.
+
+### Fase 2 — catálogo e ficheiros
+
+- importação MARCXchange/ISO 2709;
+- preview por registo;
+- deduplicação e idempotência;
+- jobs de importação/exportação;
+- pesquisa paginada.
+
+### Fase 3 — inventário institucional
+
+- organizations, memberships e branches;
+- holdings, localização, cotas e códigos de barras;
+- inventário e operações em lote.
+
+### Fase 4 — circulação
+
+- patrons;
+- loans, returns e reservations;
+- políticas, multas e notificações;
+- permissões para bibliotecários e leitores.
+
+### Fase 5 — formatos e integrações
+
+- UNIMARC completo;
+- ISO 2709;
+- MARCXML separado;
+- MARC21;
+- fontes bibliográficas adicionais.
+
+## Regras para futuras alterações
+
+- Ler este ficheiro e `AGENTS.md` antes de alterar comportamento.
+- Não editar o cliente Prisma gerado manualmente.
+- Não aceitar `userId` do body como autoridade.
+- Não persistir previews automaticamente.
+- Não sobrescrever rawContent com dados normalizados.
+- Não misturar MARCXchange com MARCXML.
+- Não remover campos actuais sem migração e compatibilidade.
+- Criar migrations explícitas para alterações de schema.
+- Actualizar testes unitários e de integração.
+- Actualizar este ficheiro quando mudarem endpoints, schema, contratos ou decisões arquitecturais.
+- Nunca fazer commit de `.env`, secrets ou tokens.
+
+## Comandos úteis
+
+```bash
+npm install
+npx prisma generate
+npx prisma migrate dev --name <nome>
+npx prisma migrate status
+npm run build
+npm run lint
+npm run test
+npm run test:e2e
+npm run start:dev
+git diff --check
+```
+
+## Como usar este ficheiro
+
+Antes de cada iteração:
+
+1. ler este `CONTEXT.md` e `AGENTS.md`;
+2. confirmar o estado real no código, schema e migrations;
+3. distinguir decisões implementadas de decisões futuras;
+4. alterar apenas o escopo solicitado;
+5. executar os testes relevantes e actualizar a documentação quando contratos ou arquitectura mudarem.
