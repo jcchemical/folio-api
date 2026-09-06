@@ -236,6 +236,14 @@ All catalogue endpoints require `Authorization: Bearer <token>` and scope data t
 
 External identifier CRUD remains available through `ExternalIdentifiersService`; its controller is not exposed yet.
 
+### Exportações
+
+- `GET /exports/marcxchange/edition/:editionId` — endpoint protegido por JWT que exporta a edição local pertencente ao utilizador autenticado como MARCXchange XML.
+- A resposta usa `Content-Type: application/xml; charset=utf-8` e `Content-Disposition` de download com o nome `folio-{editionId}.marcxchange.xml`.
+- A exportação local é construída a partir dos dados persistidos da `Edition`, da `Work`, dos contributors e dos identificadores externos através do mapper UNIMARC e do serializer MARCXchange. Não usa `BibliographicRecord.rawContent`.
+- O endpoint de registo original, que devolverá a proveniência preservada, ainda não existe.
+- MARCXML da Library of Congress será um formato/endpoint separado numa iteração futura; não é produzido por este endpoint MARCXchange.
+
 ### PORBASE catalogue integration
 
 - `GET /catalogues/porbase/search?isbn=9789724426495` searches the PORBASE URN MARCXchange endpoint through the API.
@@ -368,6 +376,88 @@ npx prisma migrate reset
 # Iniciar em modo dev
 npm run start:dev
 ```
+
+## Estratégia de formatos bibliográficos e exportação
+
+### Separação de responsabilidades
+
+O Folio separa explicitamente quatro responsabilidades:
+
+1. **Registo original de proveniência:** a resposta recebida de uma fonte externa, preservada para auditoria e consulta.
+2. **Modelo bibliográfico normalizado local:** os dados bibliográficos persistidos pelo Folio, incluindo correcções feitas pelo utilizador; este é o modelo canónico do domínio e não é directamente UNIMARC, MARC 21 ou outro formato de intercâmbio.
+3. **Perfil de catalogação/exportação:** as regras que definem como o modelo local é mapeado para um perfil, inicialmente UNIMARC.
+4. **Formato serializado de exportação:** a representação final produzida, inicialmente MARCXchange/XML e, numa fase posterior, ISO 2709.
+
+### Registo original e `rawContent`
+
+`BibliographicRecord.rawContent` preserva exactamente a resposta original da fonte, sem normalização, correcção ou reserialização. Deve manter-se inalterado quando o utilizador corrige ou complementa os metadados locais. Em particular:
+
+- não deve ser actualizado pelas correcções do utilizador;
+- não deve ser usado para gerar a exportação do registo local;
+- pode ser disponibilizado separadamente como exportação ou consulta do **registo original**.
+
+O registo original de proveniência e o registo local não devem ser misturados. Os restantes metadados de `BibliographicRecord` (`source`, `format`, `schema` e `remoteId`) identificam a origem, mas não substituem o modelo local canónico.
+
+### Tipos de exportação
+
+Existem duas exportações distintas:
+
+- **`local`:** gerada a partir dos dados persistidos do Folio, incluindo as correcções e normalizações confirmadas pelo utilizador; nunca é uma cópia de `rawContent`.
+- **`original`:** devolve o registo preservado da fonte, com o `rawContent` exactamente como foi recebido.
+
+Estas exportações não devem ser misturadas: uma alteração no modelo local não reescreve a proveniência, e a proveniência não deve sobrescrever dados locais corrigidos.
+
+### Formatos prioritários
+
+A implementação será faseada:
+
+1. **UNIMARC** como perfil inicial prioritário de catalogação e exportação, em particular para o contexto português.
+2. **MARCXchange** como serialização XML inicial desse perfil.
+3. **ISO 2709** como serialização binária posterior do mesmo registo MARC estruturado.
+4. **MARC 21** e outros formatos como extensões futuras, através de mapeamentos próprios.
+
+MARCXchange/XML e ISO 2709 são serializações diferentes de uma estrutura MARC comum; não devem ser tratados como o mesmo formato nem implementados como conversões directas entre si.
+
+### Arquitectura de mapeamento e serialização
+
+As exportações devem usar uma representação intermédia estruturada chamada `MarcRecord`:
+
+1. Um mapper específico do perfil transforma o modelo bibliográfico local num `MarcRecord` (por exemplo, o mapper do perfil UNIMARC).
+2. Um serializador transforma o `MarcRecord` em MARCXchange/XML ou, posteriormente, em ISO 2709.
+3. O serializador não lê directamente o Prisma nem o modelo de persistência.
+
+Não se deve gerar ISO 2709 directamente a partir do Prisma, nem transformar `rawContent` em exportação local. Esta separação permite adicionar perfis e serializadores sem acoplar o modelo local a um formato de intercâmbio.
+
+### Serialização MARCXchange/XML
+
+O **MARCXchange** é o primeiro formato XML de exportação implementado pelo Folio. A saída é gerada exclusivamente a partir de um `MarcRecord` já construído pelo mapper do perfil, nunca a partir de `BibliographicRecord.rawContent`.
+
+O MARCXchange usado pela integração PORBASE utiliza a raiz `collection` com o namespace `info:lc/xmlns/marcxchange-v2`, um `record` bibliográfico UNIMARC e os elementos `leader`, `controlfield`, `datafield` e `subfield`. A ordem dos campos, subcampos, tags, indicadores, códigos e valores do `MarcRecord` é preservada na serialização.
+
+MARCXchange não deve ser confundido com **MARCXML da Library of Congress**. MARCXML será suportado por um serializador distinto numa iteração futura; não é um alias nem uma variante implícita do serializador MARCXchange.
+
+### Expansão incremental e preservação
+
+A primeira versão suportará apenas o subconjunto de campos atualmente definido para a integração bibliográfica: `001`, `003`, `010$a`, `101$a`, `200$a/f/g`, `210$a/c/d`, `215$a`, `035$a`, `675$3`, `700/701`, `702$4=730` e `966$s`. O desenho deve, contudo, manter a capacidade de preservar:
+
+- tags;
+- indicadores;
+- subcampos e os seus códigos;
+- ordem dos subcampos e dos campos;
+- leader e campos de controlo;
+- campos desconhecidos ou originais como informação de proveniência, sem os fazer desaparecer silenciosamente.
+
+Os mapeamentos e as exportações devem devolver warnings estruturados quando existirem dados ausentes, normalizados, truncados ou não representáveis no perfil/formato escolhido. Uma normalização deve ser explícita e não deve alterar retroactivamente o `rawContent`; perda ou impossibilidade de representação também deve ser assinalada.
+
+### Preferências futuras
+
+Futuramente, o perfil de catalogação/exportação poderá ser definido por:
+
+- instituição;
+- utilizador;
+- configuração global por defeito.
+
+A precedência prevista é `instituição → utilizador → configuração global → UNIMARC`. Esta preferência controla o mapeamento e a exportação, não altera o modelo local canónico nem substitui o registo original. Nesta iteração não será implementado schema nem UI de preferências.
 
 ## Pr oximos Passos (Sugestoes)
 
