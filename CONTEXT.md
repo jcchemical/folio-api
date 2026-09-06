@@ -131,7 +131,13 @@ Não remover `pages` sem uma migração de compatibilidade e sem rever todos os 
 
 ## Ownership e evolução institucional
 
-O ownership actual baseia-se principalmente em `userId`, com `institutionId` opcional. Isso funciona para bibliotecas pessoais, mas não para uma biblioteca municipal.
+O ownership actual baseia-se principalmente em `userId`, com `institutionId` opcional. Todos os endpoints de recursos protegidos obtêm o utilizador do JWT e aplicam esse limite no service, nunca de um `userId` recebido no body.
+
+Listagens são sempre filtradas pelo utilizador autenticado. Em operações por ID, um recurso inexistente devolve `404 Not Found`; um recurso existente mas pertencente a outro utilizador devolve `403 Forbidden`. Relações recebidas no body, como `workId`, `editionId` e `institutionId`, também são verificadas antes de criar ou alterar dados.
+
+Estão protegidos por JWT e scoped ao utilizador os endpoints de institutions, works, editions, items, contributors, bibliographic records e a exportação local. A criação pública de utilizadores (`POST /users`) é a excepção necessária para registo; leituras, alterações e remoções de utilizadores requerem JWT e só permitem o próprio utilizador. A pesquisa/preview PORBASE é protegida, não persiste dados e não expõe recursos de catálogo de outros utilizadores.
+
+Esta é uma fronteira de ownership pessoal transitória. A migração futura para `Organization`/`Membership`/roles substituirá `userId` por políticas de autorização por tenant, biblioteca/filial e papel, sem aceitar automaticamente acesso global a todos os recursos.
 
 A evolução prevista é:
 

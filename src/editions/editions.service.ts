@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { EditionInput } from '../works/works.service.js';
 
@@ -15,10 +15,12 @@ export class EditionsService {
   }
 
   async findById(id: string, userId: string) {
-    return this.prisma.edition.findFirst({
-      where: { id, work: { userId } },
+    const edition = await this.prisma.edition.findUnique({
+      where: { id },
       include: { work: true, items: true },
     });
+    this.assertEditionAccess(edition, userId);
+    return edition;
   }
 
   async create(userId: string, workId: string, data: EditionInput) {
@@ -32,21 +34,34 @@ export class EditionsService {
   }
 
   async remove(id: string, userId: string) {
-    await this.assertEditionOwnership(id, userId);
+    const edition = await this.prisma.edition.findUnique({ where: { id }, include: { work: true } });
+    this.assertEditionAccess(edition, userId);
     return this.prisma.edition.delete({ where: { id } });
   }
 
   private async assertWorkOwnership(workId: string, userId: string) {
-    const work = await this.prisma.work.findFirst({
-      where: { id: workId, userId },
-    });
+    const work = await this.prisma.work.findUnique({ where: { id: workId } });
     if (!work) throw new NotFoundException('Work not found');
+    if (work.userId !== userId) {
+      throw new ForbiddenException('Work does not belong to the authenticated user');
+    }
   }
 
   private async assertEditionOwnership(id: string, userId: string) {
-    const edition = await this.prisma.edition.findFirst({
-      where: { id, work: { userId } },
+    const edition = await this.prisma.edition.findUnique({
+      where: { id },
+      include: { work: true },
     });
+    this.assertEditionAccess(edition, userId);
+  }
+
+  private assertEditionAccess(
+    edition: { work: { userId: string } } | null,
+    userId: string,
+  ): asserts edition is { work: { userId: string } } {
     if (!edition) throw new NotFoundException('Edition not found');
+    if (edition.work.userId !== userId) {
+      throw new ForbiddenException('Edition does not belong to the authenticated user');
+    }
   }
 }

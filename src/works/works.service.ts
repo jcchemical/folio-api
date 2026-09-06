@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 export interface EditionInput {
@@ -41,14 +41,19 @@ export class WorksService {
   }
 
   async findById(id: string, userId: string) {
-    return this.prisma.work.findFirst({
-      where: { id, userId },
+    const work = await this.prisma.work.findUnique({
+      where: { id },
       include: { institution: true, editions: true },
     });
+
+    if (!work) throw new NotFoundException('Work not found');
+    if (work.userId !== userId) throw new ForbiddenException('Work does not belong to the authenticated user');
+    return work;
   }
 
   async create(userId: string, data: WorkInput) {
     const { editions, ...workData } = data;
+    await this.assertInstitutionOwnership(workData.institutionId, userId);
     const work = await this.prisma.work.create({
       data: { ...workData, userId },
     });
@@ -64,11 +69,9 @@ export class WorksService {
 
   async update(id: string, userId: string, data: WorkUpdateInput) {
     const { editions, ...workData } = data;
-    const work = await this.prisma.work.findFirst({ where: { id, userId } });
-
-    if (!work) {
-      return null;
-    }
+    const work = await this.prisma.work.findUnique({ where: { id } });
+    this.assertOwnership(work, userId, 'Work');
+    await this.assertInstitutionOwnership(workData.institutionId, userId);
 
     await this.prisma.$transaction(async (transaction) => {
       await transaction.work.update({ where: { id }, data: workData });
@@ -87,9 +90,37 @@ export class WorksService {
   }
 
   async remove(id: string, userId: string) {
+    const work = await this.prisma.work.findUnique({ where: { id } });
+    this.assertOwnership(work, userId, 'Work');
+
     return this.prisma.work.delete({
-      where: { id, userId },
+      where: { id },
       include: { institution: true, editions: true },
     });
+  }
+
+  private async assertInstitutionOwnership(
+    institutionId: string | null | undefined,
+    userId: string,
+  ) {
+    if (!institutionId) return;
+
+    const institution = await this.prisma.institution.findUnique({
+      where: { id: institutionId },
+    });
+    this.assertOwnership(institution, userId, 'Institution');
+  }
+
+  private assertOwnership(
+    resource: { userId: string } | null,
+    userId: string,
+    resourceName: string,
+  ): asserts resource is { userId: string } {
+    if (!resource) throw new NotFoundException(`${resourceName} not found`);
+    if (resource.userId !== userId) {
+      throw new ForbiddenException(
+        `${resourceName} does not belong to the authenticated user`,
+      );
+    }
   }
 }

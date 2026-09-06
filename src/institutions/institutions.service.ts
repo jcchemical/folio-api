@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { Institution } from '@prisma/client';
 
@@ -14,9 +14,9 @@ export class InstitutionsService {
   }
 
   async findById(id: string, userId: string): Promise<Institution | null> {
-    return this.prisma.institution.findFirst({
-      where: { id, userId },
-    });
+    const institution = await this.prisma.institution.findUnique({ where: { id } });
+    this.assertOwnership(institution, userId);
+    return institution;
   }
 
   async create(
@@ -33,15 +33,29 @@ export class InstitutionsService {
     userId: string,
     data: { name?: string; address?: string | null; description?: string | null },
   ): Promise<Institution> {
+    const institution = await this.prisma.institution.findUnique({ where: { id } });
+    this.assertOwnership(institution, userId);
     return this.prisma.institution.update({
-      where: { id, userId },
+      where: { id },
       data,
     });
   }
 
   async remove(id: string, userId: string): Promise<Institution> {
+    const institution = await this.prisma.institution.findUnique({ where: { id } });
+    this.assertOwnership(institution, userId);
     return this.prisma.institution.delete({
-      where: { id, userId },
+      where: { id },
     });
+  }
+
+  private assertOwnership(
+    institution: Institution | null,
+    userId: string,
+  ): asserts institution is Institution {
+    if (!institution) throw new NotFoundException('Institution not found');
+    if (institution.userId !== userId) {
+      throw new ForbiddenException('Institution does not belong to the authenticated user');
+    }
   }
 }

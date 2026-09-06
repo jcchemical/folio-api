@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -31,16 +32,19 @@ export class ContributorsService {
   }
 
   findById(id: string, userId: string) {
-    return this.prisma.contributor.findUnique({
-      where: {
-        id,
-        OR: [
-          { workContributors: { some: { work: { userId } } } },
-          { editionContributors: { some: { edition: { work: { userId } } } } },
-        ],
+    return this.findOwnedContributor(id, userId);
+  }
+
+  private async findOwnedContributor(id: string, userId: string) {
+    const contributor = await this.prisma.contributor.findUnique({
+      where: { id },
+      include: {
+        workContributors: { include: { work: true } },
+        editionContributors: { include: { edition: { include: { work: true } } } },
       },
-      include: { workContributors: true, editionContributors: true },
     });
+    this.assertContributorAccess(contributor, userId);
+    return contributor;
   }
 
   async create(userId: string, data: ContributorInput) {
@@ -105,32 +109,61 @@ export class ContributorsService {
     workId?: string,
     editionId?: string,
   ) {
-    if (
-      workId &&
-      !(await this.prisma.work.findFirst({ where: { id: workId, userId } }))
-    ) {
-      throw new NotFoundException('Work not found');
+    if (workId) await this.assertRelatedWork(workId, userId);
+    if (editionId) await this.assertRelatedEdition(editionId, userId);
+  }
+
+  private async assertRelatedWork(workId: string, userId: string): Promise<void> {
+    const work = await this.prisma.work.findUnique({ where: { id: workId } });
+    if (!work) throw new NotFoundException('Work not found');
+    if (work.userId !== userId) {
+      throw new ForbiddenException('Work does not belong to the authenticated user');
     }
-    if (
-      editionId &&
-      !(await this.prisma.edition.findFirst({
-        where: { id: editionId, work: { userId } },
-      }))
-    ) {
-      throw new NotFoundException('Edition not found');
+  }
+
+  private async assertRelatedEdition(
+    editionId: string,
+    userId: string,
+  ): Promise<void> {
+    const edition = await this.prisma.edition.findUnique({
+      where: { id: editionId },
+      include: { work: true },
+    });
+    if (!edition) throw new NotFoundException('Edition not found');
+    if (edition.work.userId !== userId) {
+      throw new ForbiddenException('Edition does not belong to the authenticated user');
     }
   }
 
   private async assertContributorOwnership(id: string, userId: string) {
-    const contributor = await this.prisma.contributor.findFirst({
-      where: {
-        id,
-        OR: [
-          { workContributors: { some: { work: { userId } } } },
-          { editionContributors: { some: { edition: { work: { userId } } } } },
-        ],
+    const contributor = await this.prisma.contributor.findUnique({
+      where: { id },
+      include: {
+        workContributors: { include: { work: true } },
+        editionContributors: { include: { edition: { include: { work: true } } } },
       },
     });
+    this.assertContributorAccess(contributor, userId);
+  }
+
+  private assertContributorAccess(
+    contributor: {
+      workContributors: Array<{ work: { userId: string } }>;
+      editionContributors: Array<{ edition: { work: { userId: string } } }>;
+    } | null,
+    userId: string,
+  ): asserts contributor {
     if (!contributor) throw new NotFoundException('Contributor not found');
+
+    const owned =
+      contributor.workContributors.some(({ work }) => work.userId === userId) ||
+      contributor.editionContributors.some(
+        ({ edition }) => edition.work.userId === userId,
+      );
+    if (!owned) {
+      throw new ForbiddenException(
+        'Contributor does not belong to the authenticated user',
+      );
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { User } from '@prisma/client';
 import { hashPassword } from '../auth/password.utils.js';
@@ -9,14 +9,14 @@ export type PublicUser = Omit<User, 'passwordHash'>;
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(): Promise<PublicUser[]> {
-    const users = await this.prisma.user.findMany();
+  async findAll(userId: string): Promise<PublicUser[]> {
+    const users = await this.prisma.user.findMany({ where: { id: userId } });
     return users.map(({ passwordHash: _passwordHash, ...user }) => user);
   }
 
-  async findOne(id: string): Promise<PublicUser | null> {
+  async findOne(id: string, userId: string): Promise<PublicUser> {
     const user = await this.prisma.user.findUnique({ where: { id } });
-    if (!user) return null;
+    this.assertOwnership(user, userId);
 
     const { passwordHash: _passwordHash, ...publicUser } = user;
     return publicUser;
@@ -36,17 +36,32 @@ export class UsersService {
 
   async update(
     id: string,
+    userId: string,
     data: { email?: string; name?: string | null },
   ): Promise<PublicUser> {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    this.assertOwnership(user, userId);
     return this.prisma.user.update({
       where: { id },
       data,
     }).then(({ passwordHash: _storedPasswordHash, ...user }) => user);
   }
 
-  async remove(id: string): Promise<PublicUser> {
+  async remove(id: string, userId: string): Promise<PublicUser> {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    this.assertOwnership(user, userId);
     return this.prisma.user.delete({
       where: { id },
     }).then(({ passwordHash: _storedPasswordHash, ...user }) => user);
+  }
+
+  private assertOwnership(
+    user: User | null,
+    userId: string,
+  ): asserts user is User {
+    if (!user) throw new NotFoundException('User not found');
+    if (user.id !== userId) {
+      throw new ForbiddenException('User does not belong to the authenticated user');
+    }
   }
 }

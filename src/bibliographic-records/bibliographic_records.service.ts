@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 export interface BibliographicRecordInput {
@@ -47,29 +51,45 @@ export class BibliographicRecordsService {
   ) {
     if (!workId && !editionId)
       throw new NotFoundException('A work or edition is required');
-    if (
-      workId &&
-      !(await this.prisma.work.findFirst({ where: { id: workId, userId } }))
-    ) {
-      throw new NotFoundException('Work not found');
+    if (workId) await this.assertRelatedWork(workId, userId);
+    if (editionId) await this.assertRelatedEdition(editionId, userId);
+  }
+
+  private async assertRelatedWork(workId: string, userId: string): Promise<void> {
+    const work = await this.prisma.work.findUnique({ where: { id: workId } });
+    if (!work) throw new NotFoundException('Work not found');
+    if (work.userId !== userId) {
+      throw new ForbiddenException('Work does not belong to the authenticated user');
     }
-    if (
-      editionId &&
-      !(await this.prisma.edition.findFirst({
-        where: { id: editionId, work: { userId } },
-      }))
-    ) {
-      throw new NotFoundException('Edition not found');
+  }
+
+  private async assertRelatedEdition(
+    editionId: string,
+    userId: string,
+  ): Promise<void> {
+    const edition = await this.prisma.edition.findUnique({
+      where: { id: editionId },
+      include: { work: true },
+    });
+    if (!edition) throw new NotFoundException('Edition not found');
+    if (edition.work.userId !== userId) {
+      throw new ForbiddenException('Edition does not belong to the authenticated user');
     }
   }
 
   private async assertRecordOwnership(id: string, userId: string) {
-    const record = await this.prisma.bibliographicRecord.findFirst({
-      where: {
-        id,
-        OR: [{ work: { userId } }, { edition: { work: { userId } } }],
-      },
+    const record = await this.prisma.bibliographicRecord.findUnique({
+      where: { id },
+      include: { work: true, edition: { include: { work: true } } },
     });
     if (!record) throw new NotFoundException('Bibliographic record not found');
+
+    const owned =
+      record.work?.userId === userId || record.edition?.work.userId === userId;
+    if (!owned) {
+      throw new ForbiddenException(
+        'Bibliographic record does not belong to the authenticated user',
+      );
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 export interface ItemInput {
@@ -22,11 +22,16 @@ export class ItemsService {
     });
   }
 
-  findById(id: string, userId: string) {
-    return this.prisma.item.findFirst({
-      where: { id, userId },
+  async findById(id: string, userId: string) {
+    const item = await this.prisma.item.findUnique({
+      where: { id },
       include: { edition: true, institution: true },
     });
+    if (!item) throw new NotFoundException('Item not found');
+    if (item.userId !== userId) {
+      throw new ForbiddenException('Item does not belong to the authenticated user');
+    }
+    return item;
   }
 
   async create(userId: string, data: ItemInput) {
@@ -49,10 +54,14 @@ export class ItemsService {
   }
 
   private async assertEditionOwnership(editionId: string, userId: string) {
-    const edition = await this.prisma.edition.findFirst({
-      where: { id: editionId, work: { userId } },
+    const edition = await this.prisma.edition.findUnique({
+      where: { id: editionId },
+      include: { work: true },
     });
     if (!edition) throw new NotFoundException('Edition not found');
+    if (edition.work.userId !== userId) {
+      throw new ForbiddenException('Edition does not belong to the authenticated user');
+    }
   }
 
   private async assertInstitutionOwnership(
@@ -60,14 +69,18 @@ export class ItemsService {
     userId: string,
   ) {
     if (!institutionId) return;
-    const institution = await this.prisma.institution.findFirst({
-      where: { id: institutionId, userId },
-    });
+    const institution = await this.prisma.institution.findUnique({ where: { id: institutionId } });
     if (!institution) throw new NotFoundException('Institution not found');
+    if (institution.userId !== userId) {
+      throw new ForbiddenException('Institution does not belong to the authenticated user');
+    }
   }
 
   private async assertItemOwnership(id: string, userId: string) {
-    const item = await this.prisma.item.findFirst({ where: { id, userId } });
+    const item = await this.prisma.item.findUnique({ where: { id } });
     if (!item) throw new NotFoundException('Item not found');
+    if (item.userId !== userId) {
+      throw new ForbiddenException('Item does not belong to the authenticated user');
+    }
   }
 }
