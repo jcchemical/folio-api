@@ -1,7 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  IsDateString,
   IsArray,
   IsDefined,
   IsIn,
@@ -13,6 +12,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { PhysicalDescriptionDto } from '../../editions/dto/physical-description.dto.js';
+import { IsBibliographicDate } from '../../common/bibliographic-date.js';
 
 export class PorbaseImportWorkDto {
   @ApiProperty({ example: 'Vida e andanças de Alexis Zorbás' })
@@ -57,10 +57,10 @@ export class PorbaseImportEditionDto {
   @IsString()
   publisher?: string | null;
 
-  @ApiPropertyOptional({ example: '2022-01-01', nullable: true })
+  @ApiPropertyOptional({ example: '2022', nullable: true })
   @IsOptional()
-  @IsDateString()
-  publishDate?: string | null;
+  @IsBibliographicDate()
+  publicationDate?: string | null;
 
   @ApiPropertyOptional({ example: 'por', nullable: true })
   @IsOptional()
@@ -76,12 +76,6 @@ export class PorbaseImportEditionDto {
   @IsOptional()
   @IsString()
   format?: string | null;
-
-  @ApiPropertyOptional({ example: 383, nullable: true })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  pages?: number | null;
 
   @ApiPropertyOptional({ type: [PhysicalDescriptionDto] })
   @IsOptional()
@@ -240,12 +234,20 @@ export class PorbasePersistedBibliographicRecordDto {
   @ApiPropertyOptional({ nullable: true }) remoteId?: string | null;
 }
 
-export class PorbasePersistedPhysicalDescriptionDto {
+export class PorbasePersistedPhysicalDescriptionPartDto {
+  @ApiProperty() id!: string;
   @ApiProperty() subfield!: string;
   @ApiProperty() value!: string;
   @ApiProperty() sortOrder!: number;
-  @ApiPropertyOptional({ nullable: true }) source?: string | null;
   @ApiPropertyOptional({ nullable: true }) normalizedValue?: string | null;
+}
+
+export class PorbasePersistedPhysicalDescriptionDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() sortOrder!: number;
+  @ApiPropertyOptional({ nullable: true }) source?: string | null;
+  @ApiProperty({ type: [PorbasePersistedPhysicalDescriptionPartDto] })
+  parts!: PorbasePersistedPhysicalDescriptionPartDto[];
 }
 
 export class PorbasePersistedItemDto {
@@ -272,11 +274,11 @@ export class PorbasePersistedEditionDto {
   @ApiPropertyOptional({ nullable: true }) isbn10?: string | null;
   @ApiPropertyOptional({ nullable: true }) isbn13?: string | null;
   @ApiPropertyOptional({ nullable: true }) publisher?: string | null;
-  @ApiPropertyOptional({ nullable: true }) publishDate?: Date | null;
+  @ApiPropertyOptional({ nullable: true }) publicationDate?: string | null;
   @ApiPropertyOptional({ nullable: true }) language?: string | null;
   @ApiPropertyOptional({ nullable: true }) country?: string | null;
   @ApiPropertyOptional({ nullable: true }) format?: string | null;
-  @ApiPropertyOptional({ nullable: true }) pages?: number | null;
+  @ApiPropertyOptional({ nullable: true }) pageCount?: number | null;
   @ApiProperty({ type: [PorbasePersistedPhysicalDescriptionDto], required: false })
   physicalDescriptions?: PorbasePersistedPhysicalDescriptionDto[];
   @ApiProperty({ type: [PorbasePersistedExternalIdentifierDto] })

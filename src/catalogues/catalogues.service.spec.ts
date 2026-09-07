@@ -87,7 +87,9 @@ describe('CataloguesService', () => {
         publicationDate: '2022',
         extent: '383 p.',
         physicalDescriptions: [
-          { subfield: 'a', value: '383 p.', sortOrder: 0, source: 'PORBASE' },
+          { sortOrder: 0, source: 'PORBASE', parts: [
+            { subfield: 'a', value: '383 p.', sortOrder: 0 },
+          ] },
         ],
         shelfmarks: ['4-(1)-40-5-39'],
       },

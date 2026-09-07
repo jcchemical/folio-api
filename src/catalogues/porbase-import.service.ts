@@ -62,29 +62,30 @@ export class PorbaseImportService {
           isbn10,
           isbn13,
           publisher: input.edition.publisher ?? null,
-          publishDate: input.edition.publishDate
-            ? new Date(input.edition.publishDate)
-            : null,
+          publicationDate: input.edition.publicationDate ?? null,
           language: input.edition.language ?? null,
           country: input.edition.country ?? null,
           format: input.edition.format ?? null,
-          pages: input.edition.pages ?? null,
+          pageCount: derivePageCount(input.edition.physicalDescriptions),
           workId: work.id,
+          physicalDescriptions: input.edition.physicalDescriptions?.length
+            ? {
+                create: input.edition.physicalDescriptions.map((description) => ({
+                  sortOrder: description.sortOrder,
+                  source: description.source ?? null,
+                  parts: {
+                    create: description.parts.map((part) => ({
+                      subfield: part.subfield.toLowerCase(),
+                      value: part.value.trim(),
+                      sortOrder: part.sortOrder,
+                      normalizedValue: null,
+                    })),
+                  },
+                })),
+              }
+            : undefined,
         },
       });
-
-      if (input.edition.physicalDescriptions?.length) {
-        await transaction.physicalDescription.createMany({
-          data: input.edition.physicalDescriptions.map((description, index) => ({
-            editionId: edition.id,
-            subfield: description.subfield,
-            value: description.value,
-            sortOrder: description.sortOrder ?? index,
-            source: description.source ?? null,
-            normalizedValue: null,
-          })),
-        });
-      }
 
       await this.persistContributors(
         transaction,
@@ -132,6 +133,9 @@ export class PorbaseImportService {
               items: true,
               physicalDescriptions: {
                 orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+                include: {
+                  parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+                },
               },
               editionContributors: { include: { contributor: true } },
             },
@@ -297,6 +301,17 @@ export class PorbaseImportService {
       throw new BadRequestException(`${field} is not a valid ISBN`);
     }
   }
+}
+
+function derivePageCount(
+  descriptions: PorbaseImportDto['edition']['physicalDescriptions'] | undefined,
+): number | null {
+  const candidates = (descriptions ?? [])
+    .flatMap(({ parts }) => parts)
+    .filter(({ subfield }) => subfield.toLowerCase() === 'a')
+    .map(({ value }) => /^(\d+)\s*(?:p\.?|pages?)$/i.exec(value.trim())?.[1])
+    .filter((value): value is string => Boolean(value));
+  return candidates.length === 1 ? Number(candidates[0]) : null;
 }
 
 function normalizeOptionalIsbn(

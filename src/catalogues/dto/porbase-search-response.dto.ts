@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-export class PorbasePhysicalDescriptionDto {
-  @ApiProperty({ enum: ['a', 'b', 'c', 'd'], example: 'a' })
+export class PorbasePhysicalDescriptionPartDto {
+  @ApiProperty({ example: 'a', pattern: '^[a-z0-9]$' })
   subfield!: string;
 
   @ApiProperty({ example: '383 p.' })
@@ -9,11 +9,19 @@ export class PorbasePhysicalDescriptionDto {
   @ApiProperty({ example: 0 })
   sortOrder!: number;
 
+  @ApiPropertyOptional({ example: '383 p.', nullable: true })
+  normalizedValue?: string | null;
+}
+
+export class PorbasePhysicalDescriptionDto {
+  @ApiProperty({ example: 0 })
+  sortOrder!: number;
+
   @ApiPropertyOptional({ example: 'PORBASE', nullable: true })
   source?: string | null;
 
-  @ApiPropertyOptional({ example: '383 p.', nullable: true })
-  normalizedValue?: string | null;
+  @ApiProperty({ type: [PorbasePhysicalDescriptionPartDto] })
+  parts!: PorbasePhysicalDescriptionPartDto[];
 }
 
 export class PorbaseBibliographicFieldsDto {
@@ -70,7 +78,7 @@ export type PorbaseWarningType =
   | 'parse_warning';
 
 export class PorbaseWarningDto {
-  @ApiPropertyOptional({ example: 'edition.publishDate' })
+  @ApiPropertyOptional({ example: 'edition.publicationDate' })
   field?: string;
 
   @ApiProperty({

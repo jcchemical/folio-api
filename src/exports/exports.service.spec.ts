@@ -26,11 +26,11 @@ function createEdition(overrides: Record<string, unknown> = {}) {
     isbn10: null,
     isbn13: '9789724426495',
     publisher: 'Editora Folio',
-    publishDate: new Date('2024-01-02T00:00:00.000Z'),
+    publicationDate: '2024-01-02',
     language: 'por',
     country: null,
     format: null,
-    pages: 320,
+    pageCount: 320,
     workId: 'work-1',
     work: {
       id: 'work-1',
@@ -136,6 +136,7 @@ describe('ExportsService', () => {
         externalIdentifiers: true,
         physicalDescriptions: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
         },
       },
     });
@@ -145,10 +146,12 @@ describe('ExportsService', () => {
   it('exports persisted physical descriptions and does not synthesize pages beside them', async () => {
     const { service } = createService(
       createEdition({
-        pages: 999,
+        pageCount: 999,
         physicalDescriptions: [
-          { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
-          { subfield: 'd', value: '24 cm', sortOrder: 1 },
+          { sortOrder: 0, parts: [
+            { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
+            { subfield: 'd', value: '24 cm', sortOrder: 1 },
+          ] },
         ],
       }),
     );

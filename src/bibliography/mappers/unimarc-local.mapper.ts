@@ -23,9 +23,12 @@ export type LocalExternalIdentifier = {
 };
 
 export type LocalPhysicalDescription = {
-  subfield: string;
-  value: string;
   sortOrder: number;
+  parts: Array<{
+    subfield: string;
+    value: string;
+    sortOrder: number;
+  }>;
 };
 
 export type UnimarcLocalEditionInput = {
@@ -35,9 +38,9 @@ export type UnimarcLocalEditionInput = {
   isbn10?: string | null;
   isbn13?: string | null;
   publisher?: string | null;
-  publishDate?: Date | string | null;
+  publicationDate?: string | null;
   language?: string | null;
-  pages?: number | null;
+  pageCount?: number | null;
   physicalDescriptions?: LocalPhysicalDescription[];
   work?: {
     title?: string | null;
@@ -112,7 +115,7 @@ export function mapLocalEditionToUnimarc(
 
   const publicationSubfields = [
     createOptionalSubfield('c', edition.publisher),
-    createOptionalSubfield('d', serializePublishDate(edition.publishDate)),
+    createOptionalSubfield('d', serializePublishDate(edition.publicationDate)),
   ].filter((subfield): subfield is { code: 'c' | 'd'; value: string } => Boolean(subfield));
 
   if (publicationSubfields.length > 0) {
@@ -125,28 +128,29 @@ export function mapLocalEditionToUnimarc(
   }
 
   const physicalDescriptions = [...(edition.physicalDescriptions ?? [])]
-    .filter(({ subfield, value }) =>
-      ['a', 'b', 'c', 'd'].includes(subfield) && isNonEmpty(value),
-    )
     .sort((left, right) => left.sortOrder - right.sortOrder);
   if (physicalDescriptions.length > 0) {
-    dataFields.push({
-      tag: '215',
-      indicator1: ' ',
-      indicator2: ' ',
-      subfields: physicalDescriptions.map(({ subfield, value }) => ({
-        code: subfield,
-        value,
-      })),
-    });
-  } else {
-    const pages = edition.pages;
-    if (typeof pages === 'number' && Number.isInteger(pages) && pages > 0) {
+    for (const description of physicalDescriptions) {
+      const subfields = [...description.parts]
+        .filter(({ subfield, value }) => /^[a-z0-9]$/.test(subfield) && isNonEmpty(value))
+        .sort((left, right) => left.sortOrder - right.sortOrder)
+        .map(({ subfield, value }) => ({ code: subfield, value }));
+      if (subfields.length === 0) continue;
       dataFields.push({
         tag: '215',
         indicator1: ' ',
         indicator2: ' ',
-        subfields: [{ code: 'a', value: `${pages} p.` }],
+        subfields,
+      });
+    }
+  } else {
+    const pageCount = edition.pageCount;
+    if (typeof pageCount === 'number' && Number.isInteger(pageCount) && pageCount > 0) {
+      dataFields.push({
+        tag: '215',
+        indicator1: ' ',
+        indicator2: ' ',
+        subfields: [{ code: 'a', value: `${pageCount} p.` }],
       });
     }
   }

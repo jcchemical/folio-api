@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsDateString, IsInt, IsNotEmpty, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsBibliographicDate } from '../../common/bibliographic-date.js';
 import { PhysicalDescriptionDto } from './physical-description.dto.js';
 
 export class CreateEditionDto {
@@ -31,8 +32,8 @@ export class CreateEditionDto {
 
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
-  @IsDateString()
-  publishDate?: string | null;
+  @IsBibliographicDate()
+  publicationDate?: string | null;
 
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
@@ -53,8 +54,6 @@ export class CreateEditionDto {
   @IsOptional()
   @IsInt()
   @Min(1)
-  pages?: number | null;
-
   @ApiPropertyOptional({ type: [PhysicalDescriptionDto] })
   @IsOptional()
   @ValidateNested({ each: true })

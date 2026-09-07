@@ -13,9 +13,9 @@ const completeEdition: UnimarcLocalEditionInput = {
   isbn10: '0306406152',
   isbn13: '9780306406157',
   publisher: 'Editora Folio',
-  publishDate: new Date('2024-01-02T00:00:00.000Z'),
+  publicationDate: '2024-01-02',
   language: 'por',
-  pages: 320,
+  pageCount: 320,
   work: { title: 'Título da obra' },
   editionContributors: [
     {
@@ -70,7 +70,7 @@ describe('local UNIMARC mapper', () => {
         indicator2: ' ',
         subfields: [
           { code: 'c', value: 'Editora Folio' },
-          { code: 'd', value: '2024-01-02T00:00:00.000Z' },
+          { code: 'd', value: '2024-01-02' },
         ],
       },
       {
@@ -238,7 +238,7 @@ describe('local UNIMARC mapper', () => {
     ]);
   });
 
-  it('does not emit 215 when pages are absent', () => {
+  it('does not emit 215 when pageCount is absent', () => {
     const result = mapLocalEditionToUnimarc({
       id: 'no-pages-edition',
       title: 'Título',
@@ -256,12 +256,16 @@ describe('local UNIMARC mapper', () => {
       id: 'physical-edition',
       title: 'Título',
       language: 'por',
-      pages: 999,
+      pageCount: 999,
       physicalDescriptions: [
-        { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
-        { subfield: 'b', value: 'il.', sortOrder: 1 },
-        { subfield: 'a', value: '24 cm', sortOrder: 2 },
-        { subfield: 'd', value: 'volume', sortOrder: 3 },
+        { sortOrder: 0, parts: [
+          { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
+          { subfield: 'b', value: 'il.', sortOrder: 1 },
+        ] },
+        { sortOrder: 1, parts: [
+          { subfield: 'a', value: '24 cm', sortOrder: 0 },
+          { subfield: 'd', value: 'volume', sortOrder: 1 },
+        ] },
       ],
     });
 
@@ -272,19 +276,24 @@ describe('local UNIMARC mapper', () => {
       subfields: [
         { code: 'a', value: '146, [6] p.' },
         { code: 'b', value: 'il.' },
+      ],
+    });
+    expect(result.record.dataFields).toContainEqual(expect.objectContaining({
+      tag: '215',
+      subfields: [
         { code: 'a', value: '24 cm' },
         { code: 'd', value: 'volume' },
       ],
-    });
-    expect(result.record.dataFields.filter(({ tag }) => tag === '215')).toHaveLength(1);
+    }));
+    expect(result.record.dataFields.filter(({ tag }) => tag === '215')).toHaveLength(2);
   });
 
-  it('uses pages only as the legacy fallback when descriptions are absent', () => {
+  it('uses pageCount only as the fallback when descriptions are absent', () => {
     const result = mapLocalEditionToUnimarc({
       id: 'legacy-pages-edition',
       title: 'Título',
       language: 'por',
-      pages: 320,
+      pageCount: 320,
     });
 
     expect(result.record.dataFields).toContainEqual(

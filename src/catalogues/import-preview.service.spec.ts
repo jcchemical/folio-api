@@ -73,13 +73,15 @@ describe('ImportPreviewService', () => {
         title: 'Vida e andanças de Alexis Zorbás',
         isbn13: isbn,
         publisher: 'Edições 70',
-        publishDate: '2022',
+        publicationDate: '2022',
         language: 'por',
         placeOfPublication: 'Coimbra',
-        pages: 383,
+        pageCount: 383,
         physicalDescriptions: [
-          { subfield: 'a', value: '383 p.', sortOrder: 0, source: 'PORBASE' },
-          { subfield: 'd', value: '24 cm', sortOrder: 1, source: 'PORBASE' },
+          { sortOrder: 0, source: 'PORBASE', parts: [
+            { subfield: 'a', value: '383 p.', sortOrder: 0 },
+            { subfield: 'd', value: '24 cm', sortOrder: 1 },
+          ] },
         ],
       },
       contributors: [
@@ -114,9 +116,11 @@ describe('ImportPreviewService', () => {
         title: 'Título',
         authors: [],
         extent: '146, [6] p.',
-        physicalDescriptions: [
-          { subfield: 'a', value: '146, [6] p.', sortOrder: 0, source: 'PORBASE' },
-        ],
+          physicalDescriptions: [{
+            sortOrder: 0,
+            source: 'PORBASE',
+            parts: [{ subfield: 'a', value: '146, [6] p.', sortOrder: 0 }],
+          }],
       },
       fields: {},
       warnings: [],
@@ -124,9 +128,9 @@ describe('ImportPreviewService', () => {
 
     const result = await service.createPreview(isbn);
 
-    expect(result.edition.pages).toBeNull();
+    expect(result.edition.pageCount).toBeNull();
     expect(result.edition.physicalDescriptions).toEqual([
-      { subfield: 'a', value: '146, [6] p.', sortOrder: 0, source: 'PORBASE' },
+      { sortOrder: 0, source: 'PORBASE', parts: [{ subfield: 'a', value: '146, [6] p.', sortOrder: 0 }] },
     ]);
     expect(result.warnings).toContainEqual(
       expect.objectContaining({

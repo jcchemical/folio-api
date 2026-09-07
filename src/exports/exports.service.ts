@@ -35,6 +35,7 @@ export class ExportsService {
         externalIdentifiers: true,
         physicalDescriptions: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
         },
       },
     });
@@ -53,9 +54,9 @@ export class ExportsService {
         isbn10: edition.isbn10,
         isbn13: edition.isbn13,
         publisher: edition.publisher,
-        publishDate: edition.publishDate,
+        publicationDate: edition.publicationDate,
         language: edition.language,
-        pages: edition.pages,
+        pageCount: edition.pageCount,
         physicalDescriptions: edition.physicalDescriptions,
         work: { title: edition.work.title },
         editionContributors: edition.editionContributors,

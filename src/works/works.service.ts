@@ -16,11 +16,10 @@ export interface EditionInput {
   isbn10?: string | null;
   isbn13?: string | null;
   publisher?: string | null;
-  publishDate?: Date | string | null;
+  publicationDate?: string | null;
   language?: string | null;
   country?: string | null;
   format?: string | null;
-  pages?: number | null;
   physicalDescriptions?: PhysicalDescriptionInput[];
 }
 
@@ -58,6 +57,7 @@ export class WorksService {
           include: {
             physicalDescriptions: {
               orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+              include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
             },
           },
         },
@@ -76,6 +76,7 @@ export class WorksService {
           include: {
             physicalDescriptions: {
               orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+              include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
             },
           },
         },
@@ -116,8 +117,9 @@ export class WorksService {
             data: {
               ...edition,
               workId: work.id,
+              pageCount: derivePageCount(physicalDescriptions),
               physicalDescriptions: physicalDescriptions?.length
-                ? { create: physicalDescriptions }
+                ? { create: physicalDescriptions.map(toPhysicalDescriptionCreate) }
                 : undefined,
             },
           }),
@@ -160,8 +162,9 @@ export class WorksService {
                 data: {
                   ...edition,
                   workId: id,
+                  pageCount: derivePageCount(physicalDescriptions),
                   physicalDescriptions: physicalDescriptions?.length
-                    ? { create: physicalDescriptions }
+                    ? { create: physicalDescriptions.map(toPhysicalDescriptionCreate) }
                     : undefined,
                 },
               }),
@@ -184,4 +187,30 @@ export class WorksService {
       include: { organization: true, editions: true },
     });
   }
+}
+
+function toPhysicalDescriptionCreate(description: NonNullable<EditionInput['physicalDescriptions']>[number]) {
+  return {
+    sortOrder: description.sortOrder,
+    source: description.source ?? null,
+    parts: {
+      create: description.parts.map((part) => ({
+        subfield: part.subfield.toLowerCase(),
+        value: part.value.trim(),
+        sortOrder: part.sortOrder,
+        normalizedValue: null,
+      })),
+    },
+  };
+}
+
+function derivePageCount(
+  descriptions: EditionInput['physicalDescriptions'] | undefined,
+): number | null {
+  const candidates = (descriptions ?? [])
+    .flatMap(({ parts }) => parts)
+    .filter(({ subfield }) => subfield.toLowerCase() === 'a')
+    .map(({ value }) => /^(\d+)\s*(?:p\.?|pages?)$/i.exec(value.trim())?.[1])
+    .filter((value): value is string => Boolean(value));
+  return candidates.length === 1 ? Number(candidates[0]) : null;
 }

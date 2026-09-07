@@ -81,19 +81,19 @@ model Work {
 }
 
 model Edition {
-  id          String    @id @default(cuid())
-  title       String // título da edição (pode ser igual ao da obra)
-  subtitle    String?
-  isbn10      String?   @db.Char(10)
-  isbn13      String?   @db.Char(13)
-  publisher   String?
-  publishDate DateTime?
-  language    String?
-  country     String?
-  format      String? // ex: "Hardcover", "Paperback", "eBook"
-  pages       Int?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id              String   @id @default(cuid())
+  title           String // título da edição (pode ser igual ao da obra)
+  subtitle        String?
+  isbn10          String?  @db.Char(10)
+  isbn13          String?  @db.Char(13)
+  publisher       String?
+  publicationDate String?  @db.VarChar(10)
+  language        String?
+  country         String?
+  format          String? // ex: "Hardcover", "Paperback", "eBook"
+  pageCount       Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   workId String
   work   Work   @relation(fields: [workId], references: [id], onDelete: Cascade)
@@ -108,19 +108,32 @@ model Edition {
 }
 
 model PhysicalDescription {
-  id              String   @id @default(cuid())
-  editionId       String
-  subfield        String
-  value           String
-  sortOrder       Int      @default(0)
-  source          String?
-  normalizedValue String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id        String   @id @default(cuid())
+  editionId String
+  sortOrder Int      @default(0)
+  source    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  edition Edition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  edition Edition                   @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  parts   PhysicalDescriptionPart[]
 
   @@index([editionId, sortOrder, id])
+}
+
+model PhysicalDescriptionPart {
+  id                    String   @id @default(cuid())
+  physicalDescriptionId String
+  subfield              String   @db.Char(1)
+  value                 String   @db.Text
+  sortOrder             Int      @default(0)
+  normalizedValue       String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  physicalDescription PhysicalDescription @relation(fields: [physicalDescriptionId], references: [id], onDelete: Cascade)
+
+  @@index([physicalDescriptionId, sortOrder, id])
 }
 
 model Contributor {

@@ -11,14 +11,15 @@ const baseInput: PorbaseImportDto = {
     isbn10: null,
     isbn13: '9789724426495',
     publisher: 'Publisher',
-    publishDate: '2022-01-01',
+    publicationDate: '2022',
     language: 'por',
     country: 'PT',
     format: null,
-    pages: 383,
     physicalDescriptions: [
-      { subfield: 'a', value: '383 p.', sortOrder: 0, source: 'PORBASE' },
-      { subfield: 'd', value: '24 cm', sortOrder: 1, source: 'PORBASE' },
+      { sortOrder: 0, source: 'PORBASE', parts: [
+        { subfield: 'a', value: '383 p.', sortOrder: 0 },
+        { subfield: 'd', value: '24 cm', sortOrder: 1 },
+      ] },
     ],
   },
   contributors: [
@@ -87,7 +88,6 @@ function createTransactionMock() {
       create: vi.fn().mockResolvedValue({ id: 'record-1' }),
     },
     item: { create: vi.fn().mockResolvedValue({ id: 'item-1' }) },
-    physicalDescription: { createMany: vi.fn().mockResolvedValue({ count: 2 }) },
   };
 
   return { tx, work, edition };
@@ -112,11 +112,22 @@ describe('PorbaseImportService', () => {
     expect(tx.item.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ organizationId: 'organization-1' }),
     });
-    expect(tx.physicalDescription.createMany).toHaveBeenCalledWith({
-      data: [
-        expect.objectContaining({ subfield: 'a', value: '383 p.', sortOrder: 0 }),
-        expect.objectContaining({ subfield: 'd', value: '24 cm', sortOrder: 1 }),
-      ],
+    expect(tx.edition.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        publicationDate: '2022',
+        pageCount: 383,
+        physicalDescriptions: expect.objectContaining({
+          create: [expect.objectContaining({
+            sortOrder: 0,
+            parts: expect.objectContaining({
+              create: [
+                expect.objectContaining({ subfield: 'a', value: '383 p.' }),
+                expect.objectContaining({ subfield: 'd', value: '24 cm' }),
+              ],
+            }),
+          })],
+        }),
+      }),
     });
     expect(result.id).toBe('work-1');
   });

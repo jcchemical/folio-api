@@ -22,7 +22,10 @@ export class EditionsService {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       include: {
         work: true,
-        physicalDescriptions: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+        physicalDescriptions: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+        },
       },
       ...prisma,
     });
@@ -34,7 +37,10 @@ export class EditionsService {
       where: { id },
       include: {
         work: true,
-        physicalDescriptions: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+        physicalDescriptions: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+        },
         items: { where: { organization: { memberships: { some: { userId } } } } },
       },
     });
@@ -50,13 +56,17 @@ export class EditionsService {
     return this.prisma.edition.create({
       data: {
         ...edition,
+        pageCount: derivePageCount(physicalDescriptions),
         workId,
         physicalDescriptions: physicalDescriptions?.length
-          ? { create: physicalDescriptions }
+          ? { create: physicalDescriptions.map(toPhysicalDescriptionCreate) }
           : undefined,
       },
       include: {
-        physicalDescriptions: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+        physicalDescriptions: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+        },
       },
     });
   }
@@ -67,27 +77,43 @@ export class EditionsService {
     return this.prisma.$transaction(async (transaction) => {
       const updated = await transaction.edition.update({
         where: { id },
-        data: edition,
+        data: { ...edition, pageCount: derivePageCount(physicalDescriptions) },
       });
       if (physicalDescriptions !== undefined) {
         await transaction.physicalDescription.deleteMany({ where: { editionId: id } });
         if (physicalDescriptions.length) {
           await transaction.physicalDescription.createMany({
-            data: physicalDescriptions.map((description, index) => ({
+            data: physicalDescriptions.map((description) => ({
               editionId: id,
-              subfield: description.subfield,
-              value: description.value,
-              sortOrder: description.sortOrder ?? index,
+              sortOrder: description.sortOrder,
               source: description.source ?? null,
-              normalizedValue: description.normalizedValue ?? null,
             })),
           });
+          const fields = await transaction.physicalDescription.findMany({
+            where: { editionId: id },
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          });
+          for (const [index, description] of physicalDescriptions.entries()) {
+            const field = fields[index];
+            await transaction.physicalDescriptionPart.createMany({
+              data: description.parts.map((part) => ({
+                physicalDescriptionId: field.id,
+                subfield: part.subfield.toLowerCase(),
+                value: part.value.trim(),
+                sortOrder: part.sortOrder,
+                normalizedValue: null,
+              })),
+            });
+          }
         }
       }
       return transaction.edition.findUniqueOrThrow({
         where: { id: updated.id },
         include: {
-          physicalDescriptions: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+          physicalDescriptions: {
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+            include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+          },
         },
       });
     });
@@ -122,4 +148,30 @@ export class EditionsService {
     if (!edition) throw new NotFoundException('Edition not found');
     await this.organizationMemberships.assertWorkWriteAccess(userId, edition.work);
   }
+}
+
+function toPhysicalDescriptionCreate(description: NonNullable<EditionInput['physicalDescriptions']>[number]) {
+  return {
+    sortOrder: description.sortOrder,
+    source: description.source ?? null,
+    parts: {
+      create: description.parts.map((part) => ({
+        subfield: part.subfield.toLowerCase(),
+        value: part.value.trim(),
+        sortOrder: part.sortOrder,
+        normalizedValue: null,
+      })),
+    },
+  };
+}
+
+function derivePageCount(
+  descriptions: EditionInput['physicalDescriptions'] | undefined,
+): number | null {
+  const candidates = (descriptions ?? [])
+    .flatMap(({ parts }) => parts)
+    .filter(({ subfield }) => subfield.toLowerCase() === 'a')
+    .map(({ value }) => /^(\d+)\s*(?:p\.?|pages?)$/i.exec(value.trim())?.[1])
+    .filter((value): value is string => Boolean(value));
+  return candidates.length === 1 ? Number(candidates[0]) : null;
 }

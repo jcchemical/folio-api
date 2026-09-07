@@ -363,7 +363,7 @@ function normalizePublicationDate(
   const match = /^(?:D\.?\s*L\.?\s*)?(\d{4})[.?]?$/.exec(original);
   if (!match) {
     warnings.push({
-      field: 'edition.publishDate',
+      field: 'edition.publicationDate',
       message: `Não foi possível extrair data de '${original}'`,
       original,
       type: 'parse_error',
@@ -374,7 +374,7 @@ function normalizePublicationDate(
   const normalized = match[1];
   if (original !== normalized) {
     warnings.push({
-      field: 'edition.publishDate',
+      field: 'edition.publicationDate',
       message: `Data normalizada de '${original}' para '${normalized}'`,
       original,
       normalized,
@@ -405,30 +405,33 @@ function emptyMetadata(): PorbaseBibliographicFieldsDto {
 function extractTextPhysicalDescriptions(
   fields: TextField[],
 ): Array<{
-  subfield: string;
-  value: string;
   sortOrder: number;
   source: string;
-}> {
-  const descriptions: Array<{
+  parts: Array<{
     subfield: string;
     value: string;
     sortOrder: number;
+  }>;
+}> {
+  const descriptions: Array<{
+    sortOrder: number;
     source: string;
+    parts: Array<{ subfield: string; value: string; sortOrder: number }>;
   }> = [];
-  let sortOrder = 0;
-  for (const field of fields) {
-    if (field.tag !== '215') continue;
-    for (const { code, value } of field.orderedSubfields) {
-      if (['a', 'b', 'c', 'd'].includes(code) && value.trim()) {
-        descriptions.push({
-          subfield: code,
-          value,
-          sortOrder: sortOrder++,
-          source: 'PORBASE',
-        });
-      }
-    }
+  for (const field of fields.filter(({ tag }) => tag === '215')) {
+    const parts = field.orderedSubfields
+      .filter(({ value }) => value.trim())
+      .map(({ code, value }, sortOrder) => ({
+        subfield: code,
+        value,
+        sortOrder,
+      }));
+    if (parts.length === 0) continue;
+    descriptions.push({
+      sortOrder: descriptions.length,
+      source: 'PORBASE',
+      parts,
+    });
   }
   return descriptions;
 }
@@ -436,31 +439,39 @@ function extractTextPhysicalDescriptions(
 function extractXmlPhysicalDescriptions(
   record: XmlObject,
 ): Array<{
-  subfield: string;
-  value: string;
   sortOrder: number;
   source: string;
-}> {
-  const descriptions: Array<{
+  parts: Array<{
     subfield: string;
     value: string;
     sortOrder: number;
+  }>;
+}> {
+  const descriptions: Array<{
+    sortOrder: number;
     source: string;
+    parts: Array<{ subfield: string; value: string; sortOrder: number }>;
   }> = [];
-  let sortOrder = 0;
   for (const field of datafields(record, '215')) {
-    for (const subfield of asArray(field.subfield)) {
-      const code = textValue(subfield['@_code'])?.toLowerCase();
-      const value = findText(subfield)?.trim();
-      if (code && ['a', 'b', 'c', 'd'].includes(code) && value) {
-        descriptions.push({
-          subfield: code,
-          value,
-          sortOrder: sortOrder++,
-          source: 'PORBASE',
-        });
-      }
-    }
+    const parts = asArray(field.subfield)
+      .map((subfield) => ({
+        code: textValue(subfield['@_code'])?.toLowerCase(),
+        value: findText(subfield)?.trim(),
+      }))
+      .filter((part): part is { code: string; value: string } =>
+        Boolean(part.code && /^[a-z0-9]$/.test(part.code) && part.value),
+      )
+      .map(({ code, value }, sortOrder) => ({
+        subfield: code,
+        value,
+        sortOrder,
+      }));
+    if (parts.length === 0) continue;
+    descriptions.push({
+      sortOrder: descriptions.length,
+      source: 'PORBASE',
+      parts,
+    });
   }
   return descriptions;
 }

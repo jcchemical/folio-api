@@ -15,7 +15,7 @@ describe('parsePorbaseResponse publication-date normalization', () => {
 
     expect(result.metadata.publicationDate).toBe('2009');
     expect(result.warnings).toContainEqual({
-      field: 'edition.publishDate',
+      field: 'edition.publicationDate',
       message: "Data normalizada de 'D.L. 2009' para '2009'",
       original: 'D.L. 2009',
       normalized: '2009',
@@ -44,7 +44,7 @@ describe('parsePorbaseResponse publication-date normalization', () => {
 
     expect(result.metadata.publicationDate).toBeNull();
     expect(result.warnings).toContainEqual({
-      field: 'edition.publishDate',
+      field: 'edition.publicationDate',
       message: "Não foi possível extrair data de 's.d.'",
       original: 's.d.',
       type: 'parse_error',
@@ -65,10 +65,14 @@ describe('parsePorbaseResponse physical descriptions', () => {
 
     expect(result.metadata.extent).toBe('146, [6] p.');
     expect(result.metadata.physicalDescriptions).toEqual([
-      { subfield: 'a', value: '146, [6] p.', sortOrder: 0, source: 'PORBASE' },
-      { subfield: 'b', value: 'il.', sortOrder: 1, source: 'PORBASE' },
-      { subfield: 'a', value: '24 cm', sortOrder: 2, source: 'PORBASE' },
-      { subfield: 'd', value: 'volume', sortOrder: 3, source: 'PORBASE' },
+      { sortOrder: 0, source: 'PORBASE', parts: [
+        { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
+        { subfield: 'b', value: 'il.', sortOrder: 1 },
+      ] },
+      { sortOrder: 1, source: 'PORBASE', parts: [
+        { subfield: 'a', value: '24 cm', sortOrder: 0 },
+        { subfield: 'd', value: 'volume', sortOrder: 1 },
+      ] },
     ]);
   });
 
@@ -81,10 +85,14 @@ describe('parsePorbaseResponse physical descriptions', () => {
 
     expect(result.metadata.extent).toBe('146, [6] p.');
     expect(result.metadata.physicalDescriptions).toEqual([
-      { subfield: 'a', value: '146, [6] p.', sortOrder: 0, source: 'PORBASE' },
-      { subfield: 'b', value: 'il.', sortOrder: 1, source: 'PORBASE' },
-      { subfield: 'c', value: '24 cm', sortOrder: 2, source: 'PORBASE' },
-      { subfield: 'd', value: 'volume', sortOrder: 3, source: 'PORBASE' },
+      { sortOrder: 0, source: 'PORBASE', parts: [
+        { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
+        { subfield: 'b', value: 'il.', sortOrder: 1 },
+      ] },
+      { sortOrder: 1, source: 'PORBASE', parts: [
+        { subfield: 'c', value: '24 cm', sortOrder: 0 },
+        { subfield: 'd', value: 'volume', sortOrder: 1 },
+      ] },
     ]);
   });
 });

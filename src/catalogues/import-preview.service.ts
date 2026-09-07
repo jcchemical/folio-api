@@ -51,10 +51,10 @@ export class ImportPreviewService {
     const edition: ImportPreviewEditionDto = {
       title,
       publisher: metadata.publisher,
-      publishDate: metadata.publicationDate,
+      publicationDate: metadata.publicationDate,
       language: metadata.language,
       placeOfPublication: metadata.placeOfPublication,
-      pages: parsePages(metadata.physicalDescriptions, metadata.extent),
+      pageCount: parsePages(metadata.physicalDescriptions, metadata.extent),
       physicalDescriptions: metadata.physicalDescriptions ?? [],
     };
 
@@ -72,11 +72,11 @@ export class ImportPreviewService {
       warnings.push(warning('The import title was not identified safely.', 'missing_field', 'work.title'));
     if (!metadata.publisher)
       warnings.push(warning('Publisher was not identified.', 'missing_field', 'edition.publisher'));
-    if (!metadata.publicationDate && !hasWarningForField(warnings, 'edition.publishDate'))
-      warnings.push(warning('Publication date was not identified.', 'missing_field', 'edition.publishDate'));
+    if (!metadata.publicationDate && !hasWarningForField(warnings, 'edition.publicationDate'))
+      warnings.push(warning('Publication date was not identified.', 'missing_field', 'edition.publicationDate'));
     if (!metadata.language)
       warnings.push(warning('Language was not identified.', 'missing_field', 'edition.language'));
-    if (metadata.extent && edition.pages == null) {
+    if (metadata.extent && edition.pageCount == null) {
       warnings.push(warning('The physical description was preserved, but no reliable numeric page count could be derived.', 'parse_error', 'edition.physicalDescriptions'));
     }
     if (
@@ -136,10 +136,11 @@ function toExternalIdentifiers(
 }
 
 function parsePages(
-  descriptions?: Array<{ subfield: string; value: string }>,
+  descriptions?: Array<{ parts: Array<{ subfield: string; value: string }> }>,
   extent?: string,
 ): number | null {
   const pageValues = (descriptions ?? [])
+    .flatMap(({ parts }) => parts)
     .filter(({ subfield }) => subfield === 'a')
     .map(({ value }) => value.trim());
   const candidates = (pageValues.length ? pageValues : extent ? [extent] : [])

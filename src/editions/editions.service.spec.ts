@@ -91,8 +91,10 @@ describe('EditionsService physical descriptions', () => {
     await service.create('user-1', 'work-1', {
       title: 'Edition',
       physicalDescriptions: [
-        { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
-        { subfield: 'd', value: '24 cm', sortOrder: 1 },
+        { sortOrder: 0, parts: [
+          { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
+          { subfield: 'd', value: '24 cm', sortOrder: 1 },
+        ] },
       ],
     });
 
@@ -100,13 +102,21 @@ describe('EditionsService physical descriptions', () => {
       data: expect.objectContaining({
         physicalDescriptions: {
           create: [
-            { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
-            { subfield: 'd', value: '24 cm', sortOrder: 1 },
+            expect.objectContaining({
+              sortOrder: 0,
+              parts: { create: [
+                { subfield: 'a', value: '146, [6] p.', sortOrder: 0, normalizedValue: null },
+                { subfield: 'd', value: '24 cm', sortOrder: 1, normalizedValue: null },
+              ] },
+            }),
           ],
         },
       }),
       include: {
-        physicalDescriptions: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+        physicalDescriptions: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+        },
       },
     });
   });
@@ -122,6 +132,10 @@ describe('EditionsService physical descriptions', () => {
       },
       physicalDescription: {
         deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+        createMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findMany: vi.fn().mockResolvedValue([{ id: 'field-1', sortOrder: 0 }]),
+      },
+      physicalDescriptionPart: {
         createMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
     };
@@ -146,14 +160,16 @@ describe('EditionsService physical descriptions', () => {
 
     await service.update('edition-1', userId, {
       physicalDescriptions: [
-        { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
+        { sortOrder: 0, parts: [
+          { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
+        ] },
       ],
     });
 
     expect(transaction.physicalDescription.deleteMany).toHaveBeenCalledWith({
       where: { editionId: 'edition-1' },
     });
-    expect(transaction.physicalDescription.createMany).toHaveBeenCalledWith({
+    expect(transaction.physicalDescriptionPart.createMany).toHaveBeenCalledWith({
       data: [
         expect.objectContaining({
           subfield: 'a',

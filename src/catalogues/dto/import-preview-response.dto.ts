@@ -24,7 +24,7 @@ export class ImportPreviewEditionDto {
   publisher?: string;
 
   @ApiPropertyOptional({ example: '2022', nullable: true })
-  publishDate?: string | null;
+  publicationDate?: string | null;
 
   @ApiPropertyOptional({ example: 'por' })
   language?: string;
@@ -36,7 +36,7 @@ export class ImportPreviewEditionDto {
   format?: string;
 
   @ApiPropertyOptional({ example: 383, nullable: true })
-  pages?: number | null;
+  pageCount?: number | null;
 
   @ApiProperty({ type: [PorbasePhysicalDescriptionDto], required: false })
   physicalDescriptions?: PorbasePhysicalDescriptionDto[];
