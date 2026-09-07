@@ -46,6 +46,7 @@ function createEdition(overrides: Record<string, unknown> = {}) {
     },
     editionContributors: [],
     externalIdentifiers: [],
+    physicalDescriptions: [],
     ...overrides,
   };
 }
@@ -133,9 +134,30 @@ describe('ExportsService', () => {
           include: { contributor: true },
         },
         externalIdentifiers: true,
+        physicalDescriptions: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        },
       },
     });
     expect(xml).not.toContain('original');
+  });
+
+  it('exports persisted physical descriptions and does not synthesize pages beside them', async () => {
+    const { service } = createService(
+      createEdition({
+        pages: 999,
+        physicalDescriptions: [
+          { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
+          { subfield: 'd', value: '24 cm', sortOrder: 1 },
+        ],
+      }),
+    );
+
+    const xml = await service.exportMarcXchange(editionId, ownerId);
+
+    expect(xml).toContain('146, [6] p.');
+    expect(xml).toContain('24 cm');
+    expect(xml).not.toContain('999 p.');
   });
 });
 

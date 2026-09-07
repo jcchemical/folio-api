@@ -22,6 +22,12 @@ export type LocalExternalIdentifier = {
   value: string;
 };
 
+export type LocalPhysicalDescription = {
+  subfield: string;
+  value: string;
+  sortOrder: number;
+};
+
 export type UnimarcLocalEditionInput = {
   id: string;
   title?: string | null;
@@ -32,6 +38,7 @@ export type UnimarcLocalEditionInput = {
   publishDate?: Date | string | null;
   language?: string | null;
   pages?: number | null;
+  physicalDescriptions?: LocalPhysicalDescription[];
   work?: {
     title?: string | null;
   } | null;
@@ -117,14 +124,31 @@ export function mapLocalEditionToUnimarc(
     });
   }
 
-  const pages = edition.pages;
-  if (typeof pages === 'number' && Number.isInteger(pages) && pages > 0) {
+  const physicalDescriptions = [...(edition.physicalDescriptions ?? [])]
+    .filter(({ subfield, value }) =>
+      ['a', 'b', 'c', 'd'].includes(subfield) && isNonEmpty(value),
+    )
+    .sort((left, right) => left.sortOrder - right.sortOrder);
+  if (physicalDescriptions.length > 0) {
     dataFields.push({
       tag: '215',
       indicator1: ' ',
       indicator2: ' ',
-      subfields: [{ code: 'a', value: `${pages} p.` }],
+      subfields: physicalDescriptions.map(({ subfield, value }) => ({
+        code: subfield,
+        value,
+      })),
     });
+  } else {
+    const pages = edition.pages;
+    if (typeof pages === 'number' && Number.isInteger(pages) && pages > 0) {
+      dataFields.push({
+        tag: '215',
+        indicator1: ' ',
+        indicator2: ' ',
+        subfields: [{ code: 'a', value: `${pages} p.` }],
+      });
+    }
   }
 
   appendContributorFields(edition, dataFields, warnings);

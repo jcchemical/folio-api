@@ -14,11 +14,8 @@ import type { Request } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
-import {
-  WorksService,
-  type WorkInput,
-  type WorkUpdateInput,
-} from './works.service.js';
+import { WorksService } from './works.service.js';
+import { CreateWorkDto, UpdateWorkDto } from './dto/work.dto.js';
 import type { Work } from '@prisma/client';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 
@@ -47,7 +44,7 @@ export class WorksController {
 
   @Post()
   async create(
-    @Body() body: WorkInput,
+    @Body() body: CreateWorkDto,
     @Req() request: Request,
   ): Promise<Work | null> {
     return this.worksService.create(this.getUserId(request), body);
@@ -56,7 +53,7 @@ export class WorksController {
   @Put(':id')
   async update(
     @Param('id') id: string,
-    @Body() body: WorkUpdateInput,
+    @Body() body: UpdateWorkDto,
     @Req() request: Request,
   ): Promise<Work | null> {
     return this.worksService.update(id, this.getUserId(request), body);

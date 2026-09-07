@@ -20,7 +20,10 @@ export class EditionsService {
         },
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      include: { work: true },
+      include: {
+        work: true,
+        physicalDescriptions: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+      },
       ...prisma,
     });
     return paginate(rows, limit);
@@ -29,7 +32,11 @@ export class EditionsService {
   async findById(id: string, userId: string) {
     const edition = await this.prisma.edition.findUnique({
       where: { id },
-      include: { work: true, items: { where: { organization: { memberships: { some: { userId } } } } } },
+      include: {
+        work: true,
+        physicalDescriptions: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+        items: { where: { organization: { memberships: { some: { userId } } } } },
+      },
     });
     await this.assertEditionAccess(edition, userId);
     return edition;
@@ -39,12 +46,51 @@ export class EditionsService {
     const work = await this.prisma.work.findUnique({ where: { id: workId } });
     if (!work) throw new NotFoundException('Work not found');
     await this.organizationMemberships.assertWorkWriteAccess(userId, work);
-    return this.prisma.edition.create({ data: { ...data, workId } });
+    const { physicalDescriptions, ...edition } = data;
+    return this.prisma.edition.create({
+      data: {
+        ...edition,
+        workId,
+        physicalDescriptions: physicalDescriptions?.length
+          ? { create: physicalDescriptions }
+          : undefined,
+      },
+      include: {
+        physicalDescriptions: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+      },
+    });
   }
 
   async update(id: string, userId: string, data: Partial<EditionInput>) {
     await this.assertEditionOwnership(id, userId);
-    return this.prisma.edition.update({ where: { id }, data });
+    const { physicalDescriptions, ...edition } = data;
+    return this.prisma.$transaction(async (transaction) => {
+      const updated = await transaction.edition.update({
+        where: { id },
+        data: edition,
+      });
+      if (physicalDescriptions !== undefined) {
+        await transaction.physicalDescription.deleteMany({ where: { editionId: id } });
+        if (physicalDescriptions.length) {
+          await transaction.physicalDescription.createMany({
+            data: physicalDescriptions.map((description, index) => ({
+              editionId: id,
+              subfield: description.subfield,
+              value: description.value,
+              sortOrder: description.sortOrder ?? index,
+              source: description.source ?? null,
+              normalizedValue: description.normalizedValue ?? null,
+            })),
+          });
+        }
+      }
+      return transaction.edition.findUniqueOrThrow({
+        where: { id: updated.id },
+        include: {
+          physicalDescriptions: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+        },
+      });
+    });
   }
 
   async remove(id: string, userId: string) {

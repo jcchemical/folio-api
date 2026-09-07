@@ -128,6 +128,7 @@ interface TextField {
   tag: string;
   value: string;
   subfields: Map<string, string[]>;
+  orderedSubfields: Array<{ code: string; value: string }>;
 }
 
 function parseMarcTextFields(
@@ -152,12 +153,15 @@ function parseMarcTextFields(
 
     const [, tag, remainder] = match;
     const subfields = new Map<string, string[]>();
+    const orderedSubfields: Array<{ code: string; value: string }> = [];
     const subfieldMatches = [...remainder.matchAll(/\$([a-z0-9])\s*([^$]*)/gi)];
     for (const subfield of subfieldMatches) {
       const [, code, value] = subfield;
       const values = subfields.get(code.toLowerCase()) ?? [];
-      values.push(value.trim());
+      const trimmedValue = value.trim();
+      values.push(trimmedValue);
       subfields.set(code.toLowerCase(), values);
+      orderedSubfields.push({ code: code.toLowerCase(), value: trimmedValue });
     }
 
     const value = subfieldMatches.length
@@ -171,7 +175,7 @@ function parseMarcTextFields(
         ),
       );
     }
-    fields.push({ tag, value, subfields });
+    fields.push({ tag, value, subfields, orderedSubfields });
   }
   return fields;
 }
@@ -198,6 +202,7 @@ function extractTextMetadata(
     warnings,
   );
   metadata.extent = firstSubfieldValue(fields, '215', 'a');
+  metadata.physicalDescriptions = extractTextPhysicalDescriptions(fields);
 
   const authorFields = fields.filter((field) =>
     ['700', '701'].includes(field.tag),
@@ -293,6 +298,7 @@ function extractXmlMetadata(
     warnings,
   );
   metadata.extent = firstSubfield(record, '215', 'a');
+  metadata.physicalDescriptions = extractXmlPhysicalDescriptions(record);
 
   metadata.authors = ['700', '701']
     .flatMap((tag) => datafields(record, tag).map(contributorNameFromXml))
@@ -387,7 +393,76 @@ function warning(
 }
 
 function emptyMetadata(): PorbaseBibliographicFieldsDto {
-  return { authors: [], translators: [], shelfmarks: [], identifiers: [] };
+  return {
+    authors: [],
+    translators: [],
+    shelfmarks: [],
+    identifiers: [],
+    physicalDescriptions: [],
+  };
+}
+
+function extractTextPhysicalDescriptions(
+  fields: TextField[],
+): Array<{
+  subfield: string;
+  value: string;
+  sortOrder: number;
+  source: string;
+}> {
+  const descriptions: Array<{
+    subfield: string;
+    value: string;
+    sortOrder: number;
+    source: string;
+  }> = [];
+  let sortOrder = 0;
+  for (const field of fields) {
+    if (field.tag !== '215') continue;
+    for (const { code, value } of field.orderedSubfields) {
+      if (['a', 'b', 'c', 'd'].includes(code) && value.trim()) {
+        descriptions.push({
+          subfield: code,
+          value,
+          sortOrder: sortOrder++,
+          source: 'PORBASE',
+        });
+      }
+    }
+  }
+  return descriptions;
+}
+
+function extractXmlPhysicalDescriptions(
+  record: XmlObject,
+): Array<{
+  subfield: string;
+  value: string;
+  sortOrder: number;
+  source: string;
+}> {
+  const descriptions: Array<{
+    subfield: string;
+    value: string;
+    sortOrder: number;
+    source: string;
+  }> = [];
+  let sortOrder = 0;
+  for (const field of datafields(record, '215')) {
+    for (const subfield of asArray(field.subfield)) {
+      const code = textValue(subfield['@_code'])?.toLowerCase();
+      const value = findText(subfield)?.trim();
+      if (code && ['a', 'b', 'c', 'd'].includes(code) && value) {
+        descriptions.push({
+          subfield: code,
+          value,
+          sortOrder: sortOrder++,
+          source: 'PORBASE',
+        });
+      }
+    }
+  }
+  return descriptions;
 }
 
 function detectFormat(

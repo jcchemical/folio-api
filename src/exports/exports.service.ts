@@ -33,6 +33,9 @@ export class ExportsService {
           include: { contributor: true },
         },
         externalIdentifiers: true,
+        physicalDescriptions: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        },
       },
     });
 
@@ -53,6 +56,7 @@ export class ExportsService {
         publishDate: edition.publishDate,
         language: edition.language,
         pages: edition.pages,
+        physicalDescriptions: edition.physicalDescriptions,
         work: { title: edition.work.title },
         editionContributors: edition.editionContributors,
         workContributors: edition.work.workContributors,

@@ -73,6 +73,19 @@ export class PorbaseImportService {
         },
       });
 
+      if (input.edition.physicalDescriptions?.length) {
+        await transaction.physicalDescription.createMany({
+          data: input.edition.physicalDescriptions.map((description, index) => ({
+            editionId: edition.id,
+            subfield: description.subfield,
+            value: description.value,
+            sortOrder: description.sortOrder ?? index,
+            source: description.source ?? null,
+            normalizedValue: null,
+          })),
+        });
+      }
+
       await this.persistContributors(
         transaction,
         work.id,
@@ -117,6 +130,9 @@ export class PorbaseImportService {
               externalIdentifiers: true,
               bibliographicRecords: true,
               items: true,
+              physicalDescriptions: {
+                orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+              },
               editionContributors: { include: { contributor: true } },
             },
           },

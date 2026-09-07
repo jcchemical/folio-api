@@ -15,7 +15,10 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { EditionsService } from './editions.service.js';
-import type { EditionInput } from '../works/works.service.js';
+import {
+  CreateEditionRequestDto,
+  UpdateEditionDto,
+} from './dto/edition.dto.js';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 
 @ApiTags('editions')
@@ -37,7 +40,7 @@ export class EditionsController {
 
   @Post()
   create(
-    @Body() body: EditionInput & { workId: string },
+    @Body() body: CreateEditionRequestDto,
     @Req() request: Request,
   ) {
     const { workId, ...edition } = body;
@@ -51,7 +54,7 @@ export class EditionsController {
   @Put(':id')
   update(
     @Param('id') id: string,
-    @Body() body: Partial<EditionInput>,
+    @Body() body: UpdateEditionDto,
     @Req() request: Request,
   ) {
     return this.editionsService.update(id, this.getUserId(request), body);

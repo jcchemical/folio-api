@@ -69,7 +69,7 @@ Esta fundação resolve o risco histórico de ownership por `userId` e prepara o
 
 ### Actuais (pendentes)
 
-1. **Descrição física:** `Edition.pages: Int?` não é suficiente para UNIMARC `215$a`. É necessário uma estrutura repetível para subcampos.[^6][^9]
+1. **Descrição física:** `PhysicalDescription` foi adicionada como estrutura repetível para UNIMARC `215$a`, `$b`, `$c` e `$d`; `Edition.pages: Int?` permanece como valor derivado de compatibilidade.[^6][^9]
 2. **Contributors:** não são ainda autoridades bibliográficas; falta `Agent`, `AgentName`, `AuthorityIdentifier` e `Contribution` com role codes.[^4]
 3. **Proveniência:** `BibliographicRecord` precisa de mais metadados (source, format, schema, encoding, hash, parserVersion, warnings).[ ^4]
 4. **Circulação:** não existe domínio de empréstimos, devoluções, reservas, políticas e multas.[^4]
@@ -214,7 +214,7 @@ Pendente antes de produção institucional:
 
 ### Fase 1 — fundação bibliográfica (parcialmente concluída)
 
-- descrição física repetível (pendente);
+- descrição física repetível (implementada no backend; integração Flutter permanece compatível e incremental);
 - datas com precisão e texto original (pendente);
 - contributions com roles e identificadores (pendente);
 - proveniência versionada (pendente);
@@ -256,8 +256,8 @@ Pendente antes de produção institucional:
 
 ## Decisões imediatas
 
-1. **Não remover `pages` sem migração de compatibilidade.** Introduzir descrição física repetível e tratar `pages` como derivado.
-2. **Implementar descrição física repetível.** Adicionar `PhysicalDescription` com subfield, value, sortOrder, source e normalizedValue.
+1. **Não remover `pages` sem migração de compatibilidade.** `PhysicalDescription` é a fonte de verdade e `pages` é derivado.
+2. **Evoluir descrição física repetível.** A primeira iteração backend já adiciona `PhysicalDescription` com subfield, value, sortOrder, source e normalizedValue; permanecem futuras melhorias de edição/UI.
 3. **Implementar administração de memberships.** Endpoints para gerir membros, convites, roles e selecção de organização activa.
 4. **Implementar Library/Branch e holdings.** Filiais e localizações subordinadas a Organization.
 5. **Implementar circulação com entidades explícitas.** `Patron`, `Loan`, `LoanPolicy`, `Hold`, `ReturnEvent`, `Fine`.

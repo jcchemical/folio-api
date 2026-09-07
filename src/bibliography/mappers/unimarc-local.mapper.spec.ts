@@ -251,6 +251,50 @@ describe('local UNIMARC mapper', () => {
     );
   });
 
+  it('preserves ordered physical descriptions instead of synthesizing pages', () => {
+    const result = mapLocalEditionToUnimarc({
+      id: 'physical-edition',
+      title: 'Título',
+      language: 'por',
+      pages: 999,
+      physicalDescriptions: [
+        { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
+        { subfield: 'b', value: 'il.', sortOrder: 1 },
+        { subfield: 'a', value: '24 cm', sortOrder: 2 },
+        { subfield: 'd', value: 'volume', sortOrder: 3 },
+      ],
+    });
+
+    expect(result.record.dataFields).toContainEqual({
+      tag: '215',
+      indicator1: ' ',
+      indicator2: ' ',
+      subfields: [
+        { code: 'a', value: '146, [6] p.' },
+        { code: 'b', value: 'il.' },
+        { code: 'a', value: '24 cm' },
+        { code: 'd', value: 'volume' },
+      ],
+    });
+    expect(result.record.dataFields.filter(({ tag }) => tag === '215')).toHaveLength(1);
+  });
+
+  it('uses pages only as the legacy fallback when descriptions are absent', () => {
+    const result = mapLocalEditionToUnimarc({
+      id: 'legacy-pages-edition',
+      title: 'Título',
+      language: 'por',
+      pages: 320,
+    });
+
+    expect(result.record.dataFields).toContainEqual(
+      expect.objectContaining({
+        tag: '215',
+        subfields: [{ code: 'a', value: '320 p.' }],
+      }),
+    );
+  });
+
   it('does not use rawContent when mapping local data', () => {
     const localInput = {
       id: 'local-edition',

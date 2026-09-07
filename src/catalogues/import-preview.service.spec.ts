@@ -77,6 +77,10 @@ describe('ImportPreviewService', () => {
         language: 'por',
         placeOfPublication: 'Coimbra',
         pages: 383,
+        physicalDescriptions: [
+          { subfield: 'a', value: '383 p.', sortOrder: 0, source: 'PORBASE' },
+          { subfield: 'd', value: '24 cm', sortOrder: 1, source: 'PORBASE' },
+        ],
       },
       contributors: [
         { name: 'Kazantzákis, Níkos', role: 'author' },
@@ -95,6 +99,41 @@ describe('ImportPreviewService', () => {
       },
     });
     expect(result.warnings).toEqual([]);
+  });
+
+  it('retains complex physical text and warns only when pages cannot be derived', async () => {
+    cataloguesService.searchPorbaseByIsbn.mockResolvedValue({
+      source: 'PORBASE',
+      query: isbn,
+      found: true,
+      detectedFormat: 'MARCXCHANGE_XML',
+      format: 'Unimarc',
+      schema: 'UNIMARC',
+      rawContent: '<collection />',
+      metadata: {
+        title: 'Título',
+        authors: [],
+        extent: '146, [6] p.',
+        physicalDescriptions: [
+          { subfield: 'a', value: '146, [6] p.', sortOrder: 0, source: 'PORBASE' },
+        ],
+      },
+      fields: {},
+      warnings: [],
+    } as unknown as PorbaseSearchResponseDto);
+
+    const result = await service.createPreview(isbn);
+
+    expect(result.edition.pages).toBeNull();
+    expect(result.edition.physicalDescriptions).toEqual([
+      { subfield: 'a', value: '146, [6] p.', sortOrder: 0, source: 'PORBASE' },
+    ]);
+    expect(result.warnings).toContainEqual(
+      expect.objectContaining({
+        field: 'edition.physicalDescriptions',
+        type: 'parse_error',
+      }),
+    );
   });
 
   it('carries parser warnings into the stable preview response', async () => {

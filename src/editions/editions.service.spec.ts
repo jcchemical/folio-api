@@ -60,3 +60,107 @@ describe('EditionsService.remove', () => {
     expect(prisma.edition.delete).not.toHaveBeenCalled();
   });
 });
+
+describe('EditionsService physical descriptions', () => {
+  it('creates descriptions in supplied order for an authorized member', async () => {
+    const prisma = {
+      work: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'work-1',
+          organizationId: 'organization-1',
+        }),
+      },
+      edition: {
+        create: vi.fn().mockResolvedValue({
+          id: 'edition-1',
+          physicalDescriptions: [],
+        }),
+      },
+      organizationMembership: {
+        findUnique: vi.fn().mockResolvedValue({
+          role: OrganizationRole.STAFF,
+          organization: { id: 'organization-1' },
+        }),
+      },
+    } as unknown as PrismaService;
+    const service = new EditionsService(
+      prisma,
+      new OrganizationMembershipService(prisma),
+    );
+
+    await service.create('user-1', 'work-1', {
+      title: 'Edition',
+      physicalDescriptions: [
+        { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
+        { subfield: 'd', value: '24 cm', sortOrder: 1 },
+      ],
+    });
+
+    expect(prisma.edition.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        physicalDescriptions: {
+          create: [
+            { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
+            { subfield: 'd', value: '24 cm', sortOrder: 1 },
+          ],
+        },
+      }),
+      include: {
+        physicalDescriptions: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+      },
+    });
+  });
+
+  it('replaces descriptions transactionally on update', async () => {
+    const transaction = {
+      edition: {
+        update: vi.fn().mockResolvedValue({ id: 'edition-1' }),
+        findUniqueOrThrow: vi.fn().mockResolvedValue({
+          id: 'edition-1',
+          physicalDescriptions: [],
+        }),
+      },
+      physicalDescription: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+        createMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const prisma = {
+      edition: {
+        findUnique: vi.fn().mockResolvedValue(edition),
+      },
+      organizationMembership: {
+        findUnique: vi.fn().mockResolvedValue({
+          role: OrganizationRole.STAFF,
+          organization: { id: 'organization-1' },
+        }),
+      },
+      $transaction: vi.fn(async (callback: (tx: typeof transaction) => unknown) =>
+        callback(transaction),
+      ),
+    } as unknown as PrismaService;
+    const service = new EditionsService(
+      prisma,
+      new OrganizationMembershipService(prisma),
+    );
+
+    await service.update('edition-1', userId, {
+      physicalDescriptions: [
+        { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
+      ],
+    });
+
+    expect(transaction.physicalDescription.deleteMany).toHaveBeenCalledWith({
+      where: { editionId: 'edition-1' },
+    });
+    expect(transaction.physicalDescription.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          subfield: 'a',
+          value: '146, [6] p.',
+          sortOrder: 0,
+        }),
+      ],
+    });
+  });
+});

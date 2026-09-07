@@ -51,3 +51,40 @@ describe('parsePorbaseResponse publication-date normalization', () => {
     });
   });
 });
+
+describe('parsePorbaseResponse physical descriptions', () => {
+  it('preserves repeated 215 subfields and source order from MARC text', () => {
+    const result = parsePorbaseResponse(
+      query,
+      [
+        '215 $a 146, [6] p. $b il.',
+        '215 $a 24 cm $d volume',
+      ].join('\n'),
+      'text/plain',
+    );
+
+    expect(result.metadata.extent).toBe('146, [6] p.');
+    expect(result.metadata.physicalDescriptions).toEqual([
+      { subfield: 'a', value: '146, [6] p.', sortOrder: 0, source: 'PORBASE' },
+      { subfield: 'b', value: 'il.', sortOrder: 1, source: 'PORBASE' },
+      { subfield: 'a', value: '24 cm', sortOrder: 2, source: 'PORBASE' },
+      { subfield: 'd', value: 'volume', sortOrder: 3, source: 'PORBASE' },
+    ]);
+  });
+
+  it('preserves repeated 215 fields and subfields from MARCXchange XML', () => {
+    const result = parsePorbaseResponse(
+      query,
+      '<collection><record><datafield tag="215"><subfield code="a">146, [6] p.</subfield><subfield code="b">il.</subfield></datafield><datafield tag="215"><subfield code="c">24 cm</subfield><subfield code="d">volume</subfield></datafield></record></collection>',
+      'text/xml',
+    );
+
+    expect(result.metadata.extent).toBe('146, [6] p.');
+    expect(result.metadata.physicalDescriptions).toEqual([
+      { subfield: 'a', value: '146, [6] p.', sortOrder: 0, source: 'PORBASE' },
+      { subfield: 'b', value: 'il.', sortOrder: 1, source: 'PORBASE' },
+      { subfield: 'c', value: '24 cm', sortOrder: 2, source: 'PORBASE' },
+      { subfield: 'd', value: 'volume', sortOrder: 3, source: 'PORBASE' },
+    ]);
+  });
+});

@@ -194,7 +194,7 @@ O modelo actual usa `cuid()` para IDs. Controllers não devem assumir UUID sem v
 
 ### Limitação de descrição física
 
-`Edition.pages: Int?` não é uma representação bibliográfica suficiente. A descrição física UNIMARC `215$a` pode conter texto como:
+`Edition.pages: Int?` não é uma representação bibliográfica suficiente. A tabela `PhysicalDescription` é agora a fonte de verdade repetível para os subcampos UNIMARC `215$a`, `$b`, `$c` e `$d`. `pages` permanece como campo derivado opcional de compatibilidade. A descrição física UNIMARC `215$a` pode conter texto como:
 
 ```text
 146, [6] p.
@@ -208,9 +208,10 @@ Decisão:
 - o número de páginas, quando existir, é um valor derivado opcional;
 - uma descrição não deve ser rejeitada por não ser um inteiro;
 - o parser deve preservar o original e emitir warning quando a extracção numérica for parcial ou impossível;
-- a evolução preferida é uma estrutura repetível para os subcampos `215$a`, `$b`, `$c` e `$d`, sem concatenar informação de forma irreversível.
+- `PhysicalDescription` preserva subfield, value, sortOrder, source e normalizedValue, sem concatenar informação de forma irreversível;
+- o parser PORBASE preserva os subcampos `a`, `b`, `c` e `d` e o export local usa as descrições persistidas antes do fallback numérico.
 
-Não remover `pages` sem uma migração de compatibilidade e sem rever todos os DTOs, parser, mapper e cliente Flutter.
+Não remover `pages` sem uma migração de compatibilidade e sem rever todos os DTOs, parser, mapper e cliente Flutter. Clientes existentes continuam a poder usar `pages`; clientes novos devem preferir `physicalDescriptions`.
 
 ## Autenticação e segurança
 
@@ -372,6 +373,8 @@ Exemplos:
 - `s.d.` deve produzir `null` e `parse_error`;
 - `215$a`: `146, [6] p.` deve ser preservado, mesmo que não seja possível derivar um inteiro;
 - o raw provider body permanece inalterado.
+
+Os subcampos físicos `215$a`, `$b`, `$c` e `$d` são preservados no modelo local `PhysicalDescription`, por ordem de origem e com `source` quando provenientes da PORBASE. A incapacidade de derivar um número inteiro de páginas produz apenas um warning de derivação; não invalida a descrição textual.
 
 ## Proveniência bibliográfica
 

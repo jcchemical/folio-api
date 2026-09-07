@@ -8,6 +8,7 @@ import { OrganizationRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { paginate, paginationArgs, type PaginationInput } from '../common/pagination.js';
 import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
+import type { PhysicalDescriptionInput } from '../editions/dto/physical-description.dto.js';
 
 export interface EditionInput {
   title: string;
@@ -20,6 +21,7 @@ export interface EditionInput {
   country?: string | null;
   format?: string | null;
   pages?: number | null;
+  physicalDescriptions?: PhysicalDescriptionInput[];
 }
 
 export interface WorkInput {
@@ -50,7 +52,16 @@ export class WorksService {
     const rows = await this.prisma.work.findMany({
       where: { organizationId: { in: organizationIds } },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      include: { organization: true, editions: true },
+      include: {
+        organization: true,
+        editions: {
+          include: {
+            physicalDescriptions: {
+              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+            },
+          },
+        },
+      },
       ...prisma,
     });
     return paginate(rows, limit);
@@ -59,7 +70,16 @@ export class WorksService {
   async findById(id: string, userId: string) {
     const work = await this.prisma.work.findUnique({
       where: { id },
-      include: { organization: true, editions: true },
+      include: {
+        organization: true,
+        editions: {
+          include: {
+            physicalDescriptions: {
+              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+            },
+          },
+        },
+      },
     });
 
     if (!work) throw new NotFoundException('Work not found');
@@ -90,9 +110,19 @@ export class WorksService {
     });
 
     if (editions?.length) {
-      await this.prisma.edition.createMany({
-        data: editions.map((edition) => ({ ...edition, workId: work.id })),
-      });
+      await Promise.all(
+        editions.map(({ physicalDescriptions, ...edition }) =>
+          this.prisma.edition.create({
+            data: {
+              ...edition,
+              workId: work.id,
+              physicalDescriptions: physicalDescriptions?.length
+                ? { create: physicalDescriptions }
+                : undefined,
+            },
+          }),
+        ),
+      );
     }
 
     return this.findById(work.id, userId);
@@ -124,9 +154,19 @@ export class WorksService {
       if (editions) {
         await transaction.edition.deleteMany({ where: { workId: id } });
         if (editions.length) {
-          await transaction.edition.createMany({
-            data: editions.map((edition) => ({ ...edition, workId: id })),
-          });
+          await Promise.all(
+            editions.map(({ physicalDescriptions, ...edition }) =>
+              transaction.edition.create({
+                data: {
+                  ...edition,
+                  workId: id,
+                  physicalDescriptions: physicalDescriptions?.length
+                    ? { create: physicalDescriptions }
+                    : undefined,
+                },
+              }),
+            ),
+          );
         }
       }
     });

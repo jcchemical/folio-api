@@ -1,4 +1,20 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+export class PorbasePhysicalDescriptionDto {
+  @ApiProperty({ enum: ['a', 'b', 'c', 'd'], example: 'a' })
+  subfield!: string;
+
+  @ApiProperty({ example: '383 p.' })
+  value!: string;
+
+  @ApiProperty({ example: 0 })
+  sortOrder!: number;
+
+  @ApiPropertyOptional({ example: 'PORBASE', nullable: true })
+  source?: string | null;
+
+  @ApiPropertyOptional({ example: '383 p.', nullable: true })
+  normalizedValue?: string | null;
+}
 
 export class PorbaseBibliographicFieldsDto {
   @ApiPropertyOptional({ example: 'O Principezinho' })
@@ -30,6 +46,9 @@ export class PorbaseBibliographicFieldsDto {
 
   @ApiPropertyOptional({ example: '383 p.' })
   extent?: string;
+
+  @ApiProperty({ type: [PorbasePhysicalDescriptionDto], required: false })
+  physicalDescriptions?: PorbasePhysicalDescriptionDto[];
 
   @ApiPropertyOptional({ example: ['4-(1)-40-5-39'] })
   shelfmarks?: string[];

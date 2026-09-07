@@ -16,6 +16,10 @@ const baseInput: PorbaseImportDto = {
     country: 'PT',
     format: null,
     pages: 383,
+    physicalDescriptions: [
+      { subfield: 'a', value: '383 p.', sortOrder: 0, source: 'PORBASE' },
+      { subfield: 'd', value: '24 cm', sortOrder: 1, source: 'PORBASE' },
+    ],
   },
   contributors: [
     { name: '  Jane   Doe ', role: 'AUTHOR', scope: 'WORK', sortOrder: 0 },
@@ -83,6 +87,7 @@ function createTransactionMock() {
       create: vi.fn().mockResolvedValue({ id: 'record-1' }),
     },
     item: { create: vi.fn().mockResolvedValue({ id: 'item-1' }) },
+    physicalDescription: { createMany: vi.fn().mockResolvedValue({ count: 2 }) },
   };
 
   return { tx, work, edition };
@@ -106,6 +111,12 @@ describe('PorbaseImportService', () => {
     });
     expect(tx.item.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ organizationId: 'organization-1' }),
+    });
+    expect(tx.physicalDescription.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({ subfield: 'a', value: '383 p.', sortOrder: 0 }),
+        expect.objectContaining({ subfield: 'd', value: '24 cm', sortOrder: 1 }),
+      ],
     });
     expect(result.id).toBe('work-1');
   });

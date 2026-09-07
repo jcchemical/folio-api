@@ -86,6 +86,9 @@ describe('CataloguesService', () => {
         publisher: 'Edições 70',
         publicationDate: '2022',
         extent: '383 p.',
+        physicalDescriptions: [
+          { subfield: 'a', value: '383 p.', sortOrder: 0, source: 'PORBASE' },
+        ],
         shelfmarks: ['4-(1)-40-5-39'],
       },
       warnings: [],

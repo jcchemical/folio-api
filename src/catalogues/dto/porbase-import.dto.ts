@@ -12,6 +12,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { PhysicalDescriptionDto } from '../../editions/dto/physical-description.dto.js';
 
 export class PorbaseImportWorkDto {
   @ApiProperty({ example: 'Vida e andanças de Alexis Zorbás' })
@@ -81,6 +82,13 @@ export class PorbaseImportEditionDto {
   @IsInt()
   @Min(1)
   pages?: number | null;
+
+  @ApiPropertyOptional({ type: [PhysicalDescriptionDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PhysicalDescriptionDto)
+  physicalDescriptions?: PhysicalDescriptionDto[];
 }
 
 export class PorbaseImportContributorDto {
@@ -232,6 +240,14 @@ export class PorbasePersistedBibliographicRecordDto {
   @ApiPropertyOptional({ nullable: true }) remoteId?: string | null;
 }
 
+export class PorbasePersistedPhysicalDescriptionDto {
+  @ApiProperty() subfield!: string;
+  @ApiProperty() value!: string;
+  @ApiProperty() sortOrder!: number;
+  @ApiPropertyOptional({ nullable: true }) source?: string | null;
+  @ApiPropertyOptional({ nullable: true }) normalizedValue?: string | null;
+}
+
 export class PorbasePersistedItemDto {
   @ApiProperty() id!: string;
   @ApiPropertyOptional({ nullable: true }) label?: string | null;
@@ -261,6 +277,8 @@ export class PorbasePersistedEditionDto {
   @ApiPropertyOptional({ nullable: true }) country?: string | null;
   @ApiPropertyOptional({ nullable: true }) format?: string | null;
   @ApiPropertyOptional({ nullable: true }) pages?: number | null;
+  @ApiProperty({ type: [PorbasePersistedPhysicalDescriptionDto], required: false })
+  physicalDescriptions?: PorbasePersistedPhysicalDescriptionDto[];
   @ApiProperty({ type: [PorbasePersistedExternalIdentifierDto] })
   externalIdentifiers!: PorbasePersistedExternalIdentifierDto[];
   @ApiProperty({ type: [PorbasePersistedBibliographicRecordDto] })

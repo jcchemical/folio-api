@@ -74,11 +74,11 @@
 
 ## Bibliographic model rules
 
-- `Edition.pages: Int?` is not sufficient as the source of truth for UNIMARC `215$a`.
+- `Edition.pages: Int?` is an optional derived compatibility field, not the source of truth for UNIMARC `215$a`.
+- `PhysicalDescription` is the repeatable local source of truth for `215$a`, `$b`, `$c` and `$d`, preserving subfield, value, order and provenance.
 - Preserve complex descriptions such as `146, [6] p.` as bibliographic text; do not reject them because they are not integers.
 - A numeric page count may be derived for filtering or display, but must remain optional and secondary.
-- Do not remove or rename current fields without a compatibility migration covering parser, DTOs, mapper, API and tests.
-- Prefer a future repeatable physical-description structure for `215$a`, `$b`, `$c` and `$d`, preserving subfield, value, order and provenance.
+- Do not remove or rename `pages` without a compatibility migration covering parser, DTOs, mapper, API and tests.
 - Contributors must retain role and order. Do not invent authority codes when a local role cannot be represented safely in the target profile.
 
 ## MARC formats and export

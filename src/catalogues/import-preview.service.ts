@@ -54,7 +54,8 @@ export class ImportPreviewService {
       publishDate: metadata.publicationDate,
       language: metadata.language,
       placeOfPublication: metadata.placeOfPublication,
-      pages: parsePages(metadata.extent),
+      pages: parsePages(metadata.physicalDescriptions, metadata.extent),
+      physicalDescriptions: metadata.physicalDescriptions ?? [],
     };
 
     if (/^\d{13}$/.test(normalizedIsbn)) edition.isbn13 = normalizedIsbn;
@@ -75,8 +76,8 @@ export class ImportPreviewService {
       warnings.push(warning('Publication date was not identified.', 'missing_field', 'edition.publishDate'));
     if (!metadata.language)
       warnings.push(warning('Language was not identified.', 'missing_field', 'edition.language'));
-    if (metadata.extent && edition.pages === undefined) {
-      warnings.push(warning('The publication extent could not be converted to a page count.', 'parse_error', 'edition.pages'));
+    if (metadata.extent && edition.pages == null) {
+      warnings.push(warning('The physical description was preserved, but no reliable numeric page count could be derived.', 'parse_error', 'edition.physicalDescriptions'));
     }
     if (
       result.detectedFormat !== 'MARCXCHANGE_XML' &&
@@ -134,9 +135,17 @@ function toExternalIdentifiers(
   return identifiers;
 }
 
-function parsePages(extent?: string): number | undefined {
-  const match = extent?.match(/\b(\d+)\s*(?:p\.?|pages?)\b/i);
-  return match ? Number(match[1]) : undefined;
+function parsePages(
+  descriptions?: Array<{ subfield: string; value: string }>,
+  extent?: string,
+): number | null {
+  const pageValues = (descriptions ?? [])
+    .filter(({ subfield }) => subfield === 'a')
+    .map(({ value }) => value.trim());
+  const candidates = (pageValues.length ? pageValues : extent ? [extent] : [])
+    .map((value) => /^(\d+)\s*(?:p\.?|pages?)$/i.exec(value)?.[1])
+    .filter((value): value is string => Boolean(value));
+  return candidates.length === 1 ? Number(candidates[0]) : null;
 }
 
 function hasWarningForField(warnings: PorbaseWarningDto[], field: string): boolean {
