@@ -74,7 +74,6 @@ folio-api/
     prisma/
     health/
     users/
-    institutions/
     works/
     editions/
     contributors/
@@ -84,7 +83,7 @@ folio-api/
     exports/
     catalogues/
       adapters/
-      dto/
+        dto/
       import-preview.service.ts
       import-preview.controller.ts
   test/
@@ -92,11 +91,95 @@ folio-api/
 
 A estrutura exacta deve ser confirmada no código antes de alterar módulos. Imports locais TypeScript devem manter a extensão `.js` conforme a configuração ESM.
 
+## Tenancy e autorização
+
+### Decisão arquitectural
+
+`Organization` é a única fronteira de tenancy do catálogo e do inventário.
+
+```text
+User
+  └── OrganizationMembership
+        └── Organization
+              ├── Work
+              │     └── Edition
+              │           └── Item
+              └── Library / Branch (futuro, opcional)
+```
+
+`User` é uma identidade global. A relação entre utilizador e organização é muitos-para-muitos e é representada por `OrganizationMembership`, que também contém o role:
+
+- `OWNER`;
+- `ADMIN`;
+- `STAFF`;
+- `READER`.
+
+Um utilizador pode pertencer a várias organizações. A organização pessoal é apenas uma organização normal com uma única membership `OWNER`.
+
+### Estado implementado
+
+- `Work.organizationId` é obrigatório;
+- `Item.organizationId` é obrigatório;
+- `Edition` pertence a `Work`;
+- `Item` pertence a `Edition` e é criado na mesma organização;
+- `Work.userId` não existe;
+- `Item.userId` não existe;
+- `Institution` e `institutionId` não existem no modelo actual;
+- catálogo e inventário não têm ownership directo por utilizador;
+- todos os acessos protegidos usam o utilizador do JWT para procurar a membership;
+- leitura requer membership;
+- escrita requer `STAFF`, `ADMIN` ou `OWNER`;
+- endpoints administrativos requerem role específica.
+
+`userId` continua a existir como identidade do actor e como chave da membership, mas não como proprietário de Work, Edition ou Item.
+
+### Organização pessoal
+
+Quando um utilizador é criado, o sistema cria na mesma transacção:
+
+1. uma `Organization` pessoal;
+2. uma `OrganizationMembership` com role `OWNER`.
+
+Esta organização usa o mesmo modelo que uma organização municipal ou empresarial. A diferença é apenas operacional: normalmente tem um único membro e não precisa de branches.
+
+### Organizações múltiplas
+
+Um utilizador pode pertencer a várias organizações para suportar:
+
+- biblioteca pessoal e biblioteca profissional;
+- bibliotecários que trabalham em várias instituições;
+- consultores externos;
+- leitores inscritos em várias bibliotecas.
+
+A organização activa e a administração de memberships ainda não fazem parte do contrato actual.
+
+### Endpoints de organizações
+
+Estão implementados, protegidos por JWT e limitados às memberships do utilizador:
+
+- `GET /organizations` — lista `id`, `name`, `role` e `createdAt` das organizações onde o utilizador é membro;
+- `POST /organizations` — recebe apenas `name`, normaliza espaços, cria Organization e membership `OWNER` numa transacção;
+- `GET /organizations/:id` — exige membership e devolve a organização com o role do utilizador;
+- `PUT /organizations/:id` — exige `OWNER` ou `ADMIN` e permite apenas alterar `name`, sem aceitar ownership;
+- `DELETE /organizations/:id` — exige `OWNER`, mas devolve `409 Conflict` enquanto não existir política segura para reassociar Works e Items.
+
+Organizações inexistentes devolvem `404`; utilizadores sem membership devolvem `403`. Não existem ainda endpoints para administrar membros, convidar utilizadores, atribuir roles ou eliminar organizações.
+
+### Futuro
+
+- endpoints de gestão de memberships;
+- convites;
+- selecção de organização activa;
+- Library/Branch subordinada a Organization;
+- holdings e localização;
+- circulação;
+- auditoria de acessos e alterações.
+
 ## Modelo actual
 
-### User e Institution
+### User e Organization
 
-O modelo contém `User`, `Institution`, `Organization` e `OrganizationMembership`. `Institution` é uma entidade legada do MVP e continua associada ao seu `userId`; `Organization` é a fronteira de tenancy actual para Works partilhados. As memberships usam os roles controlados `OWNER`, `ADMIN`, `STAFF` e `READER`.
+O modelo contém `User`, `Organization` e `OrganizationMembership`. `Organization` é a fronteira única de tenancy para todo o material bibliográfico e de inventário. As memberships usam os roles controlados `OWNER`, `ADMIN`, `STAFF` e `READER`.
 
 ### Work, Edition e Item
 
@@ -114,7 +197,7 @@ O modelo actual usa `cuid()` para IDs. Controllers não devem assumir UUID sem v
 `Edition.pages: Int?` não é uma representação bibliográfica suficiente. A descrição física UNIMARC `215$a` pode conter texto como:
 
 ```text
-146, [6] p.
+146,  p.[1]
 ```
 
 Pode também repetir e coexistir com outros subcampos de `215`, como dimensões e ilustrações.
@@ -129,62 +212,6 @@ Decisão:
 
 Não remover `pages` sem uma migração de compatibilidade e sem rever todos os DTOs, parser, mapper e cliente Flutter.
 
-## Ownership e evolução institucional
-
-O ownership actual baseia-se principalmente em `userId`, com `institutionId` opcional. Todos os endpoints de recursos protegidos obtêm o utilizador do JWT e aplicam esse limite no service, nunca de um `userId` recebido no body.
-
-Listagens são sempre filtradas pelo utilizador autenticado. Em operações por ID, um recurso inexistente devolve `404 Not Found`; um recurso existente mas pertencente a outro utilizador devolve `403 Forbidden`. Relações recebidas no body, como `workId`, `editionId` e `institutionId`, também são verificadas antes de criar ou alterar dados.
-
-Estão protegidos por JWT e scoped ao utilizador os endpoints de institutions, works, editions, items, contributors, bibliographic records e a exportação local. A criação pública de utilizadores (`POST /users`) é a excepção necessária para registo; leituras, alterações e remoções de utilizadores requerem JWT e só permitem o próprio utilizador. A pesquisa/preview PORBASE é protegida, não persiste dados e não expõe recursos de catálogo de outros utilizadores.
-
-Esta é uma fronteira de ownership em transição. `Organization`/`OrganizationMembership` já fornecem tenancy opcional para Works, enquanto `userId` continua como fallback compatível para dados pessoais e recursos ainda não migrados. A evolução futura acrescentará políticas por filial e papel sem aceitar acesso global automaticamente.
-
-### Tenancy compatível
-
-Foi implementada a fundação de tenancy pessoal com `Organization` e `OrganizationMembership`. Os roles controlados são `OWNER`, `ADMIN`, `STAFF` e `READER`. Cada utilizador existente recebe uma organização determinística chamada `Biblioteca de {email}` e uma membership `OWNER`; os Works existentes recebem essa organização através da migration `20260906170000_add_organizations_and_memberships`.
-
-`Work.organizationId` é opcional nesta fase. Works antigos continuam acessíveis pelo `userId`; Works associados a uma organização exigem membership para leitura e role mínima `STAFF` para escrita. A criação de novos utilizadores provisiona também a sua organização pessoal. A migration usa IDs determinísticos derivados do `User.id`, `ON CONFLICT DO NOTHING` e não altera IDs, títulos, `rawContent`, passwords ou tokens.
-
-Ainda não foram implementados endpoints de administração de memberships, convites, selecção de organização activa, Library/Branch, `libraryId` em Item, holdings institucionais ou circulação. Os roles já existem no schema e são usados pela política de acesso a Organizations/Works; a aplicação completa por endpoint continua em evolução.
-
-### Endpoints de organizações
-
-Estão implementados, protegidos por JWT e limitados às memberships do utilizador:
-
-- `GET /organizations` — lista `id`, `name`, `role` e `createdAt` das organizações onde o utilizador é membro;
-- `POST /organizations` — recebe apenas `name`, normaliza espaços, cria Organization e membership `OWNER` numa transacção;
-- `GET /organizations/:id` — exige membership e devolve a organização com o role do utilizador;
-- `PUT /organizations/:id` — exige `OWNER` ou `ADMIN` e permite apenas alterar `name`, sem aceitar ownership;
-- `DELETE /organizations/:id` — exige `OWNER`, mas devolve `409 Conflict` enquanto não existir política segura para reassociar Works e Items.
-
-Organizações inexistentes devolvem `404`; utilizadores sem membership devolvem `403`. Não existem ainda endpoints para administrar membros, convidar utilizadores, atribuir roles ou eliminar organizações.
-
-A evolução prevista é:
-
-```text
-User
-Organization
-OrganizationMembership
-Library / Branch
-Work
-Edition
-Item / Holding
-Patron / Member
-Loan
-Reservation
-Fine / Fee
-AuditEvent
-```
-
-Antes de implementar circulação institucional, introduzir:
-
-- administração completa de memberships e roles;
-- selecção de organização activa;
-- filiais/bibliotecas;
-- fronteiras de autorização por organização e filial.
-
-Não criar empréstimos apenas adicionando flags a `Item`. `Loan` deve ser uma entidade explícita, transaccional e capaz de impedir dois empréstimos activos para o mesmo item.
-
 ## Autenticação e segurança
 
 ### Estado actual
@@ -195,7 +222,7 @@ Não criar empréstimos apenas adicionando flags a `Item`. `Loan` deve ser uma e
 - o contrato público de autenticação usa `password`;
 - `UsersService` gera hashes Argon2id antes de persistir utilizadores;
 - `AuthService` verifica passwords com `argon2.verify`, nunca por comparação directa;
-- respostas públicas de utilizadores não incluem `passwordHash`.
+- respostas públicas de utilizadores não incluem `passwordHash`;
 - access tokens JWT têm validade de 15 minutos;
 - refresh tokens são hashes Argon2id guardados no utilizador, com validade de 7 dias, rotação e revogação.
 
@@ -223,21 +250,25 @@ O modelo actual suporta uma sessão de refresh por utilizador. Suportar várias 
 
 ## Endpoints actuais
 
+### Root
+
+- `GET /` → `Hello World!` (desenvolvimento).
+
 ### Health
 
 - `GET /health` → `{ status: 'ok' }`.
 
 ### Auth
 
-- `POST /auth/login` → { accessToken, refreshToken, user }.
-- `GET /auth/me` → utilizador autenticado, protegido por JWT.
-- `POST /auth/refresh` → roda um refresh token e devolve novo `{ accessToken, refreshToken, user }`.
-- `POST /auth/logout` → revoga o refresh token apresentado.
+- `POST /auth/login` → `{ accessToken, refreshToken, user }`;
+- `GET /auth/me` → utilizador autenticado, protegido por JWT;
+- `POST /auth/refresh` → roda um refresh token e devolve novo `{ accessToken, refreshToken, user }`;
+- `POST /auth/logout` → revoga o refresh token apresentado;
 - Rotas privadas usam `Authorization: Bearer <token>`.
 
 `GET /auth/me` devolve `id`, `email`, `name` e `roles: []`. Os roles de OrganizationMembership são usados internamente nas políticas de autorização, mas ainda não são projectados para o contrato de `/auth/me`; a selecção de organização activa ainda não existe. Não devolve `passwordHash`, refresh tokens ou outros segredos.
 
-A autorização de Works e Editions já consulta a fundação de tenancy através de `OrganizationMembership`, com os roles `OWNER`, `ADMIN`, `STAFF` e `READER`. A listagem de Editions, algumas mutações legadas e contributors/records ainda mantêm políticas pessoais ou parciais; a selecção de organização activa e a administração de memberships não estão completas.
+A autorização de Works e Editions já consulta a fundação de tenancy através de `OrganizationMembership`, com os roles `OWNER`, `ADMIN`, `STAFF` e `READER`.
 
 ### Users
 
@@ -249,11 +280,6 @@ A autorização de Works e Editions já consulta a fundação de tenancy atravé
 
 `POST /users` recebe `email`, `name` opcional e `password`; o service gera e guarda o hash Argon2id. `passwordHash` não faz parte do contrato HTTP.
 
-### Institutions
-
-- `GET/POST/PUT/DELETE /institutions`;
-- dados actualmente associados ao utilizador proprietário.
-
 ### Works
 
 - `GET /works`;
@@ -262,11 +288,11 @@ A autorização de Works e Editions já consulta a fundação de tenancy atravé
 - `PUT /works/:id`;
 - `DELETE /works/:id`.
 
-O payload de criação/actualização pode conter `editions`. A substituição de edições durante update deve continuar a ser transaccional e scoped ao utilizador autenticado até existir uma fronteira explícita de organização.
+O payload de criação/actualização pode conter `editions`. A substituição de edições durante update deve continuar a ser transaccional e scoped à organização do utilizador autenticado.
 
 ### Catálogo
 
-Todas as rotas de catálogo devem usar JWT e aplicar ownership no servidor:
+Todas as rotas de catálogo devem usar JWT e aplicar tenancy no servidor:
 
 - `GET/POST/PUT/DELETE /editions`;
 - `GET/POST/PUT/DELETE /contributors`;
@@ -282,7 +308,7 @@ Nunca aceitar `userId` do body como autoridade. O utilizador deve vir do context
 O endpoint:
 
 - exige JWT;
-- valida existência e ownership;
+- valida existência e membership;
 - usa o mapper UNIMARC local;
 - usa o serializer MARCXchange;
 - devolve `application/xml; charset=utf-8`;
@@ -310,9 +336,9 @@ GET /catalogues/porbase/search?isbn={isbn}
 - confirmação é a única operação que persiste;
 - confirmação usa uma transacção Prisma;
 - confirmação não volta a contactar PORBASE;
-- institution ownership deve ser validado;
+- organization membership e o role `STAFF` devem ser validados;
 - ISBNs devem ser normalizados e checksum-validados;
-- duplicados de edições do mesmo utilizador devem devolver `409 Conflict`;
+- duplicados de edições dentro da mesma organização devem devolver `409 Conflict`;
 - falhas internas devem provocar rollback;
 - reuso de contributors continua conservador: correspondência exacta case-insensitive após normalização de espaços;
 - não existe ainda authority control completo.
@@ -368,6 +394,18 @@ Existem dois conceitos que não devem ser misturados:
 - warnings;
 - referência a object storage para ficheiros grandes.
 
+### Consistência de relações bibliográficas
+
+`BibliographicRecord` pode actualmente referenciar simultaneamente um `workId` e um `editionId`. Estes dois caminhos devem representar a mesma organização, mas o schema ainda não impõe essa consistência.
+
+Na leitura individual (`GET /bibliographic-records/:id`), a autorização prioriza `record.edition?.work` e usa `record.work` como fallback. Nas mutações de registo actuais, a verificação ainda prioriza `record.work`.
+
+Não é um problema imediato para os fluxos de criação suportados, que devem manter ambas as relações consistentes, mas deverá ser resolvido quando forem definidas constraints ou validações de consistência no modelo. Opções futuras incluem:
+
+- validar no service que `record.edition.workId === record.workId` quando ambos existirem;
+- adicionar uma constraint de base de dados ou trigger que garanta esta igualdade;
+- ou simplificar o modelo para usar apenas uma das duas relações (`workId` ou `editionId`), conforme o caso de uso dominante.
+
 Não é necessário implementar tudo já. A prioridade é não sobrescrever rawContent e permitir reprocessamento/auditoria no futuro.
 
 ## Formatos bibliográficos
@@ -417,33 +455,21 @@ Não migrar prematuramente para microserviços ou outra base de dados. O monóli
 
 As listas HTTP usam paginação por cursor estável, com os campos `id` e a ordenação temporal ou alfabética da lista. Os parâmetros comuns são `cursor` e `limit`; o limite por página é no máximo **100** e o valor por defeito é **25**. A resposta tem a forma `{ items, nextCursor, hasMore }`.
 
-O cliente deve guardar `nextCursor` e enviá-lo no pedido seguinte até `hasMore` ser `false`. Cursors inválidos e limits fora do intervalo `1..100` são rejeitados com `400 Bad Request`. Listas protegidas continuam sempre filtradas pelo utilizador autenticado antes da paginação. Pesquisas PORBASE devolvem um resultado bibliográfico individual e não são convertidas artificialmente numa lista paginada.
+O cliente deve guardar `nextCursor` e enviá-lo no pedido seguinte até `hasMore` ser `false`. Cursors inválidos e limits fora do intervalo `1..100` são rejeitados com `400 Bad Request`. Listas protegidas continuam sempre filtradas pelas memberships do utilizador autenticado antes da paginação. Pesquisas PORBASE devolvem um resultado bibliográfico individual e não são convertidas artificialmente numa lista paginada.
 
-### Institution versus Organization
-
-`Institution` é uma entidade legada do MVP e não é actualmente a fronteira de tenancy.
-
-`Organization` é a nova fronteira de tenancy e autorização, com `OrganizationMembership` e roles. Não criar novas regras de ownership baseadas em `Institution`.
-
-A migração de `Institution` será tratada numa iteração própria, depois de:
-- identificar todas as relações existentes;
-- decidir se `Institution` será renomeada, absorvida ou mantida como conceito bibliográfico/administrativo;
-- migrar dados sem quebrar `organizationId`;
-- actualizar APIs e cliente Flutter.
 ### Índices, pool e timeouts
 
-Os índices compostos actuais suportam os padrões de ownership, ordenação e paginação:
+Os índices compostos actuais suportam os padrões de tenancy, ordenação e paginação:
 
 - `User(createdAt, id)`;
-- `Institution(userId, createdAt, id)`;
-- `Work(userId, createdAt, id)` e `Work(organizationId, createdAt, id)`;
+- `Work(organizationId, createdAt, id)`;
 - `Edition(workId, createdAt, id)`;
 - `Contributor(createdAt, id)`;
 - `WorkContributor(workId, sortOrder, id)` e `WorkContributor(contributorId)`;
 - `EditionContributor(editionId, sortOrder, id)` e `EditionContributor(contributorId)`;
 - `ExternalIdentifier(editionId, createdAt, id)`;
 - `BibliographicRecord(workId, createdAt, id)` e `BibliographicRecord(editionId, createdAt, id)`;
-- `Item(userId, createdAt, id)` e `Item(institutionId, status, createdAt, id)`.
+- `Item(organizationId, status, createdAt, id)`.
 
 A migration `20260906151404_add_query_performance_indexes` cria estes índices sem alterar dados. A aplicação configura o `pg.Pool` com `DATABASE_POOL_MAX` (10 por defeito), `DATABASE_CONNECTION_TIMEOUT_MS` (5 segundos), `DATABASE_IDLE_TIMEOUT_MS` (10 segundos) e `DATABASE_QUERY_TIMEOUT_MS` (10 segundos). O servidor HTTP usa `APP_REQUEST_TIMEOUT_MS` (15 segundos), `APP_HEADERS_TIMEOUT_MS` (20 segundos) e `APP_KEEP_ALIVE_TIMEOUT_MS` (5 segundos). Estes valores podem ser substituídos por ambiente; valores inválidos ou não positivos recaem nos defaults seguros.
 
@@ -461,11 +487,11 @@ Prioridades:
 
 Índices a considerar:
 
-- `Work(userId, updatedAt, id)`;
+- `Work(organizationId, updatedAt, id)`;
 - `Edition(workId, updatedAt, id)`;
 - ISBN normalizado;
-- `Item(userId, editionId)`;
-- `Item(institutionId, status)`;
+- `Item(organizationId, editionId)`;
+- `Item(organizationId, status)`;
 - relações de contributors por entidade e `sortOrder`;
 - `BibliographicRecord(source, sourceRecordId)`;
 - `Loan(itemId, status)`;

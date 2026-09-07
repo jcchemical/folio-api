@@ -26,21 +26,29 @@
 - Create explicit Prisma migrations for schema changes.
 - Keep request validation compatible with the global `ValidationPipe` in `src/main.ts` (`whitelist` and `transform` are enabled).
 
-## Ownership and authorization
+## Tenancy and authorization
 
-- Treat `Work` as the intellectual work and `Edition` as its publication-specific child.
-- `Organization` and `OrganizationMembership` provide the current optional tenancy boundary; use controlled roles `OWNER`, `ADMIN`, `STAFF`, and `READER`.
-- Keep `Work.organizationId` optional during migration. Legacy Works may fall back to `Work.userId`; organization-associated Works require membership for reads and at least `STAFF` for writes.
-- Never trust `organizationId` from a request body without checking the authenticated user's membership and role.
+- `Organization` is the sole tenancy boundary for catalogue and inventory data.
+- `User` is global; the User–Organization relationship is represented by `OrganizationMembership`.
+- Memberships contain the controlled roles `OWNER`, `ADMIN`, `STAFF`, and `READER`.
+- `Work.organizationId` and `Item.organizationId` are required.
+- `Edition` is authorized through its Work organization.
+- Items must be created in the organization of their Edition/Work.
+- Never use `userId` as catalogue ownership.
+- `userId` identifies the authenticated actor and membership, not the owner of Work, Edition, or Item.
+- Never trust `organizationId` from a request body without validating membership and role.
+- Reads require membership.
+- Catalogue writes require at least `STAFF`.
+- Organization administration requires the appropriate organization role.
+- Do not create a parallel Institution ownership model.
+- Future Library/Branch entities must belong to Organization and must not replace `organizationId` as the tenant boundary.
+- Do not implement circulation until holdings, branches, patron roles, loans, and policies are explicitly modelled.
 - Organization routes must derive the authenticated user from `request.user.id`; never accept `userId` or ownership fields from request bodies.
 - Organization create and rename mutations must be transactional and must map only explicitly allowed fields.
 - Organization deletion must remain blocked with `409 Conflict` until Work/Item reassignment is defined safely; never cascade-delete bibliographic data.
-- Until organization-aware edition policies are migrated, keep legacy edition writes scoped to the authenticated user's work.
-- Keep `Item.userId` as the current ownership boundary; `Item.institutionId` is optional location/management metadata and must be checked against the same user.
-- Never accept `userId` from request bodies as an authority.
-- Reuse ownership checks in `EditionsService`, `ExternalIdentifiersService`, `BibliographicRecordsService`, and `ItemsService` when adding catalogue controllers.
+- Editions, contributors, identifiers, bibliographic records, items and exports must authorize through their related Work or Item organization.
 - Protected controllers must use `JwtAuthGuard` and `request.user.id`.
-- Do not implement institutional circulation on top of `Item` flags. Introduce organizations, memberships, branches, patrons, loans and policies before institutional borrowing workflows.
+- Reuse membership checks in `EditionsService`, `ExternalIdentifiersService`, `BibliographicRecordsService`, and `ItemsService` when adding catalogue controllers.
 
 ## Authentication and security
 
@@ -56,7 +64,7 @@
 - The Flutter client must never call PORBASE directly.
 - `POST /catalogues/porbase/import-preview` is proposal-only: it must not create or update Work, Edition, Contributor, ExternalIdentifier, BibliographicRecord, or Item rows.
 - Keep the import-preview DTO stable and explicit so it can later be reused as input to a separately authorized confirmation endpoint.
-- `POST /catalogues/porbase/import` is the confirmation step. It must use one Prisma transaction, the JWT user id, validate institution ownership, normalize and validate ISBNs, reject duplicate user-owned editions with `409 Conflict`, and never call PORBASE again.
+- `POST /catalogues/porbase/import` is the confirmation step. It must use one Prisma transaction, the JWT user id, validate organization membership and `STAFF` role, normalize and validate ISBNs, reject duplicate editions within the same organization with `409 Conflict`, and never call PORBASE again.
 - Contributor reuse remains conservative: exact case-insensitive matching after whitespace normalization only. There is no authority-control service yet.
 - Detect PORBASE responses using Content-Type, leading content, and structure; never assume XML from the endpoint name alone.
 - Preserve the provider body exactly in `BibliographicRecord.rawContent`; normalized fields and warnings must not overwrite it.
@@ -120,7 +128,7 @@ Before finishing a change, run the narrowest relevant tests plus `npm run build`
 ## Current development limitations
 
 - `POST /auth/login` issues JWTs using the `password` contract and Argon2id verification.
-- Protected routes currently use the authenticated user's `sub` claim as `userId`.
+- Protected routes currently use the authenticated user's `sub` claim as the user identity. This identity is used to look up OrganizationMembership; it is not used as catalogue ownership.
 - Organization, OrganizationMembership, controlled roles, compatibility migration, and self-service organization endpoints are implemented.
 - Membership administration, active-organization selection, branch/library models, patrons, holdings, and circulation are not implemented.
 - The bibliographic catalogue is a supported subset, not a complete UNIMARC implementation.
