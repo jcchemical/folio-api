@@ -188,16 +188,29 @@ Os eventos podem ser usados mais tarde para notificações, sincronização e re
 
 ## Roadmap revisto
 
-### Fase 0 — estabilização e segurança (concluída)
+### Fase 0 — fundação e estabilização (concluída para o MVP)
+
+Concluída:
 
 - hashing seguro;
-- refresh tokens;
+- access tokens e refresh tokens;
 - `/auth/me`;
-- fundação de Organization/Membership;
-- autorização por roles;
+- tenancy por Organization;
+- OrganizationMembership e roles;
+- autorização por membership;
 - paginação e índices;
 - pool/timeouts;
-- CI.
+- CI e testes principais.
+
+Pendente antes de produção institucional:
+
+- administração completa de memberships;
+- convites;
+- selecção de organização activa;
+- políticas por filial;
+- rate limiting;
+- auditoria operacional;
+- validação da migration no ambiente de destino.
 
 ### Fase 1 — fundação bibliográfica (parcialmente concluída)
 
