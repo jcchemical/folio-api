@@ -189,6 +189,16 @@ Organizações inexistentes devolvem `404`; utilizadores sem membership devolvem
 - `publicationDate` is bibliographic text with partial precision and must not be locale-formatted as a full date.
 - Dates/times representing system events use locale-aware formatting in the client.
 
+### API error and warning codes
+
+Expected API errors use the stable envelope `{ statusCode, error, code, message }`. The `code` is the machine-readable contract; `message` is a safe fallback and must not drive client control flow. Validation errors may include safe field-level `details`.
+
+The initial taxonomy includes `AUTH_INVALID_CREDENTIALS`, refresh-token codes, `VALIDATION_INVALID_BODY`, `CATALOGUE_INVALID_ISBN`, `BIBLIOGRAPHIC_INVALID_DATE`, pagination validation, membership/role authorization codes, resource/organization/edition not-found codes, duplicate edition/identifier conflicts, organization deletion conflict, PORBASE timeout/unavailable/invalid-response/record-not-found codes, and `INTERNAL_ERROR`.
+
+The current taxonomy covers authentication (`AUTH_*`), validation (`VALIDATION_*`), authorization (`AUTHORIZATION_*`), resources (`RESOURCE_*`, `*_NOT_FOUND`), conflicts (`CONFLICT_*`), pagination (`PAGINATION_*`), PORBASE upstream failures (`PORBASE_*`) and unexpected failures (`INTERNAL_ERROR`).
+
+PORBASE warnings preserve `type`, `field`, `original`, `normalized` and `message`, and add a stable `code` such as `PORBASE_NORMALIZATION`, `PORBASE_PARSE_ERROR`, `PORBASE_RECORD_NOT_FOUND` or `PORBASE_PROVIDER_ERROR`.
+
 ## Modelo actual
 
 ### User e Organization

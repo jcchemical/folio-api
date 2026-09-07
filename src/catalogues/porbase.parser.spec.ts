@@ -15,6 +15,7 @@ describe('parsePorbaseResponse publication-date normalization', () => {
 
     expect(result.metadata.publicationDate).toBe('2009');
     expect(result.warnings).toContainEqual({
+      code: 'PORBASE_NORMALIZATION',
       field: 'edition.publicationDate',
       message: "Data normalizada de 'D.L. 2009' para '2009'",
       original: 'D.L. 2009',
@@ -44,6 +45,7 @@ describe('parsePorbaseResponse publication-date normalization', () => {
 
     expect(result.metadata.publicationDate).toBeNull();
     expect(result.warnings).toContainEqual({
+      code: 'PORBASE_PARSE_ERROR',
       field: 'edition.publicationDate',
       message: "Não foi possível extrair data de 's.d.'",
       original: 's.d.',

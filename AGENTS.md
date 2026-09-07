@@ -28,6 +28,8 @@
 - Do not add new user-facing hardcoded strings in Flutter; add localization keys.
 - Do not translate bibliographic data, MARC values, identifiers, rawContent, names or titles.
 - API errors consumed by clients must use stable `code` values; do not make UI logic depend on English exception messages.
+- Expected API errors return `{ statusCode, error, code, message }`; clients must branch on `code`, while `message` remains a fallback only.
+- PORBASE warnings retain `type`, `field`, `original`, `normalized` and `message`, and also expose a stable `code`.
 - Use plural/select messages for quantities and parameterized messages.
 - Treat publicationDate as bibliographic text, not a DateTime for UI formatting.
 

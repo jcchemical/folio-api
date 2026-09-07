@@ -4,6 +4,7 @@ import {
   PorbaseDetectedFormat,
   PorbaseSearchResponseDto,
   PorbaseWarningDto,
+  PorbaseWarningCode,
   PorbaseWarningType,
 } from './dto/porbase-search-response.dto.js';
 import { PorbaseXmlError } from './catalogues.types.js';
@@ -25,7 +26,7 @@ export function parsePorbaseResponse(
 
   if (!trimmed) {
     return buildResponse(query, rawContent, 'UNKNOWN', false, {
-      warnings: [warning('PORBASE returned an empty response.', 'provider_error')],
+      warnings: [warning('PORBASE returned an empty response.', 'provider_error', undefined, 'PORBASE_EMPTY_RESPONSE')],
     });
   }
 
@@ -71,7 +72,7 @@ export function notFoundResponse(
       : 'UNKNOWN';
 
   return buildResponse(query, rawContent, detectedFormat, false, {
-    warnings: [warning('No PORBASE record was found.', 'provider_error')],
+    warnings: [warning('No PORBASE record was found.', 'provider_error', undefined, 'PORBASE_RECORD_NOT_FOUND')],
   });
 }
 
@@ -363,6 +364,7 @@ function normalizePublicationDate(
   const match = /^(?:D\.?\s*L\.?\s*)?(\d{4})[.?]?$/.exec(original);
   if (!match) {
     warnings.push({
+      code: 'PORBASE_PARSE_ERROR',
       field: 'edition.publicationDate',
       message: `Não foi possível extrair data de '${original}'`,
       original,
@@ -374,6 +376,7 @@ function normalizePublicationDate(
   const normalized = match[1];
   if (original !== normalized) {
     warnings.push({
+      code: 'PORBASE_NORMALIZATION',
       field: 'edition.publicationDate',
       message: `Data normalizada de '${original}' para '${normalized}'`,
       original,
@@ -388,8 +391,19 @@ function warning(
   message: string,
   type: PorbaseWarningType,
   field?: string,
+  codeOverride?: PorbaseWarningCode,
 ): PorbaseWarningDto {
-  return { field, message, type };
+  return { code: codeOverride ?? warningCode(type), field, message, type };
+}
+
+function warningCode(type: PorbaseWarningType): PorbaseWarningCode {
+  switch (type) {
+    case 'normalization': return 'PORBASE_NORMALIZATION';
+    case 'missing_field': return 'PORBASE_MISSING_FIELD';
+    case 'provider_error': return 'PORBASE_PROVIDER_ERROR';
+    case 'parse_warning': return 'PORBASE_PARSE_WARNING';
+    case 'parse_error': return 'PORBASE_PARSE_ERROR';
+  }
 }
 
 function emptyMetadata(): PorbaseBibliographicFieldsDto {

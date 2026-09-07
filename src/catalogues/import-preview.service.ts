@@ -158,7 +158,16 @@ function warning(
   type: PorbaseWarningDto['type'],
   field?: string,
 ): PorbaseWarningDto {
-  return { field, message, type };
+  const code = type === 'normalization'
+    ? 'PORBASE_NORMALIZATION'
+    : type === 'missing_field'
+      ? 'PORBASE_MISSING_FIELD'
+      : type === 'provider_error'
+        ? 'PORBASE_PROVIDER_ERROR'
+        : type === 'parse_warning'
+          ? 'PORBASE_PARSE_WARNING'
+          : 'PORBASE_PARSE_ERROR';
+  return { code, field, message, type };
 }
 
 function unique(values: PorbaseWarningDto[]): PorbaseWarningDto[] {

@@ -1,11 +1,12 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
 import type { AuthenticatedUser } from './auth.types.js';
 import { RefreshTokenDto } from './dto/refresh-token.dto.js';
 import { LoginDto } from './dto/login.dto.js';
+import { ApiErrorDto } from '../common/dto/api-error.dto.js';
 
 @ApiTags('auth')
 @ApiBearerAuth()
@@ -15,12 +16,14 @@ export class AuthController {
 
   @Post('login')
   @ApiOperation({ summary: 'Authenticate a user and issue a JWT' })
+  @ApiUnauthorizedResponse({ type: ApiErrorDto, description: 'Stable error code: AUTH_INVALID_CREDENTIALS.' })
   login(@Body() body: LoginDto) {
     return this.authService.login(body.email, body.password);
   }
 
   @Post('refresh')
   @ApiOperation({ summary: 'Rotate a refresh token and issue new tokens' })
+  @ApiUnauthorizedResponse({ type: ApiErrorDto, description: 'Stable refresh-token error code.' })
   refresh(@Body() body: RefreshTokenDto) {
     return this.authService.refresh(body.refreshToken);
   }

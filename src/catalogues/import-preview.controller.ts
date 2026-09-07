@@ -11,6 +11,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { ImportPreviewService } from './import-preview.service.js';
 import { ImportPreviewQueryDto } from './dto/import-preview-query.dto.js';
 import { ImportPreviewResponseDto } from './dto/import-preview-response.dto.js';
+import { ApiErrorDto } from '../common/dto/api-error.dto.js';
 
 @ApiTags('catalogues')
 @ApiBearerAuth()
@@ -24,8 +25,8 @@ export class ImportPreviewController {
     summary: 'Preview a PORBASE bibliographic import without persisting it',
   })
   @ApiOkResponse({ type: ImportPreviewResponseDto })
-  @ApiBadRequestResponse({ description: 'The ISBN is invalid.' })
-  @ApiNotFoundResponse({ description: 'No PORBASE record was found.' })
+  @ApiBadRequestResponse({ type: ApiErrorDto, description: 'The ISBN is invalid.' })
+  @ApiNotFoundResponse({ type: ApiErrorDto, description: 'No PORBASE record was found.' })
   create(@Body() body: ImportPreviewQueryDto) {
     return this.importPreviewService.createPreview(body.isbn);
   }

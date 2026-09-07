@@ -77,7 +77,20 @@ export type PorbaseWarningType =
   | 'provider_error'
   | 'parse_warning';
 
+export type PorbaseWarningCode =
+  | 'PORBASE_EMPTY_RESPONSE'
+  | 'PORBASE_RECORD_NOT_FOUND'
+  | 'PORBASE_PROVIDER_ERROR'
+  | 'PORBASE_INVALID_RESPONSE'
+  | 'PORBASE_PARSE_ERROR'
+  | 'PORBASE_PARSE_WARNING'
+  | 'PORBASE_NORMALIZATION'
+  | 'PORBASE_MISSING_FIELD';
+
 export class PorbaseWarningDto {
+  @ApiProperty({ example: 'PORBASE_NORMALIZATION' })
+  code!: PorbaseWarningCode;
+
   @ApiPropertyOptional({ example: 'edition.publicationDate' })
   field?: string;
 

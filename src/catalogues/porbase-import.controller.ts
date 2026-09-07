@@ -17,6 +17,7 @@ import {
   PorbaseImportDto,
   PorbaseImportResponseDto,
 } from './dto/porbase-import.dto.js';
+import { ApiErrorDto } from '../common/dto/api-error.dto.js';
 
 @ApiTags('catalogues')
 @ApiBearerAuth()
@@ -32,9 +33,11 @@ export class PorbaseImportController {
   @ApiBody({ type: PorbaseImportDto })
   @ApiCreatedResponse({ type: PorbaseImportResponseDto })
   @ApiBadRequestResponse({
+    type: ApiErrorDto,
     description: 'The import payload or ISBN is invalid.',
   })
   @ApiConflictResponse({
+    type: ApiErrorDto,
     description: 'The edition or identifier already exists.',
   })
   @ApiUnauthorizedResponse({

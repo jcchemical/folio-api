@@ -7,6 +7,7 @@ import {
 } from '@nestjs/swagger';
 import { AppModule } from './app.module.js';
 import { getHttpTimeouts } from './prisma/runtime.config.js';
+import { ApiExceptionFilter } from './common/api-exception.filter.js';
 
 const isDevelopment = process.env.NODE_ENV !== 'production';
 
@@ -59,6 +60,7 @@ async function bootstrap() {
       transform: true,
     }),
   );
+  app.useGlobalFilters(new ApiExceptionFilter());
 
   // Opções da UI do Swagger
   const swaggerOptions: SwaggerCustomOptions = {
