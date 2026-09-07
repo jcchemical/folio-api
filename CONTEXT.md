@@ -197,7 +197,7 @@ O modelo actual usa `cuid()` para IDs. Controllers não devem assumir UUID sem v
 `Edition.pages: Int?` não é uma representação bibliográfica suficiente. A descrição física UNIMARC `215$a` pode conter texto como:
 
 ```text
-146,  p.[1]
+146, [6] p.
 ```
 
 Pode também repetir e coexistir com outros subcampos de `215`, como dimensões e ilustrações.
@@ -500,6 +500,27 @@ Prioridades:
 A pesquisa de catálogo deve evoluir de filtros simples para pesquisa textual PostgreSQL, com uma representação pesquisável de título, subtítulo, autores, ISBN, assuntos e identificadores. Um motor de pesquisa externo só deve ser considerado depois de medir a necessidade.
 
 Para PORBASE, usar timeouts curtos, retries limitados e cache por ISBN com TTL quando houver necessidade comprovada. Não adicionar Redis sem uma necessidade medida.
+
+### Perfil UNIMARC actual
+
+A Folio não implementa semanticamente todos os campos do UNIMARC Bibliográfico.
+
+O suporte actual é dividido em:
+
+- parsing estrutural dos campos e subcampos suportados pelo parser;
+- perfil PORBASE para os campos actualmente usados;
+- mapeamento para o modelo local;
+- exportação local de um subconjunto UNIMARC;
+- warnings explícitos para campos não mapeados ou perda de informação.
+
+Campos desconhecidos ou ainda não modelados não devem ser descartados silenciosamente quando o fluxo permitir preservar o `MarcRecord` original.
+
+A implementação semântica de novos campos deve ser orientada por:
+1. casos de uso;
+2. dados PORBASE reais;
+3. necessidade de edição local;
+4. impacto na exportação;
+5. frequência e risco de perda.
 
 ## Circulação futura
 
