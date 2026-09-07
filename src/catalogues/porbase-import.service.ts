@@ -97,6 +97,7 @@ export class PorbaseImportService {
       await this.persistExternalIdentifiers(
         transaction,
         edition.id,
+        organization.id,
         input.externalIdentifiers,
       );
 
@@ -273,6 +274,7 @@ export class PorbaseImportService {
   private async persistExternalIdentifiers(
     transaction: TransactionClient,
     editionId: string,
+    organizationId: string,
     inputs: PorbaseImportDto['externalIdentifiers'],
   ): Promise<void> {
     for (const input of inputs) {
@@ -282,6 +284,7 @@ export class PorbaseImportService {
             type: input.type,
             value: normalizeIdentifierValue(input.type, input.value),
             source: input.source ?? null,
+            organizationId,
             editionId,
           },
         });

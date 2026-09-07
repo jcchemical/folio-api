@@ -25,6 +25,11 @@
 - Do not edit generated Prisma files manually.
 - Create explicit Prisma migrations for schema changes.
 - Keep request validation compatible with the global `ValidationPipe` in `src/main.ts` (`whitelist` and `transform` are enabled).
+- Do not add new user-facing hardcoded strings in Flutter; add localization keys.
+- Do not translate bibliographic data, MARC values, identifiers, rawContent, names or titles.
+- API errors consumed by clients must use stable `code` values; do not make UI logic depend on English exception messages.
+- Use plural/select messages for quantities and parameterized messages.
+- Treat publicationDate as bibliographic text, not a DateTime for UI formatting.
 
 ## Tenancy and authorization
 
@@ -47,6 +52,7 @@
 - Organization create and rename mutations must be transactional and must map only explicitly allowed fields.
 - Organization deletion must remain blocked with `409 Conflict` until Work/Item reassignment is defined safely; never cascade-delete bibliographic data.
 - Editions, contributors, identifiers, bibliographic records, items and exports must authorize through their related Work or Item organization.
+- `ExternalIdentifier` belongs to the Edition's Work organization; uniqueness is scoped by `(organizationId, type, value)`, not globally.
 - Protected controllers must use `JwtAuthGuard` and `request.user.id`.
 - Reuse membership checks in `EditionsService`, `ExternalIdentifiersService`, `BibliographicRecordsService`, and `ItemsService` when adding catalogue controllers.
 
@@ -71,6 +77,7 @@
 - Keep the current parser field scope unless expansion is intentional: `001`, `003`, `010$a`, `101$a`, `200$a/f/g`, `210$a/c/d`, `215$a`, `035$a`, `675$3`, `700/701`, `702$4=730`, and `966$s`.
 - Normalize and validate ISBNs before calling external providers.
 - Use structured warnings for normalization, parsing errors, truncation, missing data, or loss of representation.
+- `GET /works` returns the cursor-paginated envelope `{ items, nextCursor, hasMore }`; clients must parse the envelope rather than expect a raw array.
 
 ## Bibliographic model rules
 

@@ -7,6 +7,7 @@ import { PrismaModule } from '../prisma/prisma.module.js';
 import { EditionsService } from '../editions/editions.service.js';
 import { ContributorsService } from '../contributors/contributors.service.js';
 import { ExternalIdentifiersService } from '../external-identifiers/external_identifiers.service.js';
+import { ExternalIdentifiersController } from '../external-identifiers/external-identifiers.controller.js';
 import { BibliographicRecordsService } from '../bibliographic-records/bibliographic_records.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { EditionsController } from '../editions/editions.controller.js';
@@ -36,6 +37,7 @@ import { OrganizationsModule } from '../organizations/organizations.module.js';
     ContributorsController,
     BibliographicRecordsController,
     ItemsController,
+    ExternalIdentifiersController,
   ],
   exports: [
     WorksService,

@@ -129,6 +129,11 @@ describe('PorbaseImportService', () => {
         }),
       }),
     });
+    expect(tx.externalIdentifier.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organizationId: 'organization-1',
+      }),
+    });
     expect(result.id).toBe('work-1');
   });
 
@@ -146,6 +151,26 @@ describe('PorbaseImportService', () => {
       service.import('jwt-user-1', baseInput),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(tx.work.create).not.toHaveBeenCalled();
+  });
+
+  it('allows the same ISBN in a different organization', async () => {
+    const { tx } = createTransactionMock();
+    const prisma = {
+      $transaction: vi.fn(
+        async (callback: (transaction: typeof tx) => unknown) => callback(tx),
+      ),
+    };
+    const service = new PorbaseImportService(prisma as never, {
+      getDefaultOrganization: vi.fn().mockResolvedValue({ id: 'organization-b' }),
+    } as never);
+
+    await expect(service.import('jwt-user-b', baseInput)).resolves.toBeDefined();
+    expect(tx.work.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ organizationId: 'organization-b' }),
+    });
+    expect(tx.externalIdentifier.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ organizationId: 'organization-b' }),
+    });
   });
 
   it('allows imports without ISBNs', async () => {

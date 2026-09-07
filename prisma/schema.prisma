@@ -23,9 +23,10 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships OrganizationMembership[]
-  works       Work[]
-  items       Item[]
+  memberships         OrganizationMembership[]
+  works               Work[]
+  items               Item[]
+  externalIdentifiers ExternalIdentifier[]
 }
 
 model User {
@@ -191,10 +192,14 @@ model ExternalIdentifier {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
   editionId String
   edition   Edition @relation(fields: [editionId], references: [id], onDelete: Cascade)
 
-  @@unique([type, value])
+  @@unique([organizationId, type, value])
+  @@index([organizationId, type, value])
   @@index([editionId, createdAt, id])
 }
 

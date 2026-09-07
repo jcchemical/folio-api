@@ -179,6 +179,16 @@ Organizações inexistentes devolvem `404`; utilizadores sem membership devolvem
 - circulação;
 - auditoria de acessos e alterações.
 
+## Internationalization
+
+- The product UI supports `pt-PT` and `en`.
+- Flutter is responsible for translating user-facing UI strings.
+- The API returns stable machine-readable error codes; clients translate them.
+- API messages are not a localization contract.
+- Bibliographic source data and MARC values are preserved verbatim and are never translated.
+- `publicationDate` is bibliographic text with partial precision and must not be locale-formatted as a full date.
+- Dates/times representing system events use locale-aware formatting in the client.
+
 ## Modelo actual
 
 ### User e Organization
@@ -191,7 +201,16 @@ O modelo contém `User`, `Organization` e `OrganizationMembership`. `Organizatio
 - `Edition` representa a publicação/manifestação específica;
 - `Item` representa uma cópia ou exemplar gerível;
 - `Contributor` é associado a works e editions através de relações com role e sort order;
-- `ExternalIdentifier` guarda ISBN, PORBASE e outros identificadores;
+- `ExternalIdentifier` guarda ISBN, PORBASE e outros identificadores e é scoped à Organization através de `organizationId`.
+
+Invariável:
+
+```text
+ExternalIdentifier.organizationId
+= ExternalIdentifier.edition.work.organizationId
+```
+
+A unicidade é `(organizationId, type, value)`: o mesmo ISBN pode existir em organizações diferentes, mas identificadores do mesmo tipo e valor são únicos dentro da mesma organização.
 - `BibliographicRecord` guarda a proveniência original recebida de fontes externas.
 
 O modelo actual usa `cuid()` para IDs. Controllers não devem assumir UUID sem validar o padrão real usado pelo schema.
@@ -304,6 +323,8 @@ A autorização de Works e Editions já consulta a fundação de tenancy atravé
 - `POST /works`;
 - `PUT /works/:id`;
 - `DELETE /works/:id`.
+
+`GET /works` é paginado por cursor e devolve `{ items, nextCursor, hasMore }`. Os clientes devem ler as obras em `items`; não devem tratar a resposta como um array directo.
 
 O payload de criação/actualização pode conter `editions`. A substituição de edições durante update deve continuar a ser transaccional e scoped à organização do utilizador autenticado.
 
