@@ -4,7 +4,15 @@
 
 A direcção conceptual está correcta: separar o registo original da PORBASE, o modelo local editável, o mapeamento de perfil e a serialização MARC é a decisão mais importante tomada até agora. O uso de PostgreSQL + Prisma + NestJS + Flutter também é adequado para crescer de uma biblioteca pessoal para uma plataforma multi-instituição.
 
-A arquitectura evoluiu para usar `Organization` como tenant único, com `OrganizationMembership` para relacionar utilizadores a organizações através de roles controlados (`OWNER`, `ADMIN`, `STAFF`, `READER`). Esta fundação foi implementada e validada.
+A arquitectura evoluiu para usar `Organization` como tenant único, com `OrganizationMembership` para relacionar utilizadores a organizações através de roles controlados (`OWNER`, `ADMIN`, `STAFF`, `READER`). Esta fundação foi implementada, validada e consolidada.
+
+**Fase 1 (Descrição Física Repetível)** foi implementada no backend:
+- `PhysicalDescription` é agora a fonte de verdade repetível para os subcampos UNIMARC `215$a`, `$b`, `$c` e `$d`.
+- `Edition.pages` é retido como campo derivado opcional de compatibilidade.
+- O parser PORBASE preserva a ordem e repetição dos subcampos.
+- A exportação local utiliza descrições persistidas antes de recorrer ao fallback numérico.
+- A integração Flutter permanece aditiva e compatível.
+- A migration foi aplicada na base de desenvolvimento.
 
 O `MarcRecord` é uma boa base para serializadores. UNIMARC foi concebido para intercâmbio internacional e a estrutura MARC é composta por estrutura do registo, designadores de conteúdo e conteúdo; ISO 2709 e MARCXchange são representações relacionadas mas distintas. O `MarcRecord` deve evoluir para preservar encoding, leader actualizado, campos de controlo, indicadores, subcampos, ordem, proveniência e warnings de perda.[^1][^2]
 
@@ -16,7 +24,7 @@ A importação distingue correctamente preview de confirmação: o preview não 
 
 A exportação local já não copia `rawContent`: usa `Edition`, `Work`, contributors e identificadores através de um mapper UNIMARC e de um serializer MARCXchange. A comparação com o XML original demonstra que a exportação local é deliberadamente mais pequena; isso é aceitável como primeira versão, desde que as perdas sejam explícitas e o modelo futuro consiga absorver os campos em falta.[^4][^6]
 
-## Decisões que estão certas
+## Decisões implementadas
 
 ### Separação de proveniência
 
@@ -59,6 +67,21 @@ User
 
 Esta fundação resolve o risco histórico de ownership por `userId` e prepara o terreno para instituições, filiais e circulação.
 
+### Descrição física repetível (implementado em Phase 1)
+
+`PhysicalDescription` é agora a fonte de verdade repetível para os subcampos UNIMARC `215$a`, `$b`, `$c` e `$d`:
+
+- preserva `subfield`, `value`, `sortOrder`, `source` e `normalizedValue`;
+- mantém a ordem de origem e permite repetição de valores;
+- o parser PORBASE extrai e ordena os subcampos `a`, `b`, `c` e `d` de ambas as formas de input (MARC text e MARCXchange/XML);
+- a preview inclui todas as descrições preservadas e deriva `pages` de forma conservadora;
+- a confirmação persiste descrições em transacção;
+- Edition.create/update aceitam e persistem descrições ordenadas;
+- a exportação local usa descrições persistidas antes do fallback `${pages} p.`;
+- Flutter permanece compatível, consumindo `pages` quando presente, e additive para descrições futuras.
+
+`Edition.pages: Int?` é retido como campo derivado opcional de compatibilidade. Não será removido sem migração de compatibilidade cobrindo parser, DTOs, mapper, API e testes. Uma descrição textual complexa como `146, [6] p.` é preservada sem rejeição; o fallback numérico é conservador e produz apenas um warning de derivação quando não for possível extrair um inteiro.
+
 ## Riscos arquitecturais
 
 ### Históricos (resolvidos)
@@ -66,16 +89,33 @@ Esta fundação resolve o risco histórico de ownership por `userId` e prepara o
 - **Modelo de biblioteca pessoal:** `Work.userId` e `Item.userId` foram removidos; `Organization` é agora o tenant único.[^4]
 - **Autenticação e autorização:** password hashing Argon2id, access tokens curtos, refresh tokens rotativos/revogáveis e `/auth/me` já estão implementados.[^3]
 - **Tenancy:** `Organization` e `OrganizationMembership` já existem; `Work.organizationId` e `Item.organizationId` são obrigatórios.
+- **Descrição física:** `PhysicalDescription` foi adicionada como estrutura repetível para UNIMARC `215$a`, `$b`, `$c` e `$d`. A preservação de ordem, repetição e subcampos é implementada. `Edition.pages` permanece como compatibilidade derivada.[^6][^9]
 
 ### Actuais (pendentes)
 
-1. **Descrição física:** `PhysicalDescription` foi adicionada como estrutura repetível para UNIMARC `215$a`, `$b`, `$c` e `$d`; `Edition.pages: Int?` permanece como valor derivado de compatibilidade.[^6][^9]
-2. **Contributors:** não são ainda autoridades bibliográficas; falta `Agent`, `AgentName`, `AuthorityIdentifier` e `Contribution` com role codes.[^4]
-3. **Proveniência:** `BibliographicRecord` precisa de mais metadados (source, format, schema, encoding, hash, parserVersion, warnings).[ ^4]
-4. **Circulação:** não existe domínio de empréstimos, devoluções, reservas, políticas e multas.[^4]
-5. **Administração de memberships:** não existem endpoints para gerir membros, convites, roles e selecção de organização activa.[^3]
+1. **Contributors:** não são ainda autoridades bibliográficas; falta `Agent`, `AgentName`, `AuthorityIdentifier` e `Contribution` com role codes.[^4]
+2. **Proveniência versionada:** `BibliographicRecord` precisa de mais metadados (source, format, schema, encoding, hash, parserVersion, warnings) e deve suportar múltiplas versões/fontes por obra ou edição.
+3. **Datas e texto original:** suportar datas com precisão (ano, ano-mês, data completa) e preservar texto original de parsing quando não for possível normalizar; normalizações nunca devem ser silenciosas.
+4. **Normalização de dados:** `PhysicalDescription.normalizedValue` é ainda derivado manualmente; é futuro automatizar a normalização e a extracção de dimensões, material e ilustrações.
+5. **Administração de memberships:** não existem endpoints para gerir membros, convidar utilizadores, alterar roles e selecção de organização activa.[^3]
 6. **Library/Branch:** não existe modelo de filiais ou localizações subordinadas a Organization.[^4]
-7. **Auditoria:** não existe tabela `AuditEvent` para acções como importação, correcção, empréstimo e alteração de permissões.
+7. **Holdings e inventário:** não existe localização, cota, código de barras ou estado detalhado dos exemplares.
+8. **Auditoria:** não existe tabela `AuditEvent` para acções como importação, correcção, empréstimo e alteração de permissões.
+9. **Circulação:** não existe domínio de empréstimos, devoluções, reservas, políticas e multas.[^4]
+10. **Formatos MARC:** MARCXML, ISO 2709 e MARC21 são ainda futuras implementações; mapeadores para perfis adicionais permanecem pendentes.
+
+## Limitações actuais
+
+O sistema está operacional para o fluxo de importação PORBASE e exportação local UNIMARC/MARCXchange. A integração Flutter é compatível com os campos actuais. As limitações conhecidas são:
+
+- `PhysicalDescription.normalizedValue` não é preenchido automaticamente (design para permitir normalização inteligente futura);
+- não existe UI de edição para descrições físicas (integração Flutter é aditiva e pode ser implementada em fase posterior);
+- não existe controlo de autoridades para contribuidores;
+- não existe versionamento de provenância (cada registo original substitui o anterior);
+- não existe modelo de holdings, filiais ou circulação;
+- não existe auditoria de acessos e alterações;
+- exportação original (`BibliographicRecord.rawContent`) não tem endpoint dedicado;
+- MARCXML, ISO 2709 e MARC21 não têm mappers ou serializadores.
 
 ## Desempenho e escalabilidade
 
@@ -212,34 +252,59 @@ Pendente antes de produção institucional:
 - auditoria operacional;
 - validação da migration no ambiente de destino.
 
-### Fase 1 — fundação bibliográfica (parcialmente concluída)
+### Fase 1 — fundação bibliográfica (implementação backend concluída)
 
-- descrição física repetível (implementada no backend; integração Flutter permanece compatível e incremental);
-- datas com precisão e texto original (pendente);
-- contributions com roles e identificadores (pendente);
-- proveniência versionada (pendente);
-- `MarcRecord` com encoding, syntax e warnings (parcial);
-- normalizações não destrutivas (pendente).
+Implementada no backend:
+
+- descrição física repetível (`PhysicalDescription` com preservação de subfield, value, sortOrder, source);
+- parser PORBASE preserve ordem e repetição de `215$a`, `$b`, `$c`, `$d`;
+- preview inclui descrições completas e deriva `pages` de forma conservadora;
+- confirmação persiste descrições transaccionalmente;
+- exportação local usa descrições persistidas;
+- Flutter permanece compatível e additive.
+- `PhysicalDescription` no backend;
+- migration aplicada;
+- Flutter: apresenta e preserva a–f e desconhecidos quando vierem da API.
+- preview/import/export usam o modelo local;
+- integração Flutter aditiva;
+- edição estruturada de subcampos 215$a–$f;
+- compatibilidade com `pages`.
+
+Pendente:
+- Backend: o perfil actualmente extraído pela PORBASE pode continuar limitado a a–d.
+- datas com precisão e texto original;
+- contributions com roles e identificadores;
+- proveniência versionada com metadados enriquecidos;
+- normalização automática de `PhysicalDescription.normalizedValue`;
+- UI de edição de descrições físicas;
+- `MarcRecord` com encoding, syntax completo e warnings avançados;
+- mapeadores para outros perfis (MARC21, etc).
+- grupos explícitos de campos 215;
+- cálculo automático de `normalizedValue`;
+- validação/armazenamento de datas bibliográficas por precisão no backend;
+- expansão de `MarcRecord`;
+- provenance versionada;
+- authority control.
 
 ### Fase 2 — catálogo e ficheiros
 
 - importação MARCXchange/ISO 2709;
 - preview por registo;
 - deduplicação e idempotência;
-- jobs de importação/exportação;
-- pesquisa paginada.
+- jobs de importação/exportação assíncronos;
+- pesquisa de catálogo com full-text search PostgreSQL.
 
 ### Fase 3 — inventário institucional
 
-- administração de memberships e selecção de organização activa;
+- administração completa de memberships e selecção de organização activa;
 - Library/Branch subordinada a Organization;
-- holdings e localização;
-- número de chamada, classificação, códigos de barras e estados do item;
-- inventário e operações em lote.
+- holdings, localização, cota e código de barras;
+- inventário e operações em lote;
+- estados e histórico dos exemplares.
 
 ### Fase 4 — circulação
 
-- patrons;
+- patrons/membros da biblioteca;
 - loans, returns e reservations;
 - políticas, multas e notificações;
 - permissões para bibliotecários e leitores;
@@ -247,25 +312,50 @@ Pendente antes de produção institucional:
 
 ### Fase 5 — formatos e integrações
 
-- exportação/importação UNIMARC robusta;
+- exportação robusta de UNIMARC;
 - ISO 2709 com encoding e validação independente;
-- MARCXML separado;
-- MARC21 mapper;
+- MARCXML separado de MARCXchange;
+- MARC21 mapper e serializer;
 - APIs/integrações externas adicionais;
 - scanner ISBN e importações em lote.
 
 ## Decisões imediatas
 
-1. **Não remover `pages` sem migração de compatibilidade.** `PhysicalDescription` é a fonte de verdade e `pages` é derivado.
-2. **Evoluir descrição física repetível.** A primeira iteração backend já adiciona `PhysicalDescription` com subfield, value, sortOrder, source e normalizedValue; permanecem futuras melhorias de edição/UI.
-3. **Implementar administração de memberships.** Endpoints para gerir membros, convites, roles e selecção de organização activa.
-4. **Implementar Library/Branch e holdings.** Filiais e localizações subordinadas a Organization.
+1. **Evoluir descrição física para edição e normalização.** A primeira iteração backend (Phase 1) adiciona `PhysicalDescription` com subfield, value, sortOrder, source e normalizedValue. A próxima iteração deve permitir edição local, normalização automática de dimensões e material, e UI correspondente.
+
+2. **Implementar contributions como autoridades.** Reuso conservador actual deve evoluir para `Agent`, `AgentName`, `AuthorityIdentifier` e `Contribution` com role codes controlados.
+
+3. **Implementar administração completa de memberships.** Endpoints para gerir membros, convidar utilizadores, alterar roles e selecção de organização activa.
+
+4. **Implementar Library/Branch e holdings.** Filiais e localizações subordinadas a Organization, com cota, código de barras e estado dos exemplares.
+
 5. **Implementar circulação com entidades explícitas.** `Patron`, `Loan`, `LoanPolicy`, `Hold`, `ReturnEvent`, `Fine`.
+
 6. **Implementar auditoria.** Tabela `AuditEvent` para acções importantes.
+
+7. **Expandir suporte MARC.** MARCXML, ISO 2709 e MARC21 com mappers e serializadores separados.
+
+## Não-objetivos explícitos
+
+1. **Não modelar Prisma como UNIMARC.** A local source of truth é canónica; UNIMARC é um perfil de exportação entre muitos.
+
+2. **Não implementar circulação com flags em Item.** Circulação exige entidades de domínio explícitas (Patron, Loan, LoanPolicy, etc).
+
+3. **Não aceitar ownership de catálogo por userId.** Organization é o único tenant; utilizador é global e relacionado através de OrganizationMembership.
+
+4. **Não descartar silenciosamente campos desconhecidos.** Quando a preservação for possível, guardar no MarcRecord; quando houver perda, emitir warnings estruturados.
+
+5. **Não implementar versões de Prisma que sejam cópias de standards bibliográficos.** Padrões como UNIMARC definem formatos de intercâmbio, não esquemas relacionais. Usar mappers e serializadores.
+
+6. **Não chamar PORBASE do Flutter.** O servidor-side é o único ponto de entrada; cache e rate limiting aplicam-se ali.
+
+7. **Não automatizar persistência de previews.** Preview é proposta; confirmação é operação separada e idempotente.
 
 ## Conclusão
 
-O projecto está na direcção certa. A fundação de tenancy por `Organization` foi implementada e validada, resolvendo o risco histórico de ownership por `userId`. A próxima etapa é evoluir o modelo bibliográfico com descrição física repetível, contributions, proveniência versionada e auditoria, antes de implementar circulação e formatos avançados.
+O projecto está na direcção certa. A fundação de tenancy por `Organization` foi implementada e validada, resolvendo o risco histórico de ownership por `userId`. A Fase 1 de descrição física repetível foi implementada no backend, com Flutter compatível e aditivo.
+
+A próxima etapa é evoluir o modelo bibliográfico com contributions, proveniência versionada e auditoria, antes de implementar circulação e formatos avançados.
 
 A recomendação prática é consolidar a fundação bibliográfica e administrativa, depois implementar circulação e formatos adicionais sem reescrever as relações centrais.
 
