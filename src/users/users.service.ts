@@ -3,16 +3,13 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import type { User } from '@prisma/client';
 import { hashPassword } from '../auth/password.utils.js';
 import { paginate, paginationArgs, type PaginationInput } from '../common/pagination.js';
-import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
+import { OrganizationRole } from '@prisma/client';
 
 export type PublicUser = Omit<User, 'passwordHash'>;
 
 @Injectable()
 export class UsersService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly organizationMemberships: OrganizationMembershipService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async findAll(userId: string, query: PaginationInput = {}) {
     const { limit, prisma } = paginationArgs(query);
@@ -42,13 +39,22 @@ export class UsersService {
   }): Promise<PublicUser> {
     const passwordHash = await hashPassword(data.password);
 
-    const user = await this.prisma.user.create({
-      data: { email: data.email, name: data.name, passwordHash },
+    const user = await this.prisma.$transaction(async (transaction) => {
+      const created = await transaction.user.create({
+        data: { email: data.email, name: data.name, passwordHash },
+      });
+      const organization = await transaction.organization.create({
+        data: { name: `Biblioteca de ${created.email}` },
+      });
+      await transaction.organizationMembership.create({
+        data: {
+          userId: created.id,
+          organizationId: organization.id,
+          role: OrganizationRole.OWNER,
+        },
+      });
+      return created;
     });
-    await this.organizationMemberships.provisionPersonalOrganization(
-      user.id,
-      user.email,
-    );
 
     const { passwordHash: _storedPasswordHash, ...publicUser } = user;
     return publicUser;

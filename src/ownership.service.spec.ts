@@ -1,155 +1,97 @@
-import {
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from './prisma/prisma.service.js';
 import { WorksService } from './works/works.service.js';
 import { EditionsService } from './editions/editions.service.js';
 import { ItemsService } from './items/items.service.js';
-import { InstitutionsService } from './institutions/institutions.service.js';
-import { ContributorsService } from './contributors/contributors.service.js';
-import { BibliographicRecordsService } from './bibliographic-records/bibliographic_records.service.js';
-import { ExternalIdentifiersService } from './external-identifiers/external_identifiers.service.js';
 
 const userId = 'user-1';
-const otherUserId = 'user-2';
+const organizationId = 'organization-1';
 
 function prismaWith(model: Record<string, unknown>): PrismaService {
-  return { [Object.keys(model)[0]]: Object.values(model)[0] } as unknown as PrismaService;
+  return {
+    [Object.keys(model)[0]]: Object.values(model)[0],
+  } as unknown as PrismaService;
 }
 
-function workMembershipPolicy() {
+function membershipPolicy(allowed: boolean) {
+  const access = allowed
+    ? vi.fn().mockResolvedValue(undefined)
+    : vi.fn().mockRejectedValue(new ForbiddenException());
   return {
-    assertWorkAccess: vi.fn(async (_user: string, work: { userId: string }) => {
-      if (work.userId !== userId) {
-        throw new ForbiddenException('Work does not belong to the authenticated user');
-      }
-    }),
+    assertWorkAccess: access,
+    assertOrganizationAccess: access,
   };
 }
 
-describe('resource ownership', () => {
-  it('allows a user to access their own work', async () => {
-    const work = { id: 'work-1', userId, institution: null, editions: [] };
+describe('organization resource access', () => {
+  it('allows a member to access a work in their organization', async () => {
+    const work = { id: 'work-1', organizationId, organization: {}, editions: [] };
     const service = new WorksService(
       prismaWith({ work: { findUnique: vi.fn().mockResolvedValue(work) } }),
-      workMembershipPolicy() as never,
+      membershipPolicy(true) as never,
     );
 
     await expect(service.findById('work-1', userId)).resolves.toEqual(work);
   });
 
   it.each([
-    ['missing work', () => new WorksService(prismaWith({ work: { findUnique: vi.fn().mockResolvedValue(null) } }), workMembershipPolicy() as never).findById('work-1', userId)],
-    ['missing edition', () => new EditionsService(prismaWith({ edition: { findUnique: vi.fn().mockResolvedValue(null) } }), {} as never).findById('edition-1', userId)],
-    ['missing item', () => new ItemsService(prismaWith({ item: { findUnique: vi.fn().mockResolvedValue(null) } })).findById('item-1', userId)],
-    ['missing institution', () => new InstitutionsService(prismaWith({ institution: { findUnique: vi.fn().mockResolvedValue(null) } })).findById('institution-1', userId)],
-  ])('%s returns 404 semantics', async (_name, action) => {
+    [
+      'work',
+      () =>
+        new WorksService(
+          prismaWith({ work: { findUnique: vi.fn().mockResolvedValue(null) } }),
+          membershipPolicy(true) as never,
+        ).findById('work-1', userId),
+    ],
+    [
+      'edition',
+      () =>
+        new EditionsService(
+          prismaWith({ edition: { findUnique: vi.fn().mockResolvedValue(null) } }),
+          membershipPolicy(true) as never,
+        ).findById('edition-1', userId),
+    ],
+    [
+      'item',
+      () =>
+        new ItemsService(
+          prismaWith({ item: { findUnique: vi.fn().mockResolvedValue(null) } }),
+          membershipPolicy(true) as never,
+        ).findById('item-1', userId),
+    ],
+  ])('missing %s returns 404', async (_resource, action) => {
     await expect(action()).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('rejects a work belonging to another user with 403', async () => {
-    const service = new WorksService(
-      prismaWith({ work: { findUnique: vi.fn().mockResolvedValue({ id: 'work-1', userId: otherUserId }) } }),
-      workMembershipPolicy() as never,
-    );
-
-    await expect(service.findById('work-1', userId)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
-  });
-
-  it('rejects an edition belonging to another user with 403', async () => {
-    const service = new EditionsService(
-      prismaWith({
-        edition: {
-          findUnique: vi.fn().mockResolvedValue({
-            id: 'edition-1',
-            work: { userId: otherUserId, organizationId: null },
-          }),
-        },
-      }),
-      {
-        assertWorkAccess: vi.fn().mockRejectedValue(new ForbiddenException()),
-      } as never,
-    );
-
-    await expect(service.findById('edition-1', userId)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
-  });
-
-  it('rejects an item belonging to another user with 403', async () => {
-    const service = new ItemsService(
-      prismaWith({ item: { findUnique: vi.fn().mockResolvedValue({ id: 'item-1', userId: otherUserId }) } }),
-    );
-
-    await expect(service.findById('item-1', userId)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
-  });
-
-  it('rejects an institution belonging to another user with 403', async () => {
-    const service = new InstitutionsService(
-      prismaWith({ institution: { findUnique: vi.fn().mockResolvedValue({ id: 'institution-1', userId: otherUserId }) } }),
-    );
-
-    await expect(service.findById('institution-1', userId)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
-  });
-
-  it('rejects a contributor linked to another user with 403', async () => {
-    const service = new ContributorsService(
-      prismaWith({
-        contributor: {
-          findUnique: vi.fn().mockResolvedValue({
-            id: 'contributor-1',
-            workContributors: [{ work: { userId: otherUserId } }],
-            editionContributors: [],
-          }),
-        },
-      }),
-    );
-
-    await expect(service.findById('contributor-1', userId)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
-  });
-
-  it('rejects a bibliographic record linked to another user with 403', async () => {
-    const service = new BibliographicRecordsService(
-      prismaWith({
-        bibliographicRecord: {
-          findUnique: vi.fn().mockResolvedValue({
-            id: 'record-1',
-            work: { userId: otherUserId },
-            edition: null,
-          }),
-        },
-      }),
-    );
+  it('rejects an external user from works, editions, and items', async () => {
+    const work = { id: 'work-1', organizationId };
 
     await expect(
-      service.update('record-1', userId, { source: 'test' }),
+      new WorksService(
+        prismaWith({ work: { findUnique: vi.fn().mockResolvedValue(work) } }),
+        membershipPolicy(false) as never,
+      ).findById('work-1', userId),
     ).rejects.toBeInstanceOf(ForbiddenException);
-  });
-
-  it('rejects an external identifier linked to another user with 403', async () => {
-    const service = new ExternalIdentifiersService(
-      prismaWith({
-        externalIdentifier: {
-          findUnique: vi.fn().mockResolvedValue({
-            id: 'identifier-1',
-            edition: { work: { userId: otherUserId } },
-          }),
-        },
-      }),
-    );
-
-    await expect(service.update('identifier-1', userId, { value: 'x' })).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await expect(
+      new EditionsService(
+        prismaWith({
+          edition: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'edition-1', work }),
+          },
+        }),
+        membershipPolicy(false) as never,
+      ).findById('edition-1', userId),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      new ItemsService(
+        prismaWith({
+          item: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'item-1', organizationId }),
+          },
+        }),
+        membershipPolicy(false) as never,
+      ).findById('item-1', userId),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

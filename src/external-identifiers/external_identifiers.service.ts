@@ -1,6 +1,7 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { paginate, paginationArgs, type PaginationInput } from '../common/pagination.js';
+import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
 
 export interface ExternalIdentifierInput {
   type: string;
@@ -11,12 +12,15 @@ export interface ExternalIdentifierInput {
 
 @Injectable()
 export class ExternalIdentifiersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly organizationMemberships: OrganizationMembershipService,
+  ) {}
 
   async findAllByUser(userId: string, query: PaginationInput = {}) {
     const { limit, prisma } = paginationArgs(query);
     const rows = await this.prisma.externalIdentifier.findMany({
-      where: { edition: { work: { userId } } },
+      where: { edition: { work: { organization: { memberships: { some: { userId } } } } } },
       orderBy: { createdAt: 'desc' },
       ...prisma,
     });
@@ -48,9 +52,7 @@ export class ExternalIdentifiersService {
       include: { work: true },
     });
     if (!edition) throw new NotFoundException('Edition not found');
-    if (edition.work.userId !== userId) {
-      throw new ForbiddenException('Edition does not belong to the authenticated user');
-    }
+    await this.organizationMemberships.assertWorkWriteAccess(userId, edition.work);
   }
 
   private async assertIdentifierOwnership(id: string, userId: string) {
@@ -59,10 +61,9 @@ export class ExternalIdentifiersService {
       include: { edition: { include: { work: true } } },
     });
     if (!identifier) throw new NotFoundException('External identifier not found');
-    if (identifier.edition.work.userId !== userId) {
-      throw new ForbiddenException(
-        'External identifier does not belong to the authenticated user',
-      );
-    }
+    await this.organizationMemberships.assertWorkWriteAccess(
+      userId,
+      identifier.edition.work,
+    );
   }
 }

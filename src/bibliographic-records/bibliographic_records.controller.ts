@@ -37,6 +37,11 @@ export class BibliographicRecordsController {
     );
   }
 
+  @Get(':id')
+  findOne(@Param('id') id: string, @Req() request: Request) {
+    return this.bibliographicRecordsService.findOne(this.getUserId(request), id);
+  }
+
   @Post()
   create(@Body() body: BibliographicRecordInput, @Req() request: Request) {
     return this.bibliographicRecordsService.create(

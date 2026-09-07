@@ -1,4 +1,9 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { OrganizationRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { paginate, paginationArgs, type PaginationInput } from '../common/pagination.js';
@@ -20,16 +25,14 @@ export interface EditionInput {
 export interface WorkInput {
   title: string;
   subtitle?: string | null;
-  institutionId?: string | null;
-  organizationId?: string | null;
+  organizationId?: string;
   editions?: EditionInput[];
 }
 
 export interface WorkUpdateInput {
   title?: string;
   subtitle?: string | null;
-  institutionId?: string | null;
-  organizationId?: string | null;
+  organizationId?: string;
   editions?: EditionInput[];
 }
 
@@ -45,16 +48,9 @@ export class WorksService {
     const organizations = await this.organizationMemberships.getOrganizations(userId);
     const organizationIds = organizations.map(({ organization }) => organization.id);
     const rows = await this.prisma.work.findMany({
-      where: {
-        OR: [
-          { userId },
-          ...(organizationIds.length
-            ? [{ organizationId: { in: organizationIds } }]
-            : []),
-        ],
-      },
+      where: { organizationId: { in: organizationIds } },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      include: { institution: true, organization: true, editions: true },
+      include: { organization: true, editions: true },
       ...prisma,
     });
     return paginate(rows, limit);
@@ -63,7 +59,7 @@ export class WorksService {
   async findById(id: string, userId: string) {
     const work = await this.prisma.work.findUnique({
       where: { id },
-      include: { institution: true, organization: true, editions: true },
+      include: { organization: true, editions: true },
     });
 
     if (!work) throw new NotFoundException('Work not found');
@@ -73,7 +69,9 @@ export class WorksService {
 
   async create(userId: string, data: WorkInput) {
     const { editions, organizationId, ...workData } = data;
-    await this.assertInstitutionOwnership(workData.institutionId, userId);
+    if (organizationId === null) {
+      throw new BadRequestException('organizationId cannot be null');
+    }
     if (organizationId) {
       await this.organizationMemberships.assertRole(
         userId,
@@ -84,8 +82,11 @@ export class WorksService {
     const organization = organizationId
       ? { id: organizationId }
       : await this.organizationMemberships.getDefaultOrganization(userId);
+    if (!organization) {
+      throw new ForbiddenException('User has no personal organization');
+    }
     const work = await this.prisma.work.create({
-      data: { ...workData, userId, organizationId: organization?.id ?? null },
+      data: { ...workData, organizationId: organization.id },
     });
 
     if (editions?.length) {
@@ -99,21 +100,20 @@ export class WorksService {
 
   async update(id: string, userId: string, data: WorkUpdateInput) {
     const { editions, organizationId, ...workData } = data;
+    if (organizationId === null) {
+      throw new BadRequestException('organizationId cannot be null');
+    }
     const work = await this.prisma.work.findUnique({ where: { id } });
     if (!work) throw new NotFoundException('Work not found');
     await this.organizationMemberships.assertWorkWriteAccess(userId, work);
-    await this.assertInstitutionOwnership(workData.institutionId, userId);
-
     const targetOrganizationId = organizationId === undefined
       ? work.organizationId
       : organizationId;
-    if (targetOrganizationId) {
-      await this.organizationMemberships.assertRole(
-        userId,
-        targetOrganizationId,
-        OrganizationRole.STAFF,
-      );
-    }
+    await this.organizationMemberships.assertRole(
+      userId,
+      targetOrganizationId,
+      OrganizationRole.STAFF,
+    );
 
     await this.prisma.$transaction(async (transaction) => {
       await transaction.work.update({
@@ -136,36 +136,12 @@ export class WorksService {
 
   async remove(id: string, userId: string) {
     const work = await this.prisma.work.findUnique({ where: { id } });
-    this.assertOwnership(work, userId, 'Work');
+    if (!work) throw new NotFoundException('Work not found');
+    await this.organizationMemberships.assertWorkWriteAccess(userId, work);
 
     return this.prisma.work.delete({
       where: { id },
-      include: { institution: true, editions: true },
+      include: { organization: true, editions: true },
     });
-  }
-
-  private async assertInstitutionOwnership(
-    institutionId: string | null | undefined,
-    userId: string,
-  ) {
-    if (!institutionId) return;
-
-    const institution = await this.prisma.institution.findUnique({
-      where: { id: institutionId },
-    });
-    this.assertOwnership(institution, userId, 'Institution');
-  }
-
-  private assertOwnership(
-    resource: { userId: string } | null,
-    userId: string,
-    resourceName: string,
-  ): asserts resource is { userId: string } {
-    if (!resource) throw new NotFoundException(`${resourceName} not found`);
-    if (resource.userId !== userId) {
-      throw new ForbiddenException(
-        `${resourceName} does not belong to the authenticated user`,
-      );
-    }
   }
 }

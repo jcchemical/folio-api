@@ -1,5 +1,4 @@
 import {
-  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -10,10 +9,14 @@ import {
   type UnimarcLocalEditionInput,
 } from '../bibliography/mappers/unimarc-local.mapper.js';
 import { serializeMarcXchange } from '../bibliography/serializers/marcxchange.serializer.js';
+import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
 
 @Injectable()
 export class ExportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly organizationMemberships: OrganizationMembershipService,
+  ) {}
 
   async exportMarcXchange(editionId: string, userId: string): Promise<string> {
     const edition = await this.prisma.edition.findUnique({
@@ -37,9 +40,7 @@ export class ExportsService {
       throw new NotFoundException('Edition not found');
     }
 
-    if (edition.work.userId !== userId) {
-      throw new ForbiddenException('Edition does not belong to the authenticated user');
-    }
+    await this.organizationMemberships.assertWorkAccess(userId, edition.work);
 
     try {
       const localEdition: UnimarcLocalEditionInput = {

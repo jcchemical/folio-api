@@ -80,33 +80,15 @@ export class OrganizationMembershipService {
 
   async assertWorkAccess(
     userId: string,
-    work: { userId: string; organizationId: string | null },
+    work: { organizationId: string },
   ): Promise<void> {
-    if (!work.organizationId) {
-      if (work.userId !== userId) {
-        throw new ForbiddenException(
-          'Work does not belong to the authenticated user',
-        );
-      }
-      return;
-    }
-
     await this.assertOrganizationAccess(userId, work.organizationId);
   }
 
   async assertWorkWriteAccess(
     userId: string,
-    work: { userId: string; organizationId: string | null },
+    work: { organizationId: string },
   ): Promise<void> {
-    if (!work.organizationId) {
-      if (work.userId !== userId) {
-        throw new ForbiddenException(
-          'Work does not belong to the authenticated user',
-        );
-      }
-      return;
-    }
-
     await this.assertRole(userId, work.organizationId, OrganizationRole.STAFF);
   }
 

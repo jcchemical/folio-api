@@ -27,7 +27,7 @@ export class PorbaseImportWorkDto {
   @ApiPropertyOptional({ example: null, nullable: true })
   @IsOptional()
   @IsString()
-  institutionId?: string | null;
+  organizationId?: string | null;
 }
 
 export class PorbaseImportEditionDto {
@@ -170,10 +170,6 @@ export class PorbaseImportItemDto {
   @IsString()
   notes?: string | null;
 
-  @ApiPropertyOptional({ example: null, nullable: true })
-  @IsOptional()
-  @IsString()
-  institutionId?: string | null;
 }
 
 export class PorbaseImportDto {
@@ -216,7 +212,7 @@ export class PorbaseImportDto {
   item!: PorbaseImportItemDto;
 }
 
-export class PorbasePersistedInstitutionDto {
+export class PorbasePersistedOrganizationDto {
   @ApiProperty() id!: string;
   @ApiProperty() name!: string;
 }
@@ -242,7 +238,7 @@ export class PorbasePersistedItemDto {
   @ApiPropertyOptional({ nullable: true }) location?: string | null;
   @ApiProperty() status!: string;
   @ApiPropertyOptional({ nullable: true }) notes?: string | null;
-  @ApiPropertyOptional({ nullable: true }) institutionId?: string | null;
+  @ApiProperty() organizationId!: string;
 }
 
 export class PorbasePersistedContributorDto {
@@ -279,8 +275,8 @@ export class PorbasePersistedWorkDto {
   @ApiProperty() id!: string;
   @ApiProperty() title!: string;
   @ApiPropertyOptional({ nullable: true }) subtitle?: string | null;
-  @ApiPropertyOptional({ type: PorbasePersistedInstitutionDto, nullable: true })
-  institution?: PorbasePersistedInstitutionDto | null;
+  @ApiProperty({ type: PorbasePersistedOrganizationDto })
+  organization!: PorbasePersistedOrganizationDto;
   @ApiProperty({ type: [PorbasePersistedEditionDto] })
   editions!: PorbasePersistedEditionDto[];
   @ApiProperty({ type: [PorbasePersistedContributorDto] })

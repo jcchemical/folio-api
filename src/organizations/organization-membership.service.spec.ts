@@ -86,7 +86,6 @@ describe('OrganizationMembershipService', () => {
 
     await expect(
       service.assertWorkAccess(userId, {
-        userId: 'other-user',
         organizationId,
       }),
     ).resolves.toBeUndefined();
@@ -101,7 +100,6 @@ describe('OrganizationMembershipService', () => {
 
     await expect(
       service.assertWorkAccess(userId, {
-        userId: 'other-user',
         organizationId,
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
@@ -116,7 +114,6 @@ describe('OrganizationMembershipService', () => {
     }).service;
     await expect(
       readerService.assertWorkWriteAccess(userId, {
-        userId: 'other-user',
         organizationId,
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
@@ -139,24 +136,17 @@ describe('OrganizationMembershipService', () => {
 
       await expect(
         service.assertWorkWriteAccess(userId, {
-          userId: 'other-user',
           organizationId,
         }),
       ).resolves.toBeUndefined();
     }
   });
 
-  it('uses userId fallback for legacy works without organizationId', async () => {
+  it('rejects a user without membership for an organization work', async () => {
     const { service } = createService();
 
     await expect(
-      service.assertWorkAccess(userId, { userId, organizationId: null }),
-    ).resolves.toBeUndefined();
-    await expect(
-      service.assertWorkAccess('other-user', {
-        userId,
-        organizationId: null,
-      }),
+      service.assertWorkAccess('external-user', { organizationId }),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 

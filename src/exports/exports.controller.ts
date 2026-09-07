@@ -60,7 +60,10 @@ export class ExportsController {
   @ApiOperation({ summary: 'Export a local edition as MARCXchange XML' })
   @ApiOkResponse({ description: 'MARCXchange XML export' })
   @ApiBadRequestResponse({ description: 'The edition ID is invalid.' })
-  @ApiForbiddenResponse({ description: 'The edition belongs to another user.' })
+  @ApiForbiddenResponse({
+    description:
+      "The authenticated user is not a member of the Edition's organization.",
+  })
   @ApiNotFoundResponse({ description: 'Edition not found.' })
   async exportEdition(
     @Param('editionId', EditionIdValidationPipe) editionId: string,

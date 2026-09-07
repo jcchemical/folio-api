@@ -14,7 +14,11 @@ export class EditionsService {
   async findAllByUser(userId: string, query: PaginationInput = {}) {
     const { limit, prisma } = paginationArgs(query);
     const rows = await this.prisma.edition.findMany({
-      where: { work: { userId } },
+      where: {
+        work: {
+          organization: { memberships: { some: { userId } } },
+        },
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       include: { work: true },
       ...prisma,
@@ -25,7 +29,7 @@ export class EditionsService {
   async findById(id: string, userId: string) {
     const edition = await this.prisma.edition.findUnique({
       where: { id },
-      include: { work: true, items: { where: { userId } } },
+      include: { work: true, items: { where: { organization: { memberships: { some: { userId } } } } } },
     });
     await this.assertEditionAccess(edition, userId);
     return edition;
@@ -45,7 +49,7 @@ export class EditionsService {
 
   async remove(id: string, userId: string) {
     const edition = await this.prisma.edition.findUnique({ where: { id }, include: { work: true } });
-    await this.assertEditionAccess(edition, userId);
+    await this.assertEditionWriteAccess(edition, userId);
     return this.prisma.edition.delete({ where: { id } });
   }
 
@@ -58,7 +62,7 @@ export class EditionsService {
   }
 
   private async assertEditionAccess(
-    edition: { work: { userId: string; organizationId: string | null } } | null,
+    edition: { work: { organizationId: string } } | null,
     userId: string,
   ): Promise<void> {
     if (!edition) throw new NotFoundException('Edition not found');
@@ -66,7 +70,7 @@ export class EditionsService {
   }
 
   private async assertEditionWriteAccess(
-    edition: { work: { userId: string; organizationId: string | null } } | null,
+    edition: { work: { organizationId: string } } | null,
     userId: string,
   ): Promise<void> {
     if (!edition) throw new NotFoundException('Edition not found');

@@ -23,10 +23,8 @@ describe('WorksService organization access', () => {
   it('allows a member to read a work through organizationId', async () => {
     const work = {
       id: 'work-1',
-      userId: 'owner',
       organizationId: 'organization-1',
       title: 'Shared work',
-      institution: null,
       organization: { id: 'organization-1' },
       editions: [],
     };

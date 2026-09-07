@@ -16,6 +16,15 @@ const baseUser = {
 };
 
 function createService() {
+  const transaction = {
+    user: {
+      create: vi.fn().mockImplementation(({ data }) =>
+        Promise.resolve({ ...baseUser, ...data }),
+      ),
+    },
+    organization: { create: vi.fn().mockResolvedValue({ id: 'organization-1' }) },
+    organizationMembership: { create: vi.fn().mockResolvedValue({}) },
+  };
   const prisma = {
     user: {
       create: vi.fn().mockImplementation(({ data }) =>
@@ -26,41 +35,35 @@ function createService() {
       update: vi.fn(),
       delete: vi.fn(),
     },
+    $transaction: vi.fn(async (callback: (tx: typeof transaction) => unknown) => callback(transaction)),
   } as unknown as PrismaService;
-
-  const organizationMemberships = {
-      provisionPersonalOrganization: vi.fn().mockResolvedValue({
-        id: 'organization-1',
-      }),
-    };
 
   return {
     prisma,
-    organizationMemberships,
-    service: new UsersService(prisma, organizationMemberships as never),
+    transaction,
+    service: new UsersService(prisma),
   };
 }
 
 describe('UsersService password hashing', () => {
   it('hashes the password before creating a user', async () => {
-    const { prisma, service, organizationMemberships } = createService();
+    const { transaction, service } = createService();
 
     const created = await service.create({
       email: 'user@example.com',
       name: 'User',
       password: 'plain-password',
     });
-    const storedData = vi.mocked(prisma.user.create).mock.calls[0][0].data;
+    const storedData = vi.mocked(transaction.user.create).mock.calls[0][0].data;
 
     expect(storedData.passwordHash).not.toBe('plain-password');
     expect(await argon2.verify(storedData.passwordHash, 'plain-password')).toBe(
       true,
     );
     expect(created).not.toHaveProperty('passwordHash');
-    expect(organizationMemberships.provisionPersonalOrganization).toHaveBeenCalledWith(
-      'user-1',
-      'user@example.com',
-    );
+    expect(transaction.organizationMembership.create).toHaveBeenCalledWith({
+      data: { userId: 'user-1', organizationId: 'organization-1', role: 'OWNER' },
+    });
   });
 
   it('uses Argon2id with an explicit memory, time and parallelism cost', () => {
@@ -71,7 +74,7 @@ describe('UsersService password hashing', () => {
   });
 
   it('generates a different salted hash for the same password', async () => {
-    const { prisma, service } = createService();
+    const { transaction, service } = createService();
     const input = {
       email: 'user@example.com',
       password: 'same-password',
@@ -80,7 +83,7 @@ describe('UsersService password hashing', () => {
     await service.create(input);
     await service.create(input);
 
-    const calls = vi.mocked(prisma.user.create).mock.calls;
+    const calls = vi.mocked(transaction.user.create).mock.calls;
     const firstHash = calls[0][0].data.passwordHash;
     const secondHash = calls[1][0].data.passwordHash;
 

@@ -35,7 +35,7 @@ function createEdition(overrides: Record<string, unknown> = {}) {
     work: {
       id: 'work-1',
       title: 'Título da obra',
-      userId: ownerId,
+      organizationId: 'organization-1',
       workContributors: [
         {
           role: 'author',
@@ -50,7 +50,7 @@ function createEdition(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function createService(edition: unknown) {
+function createService(edition: unknown, allowed = true) {
   const prisma = {
     edition: {
       findUnique: vi.fn().mockResolvedValue(edition),
@@ -59,7 +59,11 @@ function createService(edition: unknown) {
 
   return {
     prisma,
-    service: new ExportsService(prisma),
+    service: new ExportsService(prisma, {
+      assertWorkAccess: allowed
+        ? vi.fn().mockResolvedValue(undefined)
+        : vi.fn().mockRejectedValue(new ForbiddenException()),
+    } as never),
   };
 }
 
@@ -92,9 +96,7 @@ describe('ExportsService', () => {
   });
 
   it('returns 403 when the edition belongs to another user', async () => {
-    const { service } = createService(
-      createEdition({ work: { ...createEdition().work, userId: 'other-user' } }),
-    );
+    const { service } = createService(createEdition(), false);
 
     await expect(
       service.exportMarcXchange(editionId, ownerId),

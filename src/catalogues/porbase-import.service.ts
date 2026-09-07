@@ -12,6 +12,8 @@ import type {
   PorbaseImportResponseDto,
 } from './dto/porbase-import.dto.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
+import { OrganizationRole } from '@prisma/client';
 
 type TransactionClient = Omit<
   PrismaClient,
@@ -20,7 +22,10 @@ type TransactionClient = Omit<
 
 @Injectable()
 export class PorbaseImportService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly organizationMemberships: OrganizationMembershipService,
+  ) {}
 
   async import(
     userId: string,
@@ -30,26 +35,23 @@ export class PorbaseImportService {
     const isbn13 = normalizeOptionalIsbn(input.edition.isbn13);
     this.validateIsbn(isbn10, 'edition.isbn10');
     this.validateIsbn(isbn13, 'edition.isbn13');
+    const organization = input.work.organizationId
+      ? await this.organizationMemberships.assertRole(
+          userId,
+          input.work.organizationId,
+          OrganizationRole.STAFF,
+        ).then((membership) => membership.organization)
+      : await this.organizationMemberships.getDefaultOrganization(userId);
+    if (!organization) throw new NotFoundException('Personal organization not found');
 
     return this.prisma.$transaction(async (transaction) => {
-      await this.assertInstitution(
-        transaction,
-        input.work.institutionId,
-        userId,
-      );
-      await this.assertInstitution(
-        transaction,
-        input.item.institutionId,
-        userId,
-      );
-      await this.assertNoDuplicateEdition(transaction, userId, isbn10, isbn13);
+      await this.assertNoDuplicateEdition(transaction, organization.id, isbn10, isbn13);
 
       const work = await transaction.work.create({
         data: {
           title: input.work.title,
           subtitle: input.work.subtitle ?? null,
-          userId,
-          institutionId: input.work.institutionId ?? null,
+          organizationId: organization.id,
         },
       });
 
@@ -102,15 +104,14 @@ export class PorbaseImportService {
           status: input.item.status,
           notes: input.item.notes ?? null,
           editionId: edition.id,
-          userId,
-          institutionId: input.item.institutionId ?? null,
+          organizationId: organization.id,
         },
       });
 
       const persisted = await transaction.work.findUniqueOrThrow({
         where: { id: work.id },
         include: {
-          institution: true,
+          organization: true,
           editions: {
             include: {
               externalIdentifiers: true,
@@ -154,7 +155,7 @@ export class PorbaseImportService {
           id: persisted.id,
           title: persisted.title,
           subtitle: persisted.subtitle,
-          institution: persisted.institution,
+          organization: persisted.organization,
           editions: [responseEdition],
           contributors: workContributors,
           bibliographicRecords: persisted.bibliographicRecords,
@@ -168,37 +169,25 @@ export class PorbaseImportService {
     });
   }
 
-  private async assertInstitution(
-    transaction: TransactionClient,
-    institutionId: string | null | undefined,
-    userId: string,
-  ): Promise<void> {
-    if (!institutionId) return;
-    const institution = await transaction.institution.findFirst({
-      where: { id: institutionId, userId },
-    });
-    if (!institution) throw new NotFoundException('Institution not found');
-  }
-
   private async assertNoDuplicateEdition(
     transaction: TransactionClient,
-    userId: string,
+    organizationId: string,
     isbn10: string | null,
     isbn13: string | null,
   ): Promise<void> {
     const existing = isbn13
       ? await transaction.edition.findFirst({
-          where: { isbn13, work: { userId } },
+          where: { isbn13, work: { organizationId } },
         })
       : isbn10
         ? await transaction.edition.findFirst({
-            where: { isbn10, work: { userId } },
+            where: { isbn10, work: { organizationId } },
           })
         : null;
 
     if (existing) {
       throw new ConflictException(
-        'An edition with this ISBN already exists for the authenticated user',
+        'An edition with this ISBN already exists for this organization',
       );
     }
   }

@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from './auth/auth.module.js';
 import { HealthModule } from './health/health.module.js';
 import { UsersModule } from './users/users.module.js';
-import { InstitutionsModule } from './institutions/institutions.module.js';
 import { WorksModule } from './works/works.module.js';
 import { CataloguesModule } from './catalogues/catalogues.module.js';
 import { ExportsModule } from './exports/exports.module.js';
@@ -15,7 +14,6 @@ import { AppService } from './app.service.js';
     AuthModule,
     HealthModule,
     UsersModule,
-    InstitutionsModule,
     WorksModule,
     CataloguesModule,
     ExportsModule,

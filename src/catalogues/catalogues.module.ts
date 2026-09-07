@@ -9,6 +9,7 @@ import { ImportPreviewController } from './import-preview.controller.js';
 import { ImportPreviewService } from './import-preview.service.js';
 import { PorbaseImportController } from './porbase-import.controller.js';
 import { PorbaseImportService } from './porbase-import.service.js';
+import { OrganizationsModule } from '../organizations/organizations.module.js';
 
 const timeout = readPositiveEnvironmentNumber('PORBASE_URN_TIMEOUT_MS', 5_000);
 
@@ -16,6 +17,7 @@ const timeout = readPositiveEnvironmentNumber('PORBASE_URN_TIMEOUT_MS', 5_000);
   imports: [
     AuthModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
+    OrganizationsModule,
     HttpModule.register({
       timeout,
       maxRedirects: 0,

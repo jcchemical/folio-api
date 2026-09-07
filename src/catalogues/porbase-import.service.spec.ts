@@ -1,10 +1,10 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { PorbaseImportService } from './porbase-import.service.js';
 import type { PorbaseImportDto } from './dto/porbase-import.dto.js';
 
 const baseInput: PorbaseImportDto = {
-  work: { title: 'Work title', subtitle: null, institutionId: null },
+  work: { title: 'Work title', subtitle: null },
   edition: {
     title: 'Edition title',
     subtitle: null,
@@ -37,7 +37,6 @@ const baseInput: PorbaseImportDto = {
     location: null,
     status: 'OWNED',
     notes: null,
-    institutionId: null,
   },
 };
 
@@ -46,9 +45,6 @@ function createTransactionMock() {
   const edition = { id: 'edition-1' };
   const contributor = { id: 'contributor-1', name: 'Jane Doe' };
   const tx = {
-    institution: {
-      findFirst: vi.fn().mockResolvedValue({ id: 'institution-1' }),
-    },
     edition: {
       findFirst: vi.fn().mockResolvedValue(null),
       create: vi.fn().mockResolvedValue(edition),
@@ -57,7 +53,7 @@ function createTransactionMock() {
       create: vi.fn().mockResolvedValue(work),
       findUniqueOrThrow: vi.fn().mockResolvedValue({
         id: work.id,
-        institution: null,
+        organization: { id: 'organization-1' },
         editions: [
           {
             ...edition,
@@ -100,38 +96,18 @@ describe('PorbaseImportService', () => {
         async (callback: (transaction: typeof tx) => unknown) => callback(tx),
       ),
     };
-    const service = new PorbaseImportService(prisma as never);
+    const service = new PorbaseImportService(prisma as never, { getDefaultOrganization: vi.fn().mockResolvedValue({ id: 'organization-1' }) } as never);
 
     const result = await service.import('jwt-user-1', baseInput);
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(tx.work.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ userId: 'jwt-user-1' }),
+      data: expect.objectContaining({ organizationId: 'organization-1' }),
     });
     expect(tx.item.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ userId: 'jwt-user-1' }),
+      data: expect.objectContaining({ organizationId: 'organization-1' }),
     });
     expect(result.id).toBe('work-1');
-  });
-
-  it('rejects an institution that does not exist for the authenticated user', async () => {
-    const { tx } = createTransactionMock();
-    tx.institution.findFirst.mockResolvedValue(null);
-    const prisma = {
-      $transaction: vi.fn(
-        async (callback: (transaction: typeof tx) => unknown) => callback(tx),
-      ),
-    };
-    const service = new PorbaseImportService(prisma as never);
-    const input = {
-      ...baseInput,
-      work: { ...baseInput.work, institutionId: 'other' },
-    };
-
-    await expect(service.import('jwt-user-1', input)).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
-    expect(tx.work.create).not.toHaveBeenCalled();
   });
 
   it('rejects a duplicate ISBN belonging to the same user', async () => {
@@ -142,7 +118,7 @@ describe('PorbaseImportService', () => {
         async (callback: (transaction: typeof tx) => unknown) => callback(tx),
       ),
     };
-    const service = new PorbaseImportService(prisma as never);
+    const service = new PorbaseImportService(prisma as never, { getDefaultOrganization: vi.fn().mockResolvedValue({ id: 'organization-1' }) } as never);
 
     await expect(
       service.import('jwt-user-1', baseInput),
@@ -157,7 +133,7 @@ describe('PorbaseImportService', () => {
         async (callback: (transaction: typeof tx) => unknown) => callback(tx),
       ),
     };
-    const service = new PorbaseImportService(prisma as never);
+    const service = new PorbaseImportService(prisma as never, { getDefaultOrganization: vi.fn().mockResolvedValue({ id: 'organization-1' }) } as never);
     const input = {
       ...baseInput,
       edition: { ...baseInput.edition, isbn10: null, isbn13: null },
@@ -170,7 +146,7 @@ describe('PorbaseImportService', () => {
 
   it('validates ISBNs before opening a transaction', async () => {
     const prisma = { $transaction: vi.fn() };
-    const service = new PorbaseImportService(prisma as never);
+    const service = new PorbaseImportService(prisma as never, { getDefaultOrganization: vi.fn().mockResolvedValue({ id: 'organization-1' }) } as never);
     const input = {
       ...baseInput,
       edition: { ...baseInput.edition, isbn13: '9789724426496' },
@@ -190,7 +166,7 @@ describe('PorbaseImportService', () => {
         async (callback: (transaction: typeof tx) => unknown) => callback(tx),
       ),
     };
-    const service = new PorbaseImportService(prisma as never);
+    const service = new PorbaseImportService(prisma as never, { getDefaultOrganization: vi.fn().mockResolvedValue({ id: 'organization-1' }) } as never);
 
     await expect(service.import('jwt-user-1', baseInput)).rejects.toThrow(
       'item failure',
@@ -205,7 +181,7 @@ describe('PorbaseImportService', () => {
         async (callback: (transaction: typeof tx) => unknown) => callback(tx),
       ),
     };
-    const service = new PorbaseImportService(prisma as never);
+    const service = new PorbaseImportService(prisma as never, { getDefaultOrganization: vi.fn().mockResolvedValue({ id: 'organization-1' }) } as never);
 
     await service.import('jwt-user-1', baseInput);
 

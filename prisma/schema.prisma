@@ -7,7 +7,7 @@ datasource db {
 }
 
 // =========================
-// Utilizadores e instituições
+// Utilizadores e organizações
 // =========================
 
 enum OrganizationRole {
@@ -25,6 +25,7 @@ model Organization {
 
   memberships OrganizationMembership[]
   works       Work[]
+  items       Item[]
 }
 
 model User {
@@ -37,10 +38,7 @@ model User {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  institutions Institution[]
-  works        Work[]
-  items        Item[]
-  memberships  OrganizationMembership[]
+  memberships OrganizationMembership[]
 
   @@index([createdAt, id])
 }
@@ -60,23 +58,6 @@ model OrganizationMembership {
   @@index([organizationId, userId])
 }
 
-model Institution {
-  id          String   @id @default(cuid())
-  name        String
-  address     String?
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  works Work[]
-  items Item[]
-
-  @@index([userId, createdAt, id])
-}
-
 // =========================
 // Núcleo bibliográfico
 // =========================
@@ -89,21 +70,14 @@ model Work {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  institutionId String?
-  institution   Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
-
-  organizationId String?
-  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   editions             Edition[]
   workContributors     WorkContributor[]
   bibliographicRecords BibliographicRecord[]
 
-  @@index([userId, createdAt, id])
-  @@index([institutionId, createdAt, id])
+  @@index([organizationId, createdAt, id])
 }
 
 model Edition {
@@ -225,13 +199,9 @@ model Item {
   editionId String
   edition   Edition @relation(fields: [editionId], references: [id], onDelete: Cascade)
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  institutionId String?
-  institution   Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   @@index([editionId, createdAt, id])
-  @@index([userId, createdAt, id])
-  @@index([institutionId, status, createdAt, id])
+  @@index([organizationId, status, createdAt, id])
 }
