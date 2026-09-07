@@ -18,6 +18,10 @@ A primeira versão suporta o caso de uso de biblioteca pessoal, mas a arquitectu
 
 A prioridade actual é consolidar o domínio, a segurança e a proveniência bibliográfica antes de ampliar o número de formatos ou implementar circulação.
 
+A base de desenvolvimento pode ser descartada.
+O objectivo é a estrutura de domínio mais correcta.
+Compatibilidade só deve existir quando reduz risco real de produto, não por apego a dados de teste.
+
 ## Stack
 
 - Runtime: Node.js (ESM);
@@ -192,9 +196,20 @@ O modelo contém `User`, `Organization` e `OrganizationMembership`. `Organizatio
 
 O modelo actual usa `cuid()` para IDs. Controllers não devem assumir UUID sem validar o padrão real usado pelo schema.
 
-### Limitação de descrição física
+### Descrição física e datas bibliográficas
 
-`Edition.pages: Int?` não é uma representação bibliográfica suficiente. A tabela `PhysicalDescription` é agora a fonte de verdade repetível para os subcampos UNIMARC `215$a`, `$b`, `$c` e `$d`. `pages` permanece como campo derivado opcional de compatibilidade. A descrição física UNIMARC `215$a` pode conter texto como:
+`Edition.pageCount: Int?` não é uma representação bibliográfica suficiente. É um valor derivado opcional, calculado pelo backend a partir das partes `215$a`, e pode ser `null` quando a derivação é ambígua. Nunca é a fonte de verdade nem é aceite como valor autoritativo em escritas públicas.
+
+`PhysicalDescription` representa exactamente uma ocorrência do campo UNIMARC `215`. `PhysicalDescriptionPart` representa um subcampo ordenado dessa ocorrência. O modelo preserva ocorrências múltiplas, subcampos repetidos, ordem, códigos desconhecidos de um carácter, `source` da ocorrência e `normalizedValue` gerado no servidor:
+
+```text
+Edition
+└── PhysicalDescription (uma ocorrência 215)
+  ├── PhysicalDescriptionPart (215$a)
+  └── PhysicalDescriptionPart (215$b)
+```
+
+Os códigos conhecidos são `a` a `f`; códigos desconhecidos lowercase alfanuméricos de um carácter são preservados e exportados sem label semântico na UI. A descrição física UNIMARC `215$a` pode conter texto como:
 
 ```text
 146, [6] p.
@@ -208,10 +223,11 @@ Decisão:
 - o número de páginas, quando existir, é um valor derivado opcional;
 - uma descrição não deve ser rejeitada por não ser um inteiro;
 - o parser deve preservar o original e emitir warning quando a extracção numérica for parcial ou impossível;
-- `PhysicalDescription` preserva subfield, value, sortOrder, source e normalizedValue, sem concatenar informação de forma irreversível;
-- o parser PORBASE preserva os subcampos `a`, `b`, `c` e `d` e o export local usa as descrições persistidas antes do fallback numérico.
+- `PhysicalDescriptionPart` preserva subfield, value, sortOrder e normalizedValue, sem concatenar informação de forma irreversível;
+- o parser PORBASE preserva cada ocorrência `215` e todos os subcampos válidos;
+- o export local emite uma ocorrência `215` por `PhysicalDescription` antes de recorrer ao fallback numérico `pageCount`.
 
-Não remover `pages` sem uma migração de compatibilidade e sem rever todos os DTOs, parser, mapper e cliente Flutter. Clientes existentes continuam a poder usar `pages`; clientes novos devem preferir `physicalDescriptions`.
+`Edition.publicationDate` é uma string canónica opcional com exactamente uma das formas `YYYY`, `YYYY-MM` ou `YYYY-MM-DD`. A validação inclui calendário real e anos bissextos. A precisão é derivada em runtime da forma da string; não existe enum redundante persistido. Datas parciais nunca são convertidas em datas completas.
 
 ## Autenticação e segurança
 
@@ -358,7 +374,7 @@ O subconjunto PORBASE actualmente coberto inclui:
 - `101$a`;
 - `200$a/f/g`;
 - `210$a/c/d`;
-- `215$a`;
+- `215` completo, com ocorrências e subcampos ordenados;
 - `035$a`;
 - `675$3`;
 - `700/701`;

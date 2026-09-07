@@ -6,13 +6,14 @@ A direcção conceptual está correcta: separar o registo original da PORBASE, o
 
 A arquitectura evoluiu para usar `Organization` como tenant único, com `OrganizationMembership` para relacionar utilizadores a organizações através de roles controlados (`OWNER`, `ADMIN`, `STAFF`, `READER`). Esta fundação foi implementada, validada e consolidada.
 
-**Fase 1 (Descrição Física Repetível)** foi implementada no backend:
-- `PhysicalDescription` é agora a fonte de verdade repetível para os subcampos UNIMARC `215$a`, `$b`, `$c` e `$d`.
-- `Edition.pages` é retido como campo derivado opcional de compatibilidade.
-- O parser PORBASE preserva a ordem e repetição dos subcampos.
-- A exportação local utiliza descrições persistidas antes de recorrer ao fallback numérico.
-- A integração Flutter permanece aditiva e compatível.
-- A migration foi aplicada na base de desenvolvimento.
+**Fase 1 (Descrição Física Repetível e Datas Bibliográficas)** foi implementada como uma alteração breaking coordenada:
+- `PhysicalDescription` representa uma ocorrência UNIMARC `215`;
+- `PhysicalDescriptionPart` representa cada subcampo ordenado da ocorrência;
+- ocorrências, subcampos repetidos, ordem e códigos desconhecidos válidos são preservados;
+- `Edition.pageCount` é derivado e nunca é a fonte bibliográfica;
+- `Edition.publicationDate` preserva exactamente `YYYY`, `YYYY-MM` ou `YYYY-MM-DD`;
+- o parser, import, CRUD, Flutter e exportação partilham o contrato agrupado;
+- a migration destina-se a uma base de desenvolvimento recriada.
 
 O `MarcRecord` é uma boa base para serializadores. UNIMARC foi concebido para intercâmbio internacional e a estrutura MARC é composta por estrutura do registo, designadores de conteúdo e conteúdo; ISO 2709 e MARCXchange são representações relacionadas mas distintas. O `MarcRecord` deve evoluir para preservar encoding, leader actualizado, campos de controlo, indicadores, subcampos, ordem, proveniência e warnings de perda.[^1][^2]
 
@@ -67,20 +68,13 @@ User
 
 Esta fundação resolve o risco histórico de ownership por `userId` e prepara o terreno para instituições, filiais e circulação.
 
-### Descrição física repetível (implementado em Phase 1)
+### Descrição física repetível e datas (implementado em Phase 1)
 
-`PhysicalDescription` é agora a fonte de verdade repetível para os subcampos UNIMARC `215$a`, `$b`, `$c` e `$d`:
+`PhysicalDescription` é uma ocorrência `215`; os seus `PhysicalDescriptionPart` preservam códigos, valores, repetição e ordem. Os códigos conhecidos `a`–`f` têm labels na UI; códigos lowercase alfanuméricos desconhecidos de um carácter permanecem dados estruturais exportáveis.
 
-- preserva `subfield`, `value`, `sortOrder`, `source` e `normalizedValue`;
-- mantém a ordem de origem e permite repetição de valores;
-- o parser PORBASE extrai e ordena os subcampos `a`, `b`, `c` e `d` de ambas as formas de input (MARC text e MARCXchange/XML);
-- a preview inclui todas as descrições preservadas e deriva `pages` de forma conservadora;
-- a confirmação persiste descrições em transacção;
-- Edition.create/update aceitam e persistem descrições ordenadas;
-- a exportação local usa descrições persistidas antes do fallback `${pages} p.`;
-- Flutter permanece compatível, consumindo `pages` quando presente, e additive para descrições futuras.
+`Edition.pageCount: Int?` é derivado conservadoramente de um único `215$a` simples como `383 p.`. Descrições complexas como `146, [6] p.` são preservadas e deixam `pageCount` nulo quando não é possível determinar um inteiro. A exportação só usa `pageCount` quando não existem ocorrências físicas.
 
-`Edition.pages: Int?` é retido como campo derivado opcional de compatibilidade. Não será removido sem migração de compatibilidade cobrindo parser, DTOs, mapper, API e testes. Uma descrição textual complexa como `146, [6] p.` é preservada sem rejeição; o fallback numérico é conservador e produz apenas um warning de derivação quando não for possível extrair um inteiro.
+`Edition.publicationDate` é uma string canónica em `YYYY`, `YYYY-MM` ou `YYYY-MM-DD`. A precisão é derivada da forma do valor e não é persistida redundante; nunca se usa `Date`/`toISOString()` para estes dados bibliográficos.
 
 ## Riscos arquitecturais
 
@@ -89,13 +83,13 @@ Esta fundação resolve o risco histórico de ownership por `userId` e prepara o
 - **Modelo de biblioteca pessoal:** `Work.userId` e `Item.userId` foram removidos; `Organization` é agora o tenant único.[^4]
 - **Autenticação e autorização:** password hashing Argon2id, access tokens curtos, refresh tokens rotativos/revogáveis e `/auth/me` já estão implementados.[^3]
 - **Tenancy:** `Organization` e `OrganizationMembership` já existem; `Work.organizationId` e `Item.organizationId` são obrigatórios.
-- **Descrição física:** `PhysicalDescription` foi adicionada como estrutura repetível para UNIMARC `215$a`, `$b`, `$c` e `$d`. A preservação de ordem, repetição e subcampos é implementada. `Edition.pages` permanece como compatibilidade derivada.[^6][^9]
+- **Descrição física:** `PhysicalDescription` + `PhysicalDescriptionPart` preservam ocorrências `215`, ordem, repetição e códigos desconhecidos válidos. `Edition.pageCount` é derivado e secundário.[^6][^9]
 
 ### Actuais (pendentes)
 
 1. **Contributors:** não são ainda autoridades bibliográficas; falta `Agent`, `AgentName`, `AuthorityIdentifier` e `Contribution` com role codes.[^4]
 2. **Proveniência versionada:** `BibliographicRecord` precisa de mais metadados (source, format, schema, encoding, hash, parserVersion, warnings) e deve suportar múltiplas versões/fontes por obra ou edição.
-3. **Datas e texto original:** suportar datas com precisão (ano, ano-mês, data completa) e preservar texto original de parsing quando não for possível normalizar; normalizações nunca devem ser silenciosas.
+3. **Datas e texto original:** `publicationDate` já suporta precisão bibliográfica; permanece futuro preservar texto original adicional quando uma normalização não puder ser representada no modelo local.
 4. **Normalização de dados:** `PhysicalDescription.normalizedValue` é ainda derivado manualmente; é futuro automatizar a normalização e a extracção de dimensões, material e ilustrações.
 5. **Administração de memberships:** não existem endpoints para gerir membros, convidar utilizadores, alterar roles e selecção de organização activa.[^3]
 6. **Library/Branch:** não existe modelo de filiais ou localizações subordinadas a Organization.[^4]
@@ -252,36 +246,27 @@ Pendente antes de produção institucional:
 - auditoria operacional;
 - validação da migration no ambiente de destino.
 
-### Fase 1 — fundação bibliográfica (implementação backend concluída)
+### Fase 1 — fundação bibliográfica (implementação backend e Flutter concluída)
 
 Implementada no backend:
 
-- descrição física repetível (`PhysicalDescription` com preservação de subfield, value, sortOrder, source);
-- parser PORBASE preserve ordem e repetição de `215$a`, `$b`, `$c`, `$d`;
-- preview inclui descrições completas e deriva `pages` de forma conservadora;
+- descrição física agrupada (`PhysicalDescription` + `PhysicalDescriptionPart`);
+- parser PORBASE preserva cada ocorrência e todos os subcampos válidos de `215`;
+- preview inclui descrições completas e deriva `pageCount` de forma conservadora;
 - confirmação persiste descrições transaccionalmente;
 - exportação local usa descrições persistidas;
-- Flutter permanece compatível e additive.
-- `PhysicalDescription` no backend;
-- migration aplicada;
-- Flutter: apresenta e preserva a–f e desconhecidos quando vierem da API.
-- preview/import/export usam o modelo local;
-- integração Flutter aditiva;
-- edição estruturada de subcampos 215$a–$f;
-- compatibilidade com `pages`.
+- Flutter usa o contrato breaking agrupado e preserva a–f e desconhecidos;
+- `publicationDate` é preservado como string exacta;
+- migration de reset preparada para a base de desenvolvimento;
 
 Pendente:
-- Backend: o perfil actualmente extraído pela PORBASE pode continuar limitado a a–d.
-- datas com precisão e texto original;
+- texto original adicional para normalizações não representáveis;
 - contributions com roles e identificadores;
 - proveniência versionada com metadados enriquecidos;
 - normalização automática de `PhysicalDescription.normalizedValue`;
-- UI de edição de descrições físicas;
 - `MarcRecord` com encoding, syntax completo e warnings avançados;
 - mapeadores para outros perfis (MARC21, etc).
-- grupos explícitos de campos 215;
 - cálculo automático de `normalizedValue`;
-- validação/armazenamento de datas bibliográficas por precisão no backend;
 - expansão de `MarcRecord`;
 - provenance versionada;
 - authority control.
