@@ -27,6 +27,16 @@ A exportação local já não copia `rawContent`: usa `Edition`, `Work`, contrib
 
 ## Decisões implementadas
 
+### Publication statements UNIMARC 210 (Phase 1)
+
+O modelo local agora preserva ocorrências repetíveis de 210 através de
+`PublicationStatement` e partes ordenadas. A exportação local usa essas partes
+como fonte autoritativa e só usa os escalares de Edition como fallback para
+registos legados sem statements. A migration é aditiva, não fabrica statements
+para dados antigos e deve ser validada na base de desenvolvimento existente
+sem reset. Ver `docs/decisions/publication-statements-phase-1.md` para a decisão
+transicional e o plano de remoção futura dos inputs escalares.
+
 ### Separação de proveniência
 
 Manter o `rawContent` como registo original imutável, separado dos dados locais corrigidos, é a decisão certa. Permite auditoria, comparação, reprocessamento com um parser melhor e exportação original sem sobrescrever a curadoria local. O `rawContent` não deve ser a fonte da exportação local.
@@ -246,30 +256,31 @@ Pendente antes de produção institucional:
 - auditoria operacional;
 - validação da migration no ambiente de destino.
 
-### Fase 1 — fundação bibliográfica (implementação backend e Flutter concluída)
+### Fase 1 — fundação bibliográfica
 
-Implementada no backend:
+Concluída:
 
 - descrição física agrupada (`PhysicalDescription` + `PhysicalDescriptionPart`);
-- parser PORBASE preserva cada ocorrência e todos os subcampos válidos de `215`;
-- preview inclui descrições completas e deriva `pageCount` de forma conservadora;
-- confirmação persiste descrições transaccionalmente;
-- exportação local usa descrições persistidas;
-- Flutter usa o contrato breaking agrupado e preserva a–f e desconhecidos;
-- `publicationDate` é preservado como string exacta;
-- migration de reset preparada para a base de desenvolvimento;
+- preservação de ocorrências, subcampos, ordem e códigos desconhecidos de `215`;
+- `pageCount` derivado conservativamente;
+- `publicationDate` textual com precisão bibliográfica preservada;
+- importação PORBASE transaccional;
+- exportação local MARCXchange sem depender de `rawContent`;
+- contrato Flutter coordenado;
+- internacionalização da UI com `pt-PT` e `en`;
+- códigos estáveis de erro API e warnings PORBASE.
 
 Pendente:
-- texto original adicional para normalizações não representáveis;
-- contributions com roles e identificadores;
-- proveniência versionada com metadados enriquecidos;
-- normalização automática de `PhysicalDescription.normalizedValue`;
-- `MarcRecord` com encoding, syntax completo e warnings avançados;
-- mapeadores para outros perfis (MARC21, etc).
-- cálculo automático de `normalizedValue`;
-- expansão de `MarcRecord`;
-- provenance versionada;
-- authority control.
+
+- `PublicationStatement` para local, agente/editor e data de publicação;
+- `Contribution` e evolução de contributors/roles;
+- provenance versionada e metadados ricos;
+- normalizações derivadas e não destrutivas;
+- `MarcRecord` mais completo, incluindo encoding, syntax e relatório de perda;
+- `SeriesStatement`;
+- assuntos, classificações e notas;
+- authority control;
+- perfis/mappers adicionais, como MARC21.
 
 ### Fase 2 — catálogo e ficheiros
 

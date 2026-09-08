@@ -304,6 +304,61 @@ describe('local UNIMARC mapper', () => {
     );
   });
 
+  it('exports ordered publication statements and ignores scalar projections', () => {
+    const result = mapLocalEditionToUnimarc({
+      id: 'publication-edition',
+      title: 'Título',
+      language: 'por',
+      publisher: 'Wrong scalar publisher',
+      publicationDate: '1999',
+      publicationPlace: 'Wrong scalar place',
+      publicationStatements: [
+        {
+          sortOrder: 1,
+          indicator1: ' ',
+          indicator2: '9',
+          parts: [{ subfield: 'c', value: '[s.n.]', sortOrder: 0 }],
+        },
+        {
+          sortOrder: 0,
+          indicator1: '1',
+          indicator2: '2',
+          parts: [
+            { subfield: 'a', value: '[S.l.]', sortOrder: 0 },
+            { subfield: 'a', value: 'Lisboa', sortOrder: 1 },
+            { subfield: 'd', value: 'D.L. 2009', sortOrder: 2 },
+          ],
+        },
+      ],
+    });
+
+    expect(result.record.dataFields.filter(({ tag }) => tag === '210')).toEqual([
+      { tag: '210', indicator1: '1', indicator2: '2', subfields: [
+        { code: 'a', value: '[S.l.]' },
+        { code: 'a', value: 'Lisboa' },
+        { code: 'd', value: 'D.L. 2009' },
+      ] },
+      { tag: '210', indicator1: ' ', indicator2: '9', subfields: [
+        { code: 'c', value: '[s.n.]' },
+      ] },
+    ]);
+  });
+
+  it('falls back to scalar publication projections when statements are absent', () => {
+    const result = mapLocalEditionToUnimarc({
+      id: 'legacy-publication-edition', title: 'Título', language: 'por',
+      publicationPlace: 'Coimbra', publisher: 'Editora', publicationDate: '2024',
+    });
+    expect(result.record.dataFields).toContainEqual({
+      tag: '210', indicator1: ' ', indicator2: ' ',
+      subfields: [
+        { code: 'a', value: 'Coimbra' },
+        { code: 'c', value: 'Editora' },
+        { code: 'd', value: '2024' },
+      ],
+    });
+  });
+
   it('does not use rawContent when mapping local data', () => {
     const localInput = {
       id: 'local-edition',

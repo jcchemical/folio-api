@@ -13,6 +13,7 @@ import {
 } from 'class-validator';
 import { PhysicalDescriptionDto } from '../../editions/dto/physical-description.dto.js';
 import { IsBibliographicDate } from '../../common/bibliographic-date.js';
+import { PublicationStatementDto } from '../../editions/dto/publication-statement.dto.js';
 
 export class PorbaseImportWorkDto {
   @ApiProperty({ example: 'Vida e andanças de Alexis Zorbás' })
@@ -83,6 +84,14 @@ export class PorbaseImportEditionDto {
   @ValidateNested({ each: true })
   @Type(() => PhysicalDescriptionDto)
   physicalDescriptions?: PhysicalDescriptionDto[];
+
+  @ApiPropertyOptional({ type: [PublicationStatementDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PublicationStatementDto)
+  publicationStatements?: PublicationStatementDto[];
+  @ApiPropertyOptional({ nullable: true }) publicationPlace?: string | null;
 }
 
 export class PorbaseImportContributorDto {
@@ -250,6 +259,24 @@ export class PorbasePersistedPhysicalDescriptionDto {
   parts!: PorbasePersistedPhysicalDescriptionPartDto[];
 }
 
+export class PorbasePersistedPublicationStatementPartDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() subfield!: string;
+  @ApiProperty() value!: string;
+  @ApiProperty() sortOrder!: number;
+  @ApiPropertyOptional({ nullable: true }) normalizedValue?: string | null;
+}
+
+export class PorbasePersistedPublicationStatementDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() sortOrder!: number;
+  @ApiProperty() indicator1!: string;
+  @ApiProperty() indicator2!: string;
+  @ApiPropertyOptional({ nullable: true }) source?: string | null;
+  @ApiProperty({ type: [PorbasePersistedPublicationStatementPartDto] })
+  parts!: PorbasePersistedPublicationStatementPartDto[];
+}
+
 export class PorbasePersistedItemDto {
   @ApiProperty() id!: string;
   @ApiPropertyOptional({ nullable: true }) label?: string | null;
@@ -281,6 +308,8 @@ export class PorbasePersistedEditionDto {
   @ApiPropertyOptional({ nullable: true }) pageCount?: number | null;
   @ApiProperty({ type: [PorbasePersistedPhysicalDescriptionDto], required: false })
   physicalDescriptions?: PorbasePersistedPhysicalDescriptionDto[];
+    @ApiProperty({ type: [PorbasePersistedPublicationStatementDto], required: false })
+    publicationStatements?: PorbasePersistedPublicationStatementDto[];
   @ApiProperty({ type: [PorbasePersistedExternalIdentifierDto] })
   externalIdentifiers!: PorbasePersistedExternalIdentifierDto[];
   @ApiProperty({ type: [PorbasePersistedBibliographicRecordDto] })
@@ -326,4 +355,7 @@ export class PorbaseImportResponseDto {
 
   @ApiProperty({ type: PorbasePersistedItemDto })
   item!: PorbasePersistedItemDto;
+
+  @ApiProperty({ type: [Object], required: false })
+  warnings?: Array<{ code: string; field?: string; message: string; original?: string; normalized?: string; type: string }>;
 }

@@ -31,6 +31,13 @@ export type LocalPhysicalDescription = {
   }>;
 };
 
+export type LocalPublicationStatement = {
+  sortOrder: number;
+  indicator1: string;
+  indicator2: string;
+  parts: Array<{ subfield: string; value: string; sortOrder: number }>;
+};
+
 export type UnimarcLocalEditionInput = {
   id: string;
   title?: string | null;
@@ -39,9 +46,11 @@ export type UnimarcLocalEditionInput = {
   isbn13?: string | null;
   publisher?: string | null;
   publicationDate?: string | null;
+  publicationPlace?: string | null;
   language?: string | null;
   pageCount?: number | null;
   physicalDescriptions?: LocalPhysicalDescription[];
+  publicationStatements?: LocalPublicationStatement[];
   work?: {
     title?: string | null;
   } | null;
@@ -113,18 +122,23 @@ export function mapLocalEditionToUnimarc(
     });
   }
 
-  const publicationSubfields = [
-    createOptionalSubfield('c', edition.publisher),
-    createOptionalSubfield('d', serializePublishDate(edition.publicationDate)),
-  ].filter((subfield): subfield is { code: 'c' | 'd'; value: string } => Boolean(subfield));
-
-  if (publicationSubfields.length > 0) {
-    dataFields.push({
-      tag: '210',
-      indicator1: ' ',
-      indicator2: ' ',
-      subfields: publicationSubfields,
-    });
+  const publicationStatements = [...(edition.publicationStatements ?? [])]
+    .sort((left, right) => left.sortOrder - right.sortOrder);
+  if (publicationStatements.length > 0) {
+    for (const statement of publicationStatements) {
+      const subfields = [...statement.parts]
+        .filter(({ subfield, value }) => /^[a-z0-9]$/.test(subfield) && isNonEmpty(value))
+        .sort((left, right) => left.sortOrder - right.sortOrder)
+        .map(({ subfield, value }) => ({ code: subfield, value }));
+      if (subfields.length > 0) dataFields.push({ tag: '210', indicator1: statement.indicator1, indicator2: statement.indicator2, subfields });
+    }
+  } else {
+    const publicationSubfields = [
+      createOptionalSubfield('a', edition.publicationPlace),
+      createOptionalSubfield('c', edition.publisher),
+      createOptionalSubfield('d', serializePublishDate(edition.publicationDate)),
+    ].filter((subfield): subfield is { code: 'a' | 'c' | 'd'; value: string } => Boolean(subfield));
+    if (publicationSubfields.length > 0) dataFields.push({ tag: '210', indicator1: ' ', indicator2: ' ', subfields: publicationSubfields });
   }
 
   const physicalDescriptions = [...(edition.physicalDescriptions ?? [])]

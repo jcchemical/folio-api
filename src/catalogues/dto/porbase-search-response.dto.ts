@@ -13,6 +13,30 @@ export class PorbasePhysicalDescriptionPartDto {
   normalizedValue?: string | null;
 }
 
+export class PorbasePublicationStatementPartDto {
+  @ApiProperty({ example: 'a', pattern: '^[a-z0-9]$' })
+  subfield!: string;
+  @ApiProperty({ example: 'Coimbra' })
+  value!: string;
+  @ApiProperty({ example: 0 })
+  sortOrder!: number;
+  @ApiPropertyOptional({ nullable: true })
+  normalizedValue?: string | null;
+}
+
+export class PorbasePublicationStatementDto {
+  @ApiProperty({ example: 0 })
+  sortOrder!: number;
+  @ApiProperty({ example: ' ' })
+  indicator1!: string;
+  @ApiProperty({ example: '9' })
+  indicator2!: string;
+  @ApiProperty({ type: [PorbasePublicationStatementPartDto] })
+  parts!: PorbasePublicationStatementPartDto[];
+  @ApiPropertyOptional({ example: 'PORBASE', nullable: true })
+  source?: string | null;
+}
+
 export class PorbasePhysicalDescriptionDto {
   @ApiProperty({ example: 0 })
   sortOrder!: number;
@@ -58,6 +82,9 @@ export class PorbaseBibliographicFieldsDto {
   @ApiProperty({ type: [PorbasePhysicalDescriptionDto], required: false })
   physicalDescriptions?: PorbasePhysicalDescriptionDto[];
 
+  @ApiProperty({ type: [PorbasePublicationStatementDto], required: false })
+  publicationStatements?: PorbasePublicationStatementDto[];
+
   @ApiPropertyOptional({ example: ['4-(1)-40-5-39'] })
   shelfmarks?: string[];
 
@@ -85,7 +112,9 @@ export type PorbaseWarningCode =
   | 'PORBASE_PARSE_ERROR'
   | 'PORBASE_PARSE_WARNING'
   | 'PORBASE_NORMALIZATION'
-  | 'PORBASE_MISSING_FIELD';
+  | 'PORBASE_MISSING_FIELD'
+  | 'PUBLICATION_DATE_NORMALIZED'
+  | 'PUBLICATION_SCALAR_DIVERGENCE';
 
 export class PorbaseWarningDto {
   @ApiProperty({ example: 'PORBASE_NORMALIZATION' })

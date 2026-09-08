@@ -138,6 +138,10 @@ describe('ExportsService', () => {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
           include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
         },
+        publicationStatements: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+        },
       },
     });
     expect(xml).not.toContain('original');

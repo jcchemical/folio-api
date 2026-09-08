@@ -9,6 +9,8 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { paginate, paginationArgs, type PaginationInput } from '../common/pagination.js';
 import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
 import type { PhysicalDescriptionInput } from '../editions/dto/physical-description.dto.js';
+import type { PublicationStatementInput } from '../editions/dto/publication-statement.dto.js';
+import { derivePublicationProjection, normalizePublicationDateLiteral } from '../editions/dto/publication-statement.dto.js';
 
 export interface EditionInput {
   title: string;
@@ -17,6 +19,8 @@ export interface EditionInput {
   isbn13?: string | null;
   publisher?: string | null;
   publicationDate?: string | null;
+  publicationPlace?: string | null;
+  publicationStatements?: PublicationStatementInput[];
   language?: string | null;
   country?: string | null;
   format?: string | null;
@@ -59,6 +63,10 @@ export class WorksService {
               orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
               include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
             },
+            publicationStatements: {
+              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+              include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+            },
           },
         },
       },
@@ -75,6 +83,10 @@ export class WorksService {
         editions: {
           include: {
             physicalDescriptions: {
+              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+              include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+            },
+            publicationStatements: {
               orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
               include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
             },
@@ -112,14 +124,18 @@ export class WorksService {
 
     if (editions?.length) {
       await Promise.all(
-        editions.map(({ physicalDescriptions, ...edition }) =>
+        editions.map(({ physicalDescriptions, publicationStatements, ...edition }) =>
           this.prisma.edition.create({
             data: {
               ...edition,
+              ...projectionData(publicationStatements),
               workId: work.id,
               pageCount: derivePageCount(physicalDescriptions),
               physicalDescriptions: physicalDescriptions?.length
                 ? { create: physicalDescriptions.map(toPhysicalDescriptionCreate) }
+                : undefined,
+              publicationStatements: publicationStatements?.length
+                ? { create: publicationStatements.map(toPublicationStatementCreate) }
                 : undefined,
             },
           }),
@@ -157,14 +173,18 @@ export class WorksService {
         await transaction.edition.deleteMany({ where: { workId: id } });
         if (editions.length) {
           await Promise.all(
-            editions.map(({ physicalDescriptions, ...edition }) =>
+            editions.map(({ physicalDescriptions, publicationStatements, ...edition }) =>
               transaction.edition.create({
                 data: {
                   ...edition,
+                  ...projectionData(publicationStatements),
                   workId: id,
                   pageCount: derivePageCount(physicalDescriptions),
                   physicalDescriptions: physicalDescriptions?.length
                     ? { create: physicalDescriptions.map(toPhysicalDescriptionCreate) }
+                    : undefined,
+                  publicationStatements: publicationStatements?.length
+                    ? { create: publicationStatements.map(toPublicationStatementCreate) }
                     : undefined,
                 },
               }),
@@ -201,6 +221,28 @@ function toPhysicalDescriptionCreate(description: NonNullable<EditionInput['phys
         normalizedValue: null,
       })),
     },
+  };
+}
+
+function toPublicationStatementCreate(statement: NonNullable<EditionInput['publicationStatements']>[number]) {
+  return {
+    sortOrder: statement.sortOrder,
+    indicator1: statement.indicator1 ?? ' ',
+    indicator2: statement.indicator2 ?? '9',
+    source: null,
+    parts: { create: statement.parts.map((part) => ({
+      subfield: part.subfield.toLowerCase(), value: part.value.trim(), sortOrder: part.sortOrder, normalizedValue: part.subfield.toLowerCase() === 'd' ? normalizePublicationDateLiteral(part.value.trim()) : null,
+    })) },
+  };
+}
+
+function projectionData(statements: EditionInput['publicationStatements']) {
+  if (!statements?.length) return {};
+  const projection = derivePublicationProjection({ statements });
+  return {
+    publisher: projection.publisher,
+    publicationDate: projection.publicationDate,
+    publicationPlace: projection.publicationPlace,
   };
 }
 

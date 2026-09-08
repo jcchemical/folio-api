@@ -6,8 +6,10 @@ import {
   PorbaseWarningDto,
   PorbaseWarningCode,
   PorbaseWarningType,
+  PorbasePublicationStatementDto,
 } from './dto/porbase-search-response.dto.js';
 import { PorbaseXmlError } from './catalogues.types.js';
+import { isValidBibliographicDate } from '../common/bibliographic-date.js';
 
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
@@ -204,6 +206,7 @@ function extractTextMetadata(
   );
   metadata.extent = firstSubfieldValue(fields, '215', 'a');
   metadata.physicalDescriptions = extractTextPhysicalDescriptions(fields);
+  metadata.publicationStatements = extractTextPublicationStatements(fields, warnings);
 
   const authorFields = fields.filter((field) =>
     ['700', '701'].includes(field.tag),
@@ -300,6 +303,7 @@ function extractXmlMetadata(
   );
   metadata.extent = firstSubfield(record, '215', 'a');
   metadata.physicalDescriptions = extractXmlPhysicalDescriptions(record);
+  metadata.publicationStatements = extractXmlPublicationStatements(record, warnings);
 
   metadata.authors = ['700', '701']
     .flatMap((tag) => datafields(record, tag).map(contributorNameFromXml))
@@ -488,6 +492,39 @@ function extractXmlPhysicalDescriptions(
     });
   }
   return descriptions;
+}
+
+function extractTextPublicationStatements(fields: TextField[], warnings: PorbaseWarningDto[]): PorbasePublicationStatementDto[] {
+  return fields.filter(({ tag }) => tag === '210').map((field, sortOrder) => ({
+    sortOrder, indicator1: ' ', indicator2: '9', source: 'PORBASE',
+      parts: field.orderedSubfields.map(({ code, value }, partOrder) => ({
+      subfield: code, value, sortOrder: partOrder,
+      normalizedValue: code === 'd' ? normalizePublicationDateForPart(value, warnings) : null,
+    })),
+  })).filter(({ parts }) => parts.length > 0);
+}
+
+function extractXmlPublicationStatements(record: XmlObject, warnings: PorbaseWarningDto[]): PorbasePublicationStatementDto[] {
+  return datafields(record, '210').map((field, sortOrder) => ({
+    sortOrder, indicator1: findText(field['@_ind1']) ?? ' ', indicator2: findText(field['@_ind2']) ?? '9', source: 'PORBASE',
+    parts: asArray(field.subfield).map((subfield, partOrder) => {
+      const code = textValue(subfield['@_code'])?.toLowerCase() ?? '';
+      const value = findText(subfield)?.trim() ?? '';
+      return { subfield: code, value, sortOrder: partOrder, normalizedValue: code === 'd' ? normalizePublicationDateForPart(value, warnings) : null };
+    }).filter(({ subfield, value }) => /^[a-z0-9]$/.test(subfield) && value.length > 0),
+  })).filter(({ parts }) => parts.length > 0);
+}
+
+function normalizePublicationDateForPart(value: string, warnings: PorbaseWarningDto[]): string | null {
+  const original = value.trim();
+  const match = /^(?:D\.?\s*L\.?\s*)?(\d{4})(?:-(\d{2})(?:-(\d{2}))?)[.?]?$|^(?:D\.?\s*L\.?\s*)?(\d{4})[.?]?$/.exec(original);
+  if (!match) {
+    warnings.push({ code: 'PORBASE_PARSE_ERROR', field: 'edition.publicationStatements.210$d', message: `Não foi possível extrair data de '${original}'`, original, type: 'parse_error' });
+    return null;
+  }
+  const normalized = [match[1] ?? match[4], match[2], match[3]].filter(Boolean).join('-');
+  if (original !== normalized) warnings.push({ code: 'PORBASE_NORMALIZATION', field: 'edition.publicationStatements.210$d', message: `Data normalizada de '${original}' para '${normalized}'`, original, normalized, type: 'normalization' });
+  return isValidBibliographicDate(normalized) ? normalized : null;
 }
 
 function detectFormat(

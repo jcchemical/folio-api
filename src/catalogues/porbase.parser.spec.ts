@@ -98,3 +98,22 @@ describe('parsePorbaseResponse physical descriptions', () => {
     ]);
   });
 });
+
+describe('parsePorbaseResponse publication statements', () => {
+  it('preserves repeated 210 occurrences, parts, indicators and literal dates', () => {
+    const result = parsePorbaseResponse(
+      query,
+      '<collection><record><datafield tag="210" ind1="1" ind2="2"><subfield code="a">[S.l.]</subfield><subfield code="a">Lisboa</subfield><subfield code="d">D.L. 2009</subfield></datafield><datafield tag="210"><subfield code="c">[s.n.]</subfield><subfield code="b">Distribuição</subfield></datafield></record></collection>',
+      'text/xml',
+    );
+
+    expect(result.metadata.publicationStatements).toEqual([
+      expect.objectContaining({ sortOrder: 0, indicator1: '1', indicator2: '2', parts: [
+        { subfield: 'a', value: '[S.l.]', sortOrder: 0, normalizedValue: null },
+        { subfield: 'a', value: 'Lisboa', sortOrder: 1, normalizedValue: null },
+        { subfield: 'd', value: 'D.L. 2009', sortOrder: 2, normalizedValue: '2009' },
+      ] }),
+      expect.objectContaining({ sortOrder: 1, indicator1: ' ', indicator2: '9' }),
+    ]);
+  });
+});

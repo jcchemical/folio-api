@@ -201,6 +201,24 @@ PORBASE warnings preserve `type`, `field`, `original`, `normalized` and `message
 
 ## Modelo actual
 
+### Declarações de publicação UNIMARC 210 (Phase 1)
+
+`PublicationStatement` representa uma ocorrência repetível de 210 e
+`PublicationStatementPart` representa cada subcampo pela ordem original. Os
+valores literais, códigos repetidos e indicadores são preservados. O perfil
+PORBASE usa explicitamente `ind1 = " "` e `ind2 = "9"` quando o registo não
+fornece indicadores; isto não é uma afirmação de que o blank seja universal.
+
+`PublicationStatementPart.normalizedValue` é calculado no servidor e não pode
+ser enviado por clientes. Apenas datas canónicas (`YYYY`, `YYYY-MM` ou
+`YYYY-MM-DD`) podem preencher `Edition.publicationDate`; literais como
+`D.L. 2009` permanecem em `value`. Quando existem statements, publisher,
+publicationPlace e publicationDate são projecções e as escritas escalares são
+ignoradas. Em updates, campo omitido preserva statements, `[]` remove-os e
+limpa projecções, e uma lista não vazia substitui-os. Sem statements, o
+comportamento escalar legado permanece. Esta é uma transição não-breaking;
+remoção dos campos escalares de escrita fica para Phase 2.
+
 ### User e Organization
 
 O modelo contém `User`, `Organization` e `OrganizationMembership`. `Organization` é a fronteira única de tenancy para todo o material bibliográfico e de inventário. As memberships usam os roles controlados `OWNER`, `ADMIN`, `STAFF` e `READER`.

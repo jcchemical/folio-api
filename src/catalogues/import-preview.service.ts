@@ -56,6 +56,7 @@ export class ImportPreviewService {
       placeOfPublication: metadata.placeOfPublication,
       pageCount: parsePages(metadata.physicalDescriptions, metadata.extent),
       physicalDescriptions: metadata.physicalDescriptions ?? [],
+      publicationStatements: metadata.publicationStatements ?? [],
     };
 
     if (/^\d{13}$/.test(normalizedIsbn)) edition.isbn13 = normalizedIsbn;

@@ -14,6 +14,7 @@ import type {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
 import { OrganizationRole } from '@prisma/client';
+import { derivePublicationProjection, normalizePublicationDateLiteral } from '../editions/dto/publication-statement.dto.js';
 
 type TransactionClient = Omit<
   PrismaClient,
@@ -55,14 +56,18 @@ export class PorbaseImportService {
         },
       });
 
+      const projection = input.edition.publicationStatements?.length
+        ? derivePublicationProjection({ statements: input.edition.publicationStatements })
+        : null;
       const edition = await transaction.edition.create({
         data: {
           title: input.edition.title,
           subtitle: input.edition.subtitle ?? null,
           isbn10,
           isbn13,
-          publisher: input.edition.publisher ?? null,
-          publicationDate: input.edition.publicationDate ?? null,
+          publisher: projection?.publisher ?? input.edition.publisher ?? null,
+          publicationDate: projection?.publicationDate ?? input.edition.publicationDate ?? null,
+          publicationPlace: projection?.publicationPlace ?? null,
           language: input.edition.language ?? null,
           country: input.edition.country ?? null,
           format: input.edition.format ?? null,
@@ -84,7 +89,18 @@ export class PorbaseImportService {
                 })),
               }
             : undefined,
-        },
+          publicationStatements: input.edition.publicationStatements?.length
+            ? { create: input.edition.publicationStatements.map((statement) => ({
+                sortOrder: statement.sortOrder,
+                indicator1: statement.indicator1 ?? ' ',
+                indicator2: statement.indicator2 ?? '9',
+                source: 'PORBASE',
+                parts: { create: statement.parts.map((part) => ({
+                  subfield: part.subfield.toLowerCase(), value: part.value.trim(), sortOrder: part.sortOrder, normalizedValue: part.subfield.toLowerCase() === 'd' ? normalizePublicationDateLiteral(part.value.trim()) : null,
+                })) },
+              })) }
+            : undefined,
+          } as Prisma.EditionCreateArgs['data'],
       });
 
       await this.persistContributors(
@@ -138,6 +154,10 @@ export class PorbaseImportService {
                   parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
                 },
               },
+              publicationStatements: {
+                orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+                include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+              },
               editionContributors: { include: { contributor: true } },
             },
           },
@@ -186,6 +206,14 @@ export class PorbaseImportService {
         externalIdentifiers: responseEdition.externalIdentifiers,
         bibliographicRecord,
         item,
+        warnings: projection?.warnings.map((warning) => ({
+          code: warning.code,
+          field: warning.field,
+          message: warning.message,
+          original: warning.original,
+          normalized: warning.normalized,
+          type: warning.type === 'validation_warning' ? 'parse_warning' : warning.type,
+        })) ?? [],
       } satisfies PorbaseImportResponseDto;
     });
   }

@@ -3,6 +3,7 @@ import { IsInt, IsNotEmpty, IsOptional, IsString, Min, ValidateNested } from 'cl
 import { Type } from 'class-transformer';
 import { IsBibliographicDate } from '../../common/bibliographic-date.js';
 import { PhysicalDescriptionDto } from './physical-description.dto.js';
+import { PublicationStatementDto } from './publication-statement.dto.js';
 
 export class CreateEditionDto {
   @ApiProperty({ example: 'Título da edição' })
@@ -34,6 +35,12 @@ export class CreateEditionDto {
   @IsOptional()
   @IsBibliographicDate()
   publicationDate?: string | null;
+
+  @ApiPropertyOptional({ type: [PublicationStatementDto], description: 'Canonical UNIMARC 210 statements. Scalar publication fields are ignored when this list is non-empty.' })
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => PublicationStatementDto)
+  publicationStatements?: PublicationStatementDto[];
 
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
