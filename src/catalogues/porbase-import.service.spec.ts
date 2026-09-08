@@ -137,6 +137,40 @@ describe('PorbaseImportService', () => {
     expect(result.id).toBe('work-1');
   });
 
+  it('ignores scalar publication values when statements exist without projections', async () => {
+    const { tx } = createTransactionMock();
+    const prisma = {
+      $transaction: vi.fn(
+        async (callback: (transaction: typeof tx) => unknown) => callback(tx),
+      ),
+    };
+    const service = new PorbaseImportService(prisma as never, {
+      getDefaultOrganization: vi.fn().mockResolvedValue({ id: 'organization-1' }),
+    } as never);
+    const input: PorbaseImportDto = {
+      ...baseInput,
+      edition: {
+        ...baseInput.edition,
+        publisher: 'Legacy publisher',
+        publicationDate: '2022',
+        publicationStatements: [{
+          sortOrder: 0,
+          parts: [{ subfield: 'b', value: 'Additional information', sortOrder: 0 }],
+        }],
+      },
+    };
+
+    await service.import('jwt-user-1', input);
+
+    expect(tx.edition.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        publisher: null,
+        publicationDate: null,
+        publicationPlace: null,
+      }),
+    });
+  });
+
   it('rejects a duplicate ISBN belonging to the same user', async () => {
     const { tx } = createTransactionMock();
     tx.edition.findFirst.mockResolvedValue({ id: 'existing-edition' });

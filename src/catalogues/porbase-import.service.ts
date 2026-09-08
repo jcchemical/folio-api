@@ -59,15 +59,16 @@ export class PorbaseImportService {
       const projection = input.edition.publicationStatements?.length
         ? derivePublicationProjection({ statements: input.edition.publicationStatements })
         : null;
+      const hasPublicationStatements = Boolean(input.edition.publicationStatements?.length);
       const edition = await transaction.edition.create({
         data: {
           title: input.edition.title,
           subtitle: input.edition.subtitle ?? null,
           isbn10,
           isbn13,
-          publisher: projection?.publisher ?? input.edition.publisher ?? null,
-          publicationDate: projection?.publicationDate ?? input.edition.publicationDate ?? null,
-          publicationPlace: projection?.publicationPlace ?? null,
+          publisher: hasPublicationStatements ? projection?.publisher ?? null : input.edition.publisher ?? null,
+          publicationDate: hasPublicationStatements ? projection?.publicationDate ?? null : input.edition.publicationDate ?? null,
+          publicationPlace: hasPublicationStatements ? projection?.publicationPlace ?? null : null,
           language: input.edition.language ?? null,
           country: input.edition.country ?? null,
           format: input.edition.format ?? null,

@@ -180,3 +180,81 @@ describe('EditionsService physical descriptions', () => {
     });
   });
 });
+
+describe('EditionsService publication statements update semantics', () => {
+  function createUpdateService() {
+    const transaction = {
+      edition: {
+        update: vi.fn().mockResolvedValue({ id: 'edition-1' }),
+        findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 'edition-1', publicationStatements: [] }),
+      },
+      publicationStatement: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+        createMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findMany: vi.fn().mockResolvedValue([{ id: 'statement-1', sortOrder: 0 }]),
+      },
+      publicationStatementPart: {
+        createMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const prisma = {
+      edition: { findUnique: vi.fn().mockResolvedValue(edition) },
+      organizationMembership: {
+        findUnique: vi.fn().mockResolvedValue({
+          role: OrganizationRole.STAFF,
+          organization: { id: 'organization-1' },
+        }),
+      },
+      $transaction: vi.fn(async (callback: (tx: typeof transaction) => unknown) => callback(transaction)),
+    } as unknown as PrismaService;
+    return { service: new EditionsService(prisma, new OrganizationMembershipService(prisma)), transaction };
+  }
+
+  const statement = {
+    sortOrder: 0,
+    parts: [{ subfield: 'c', value: 'Editora', sortOrder: 0 }],
+  };
+
+  it('preserves existing statements when publicationStatements is omitted', async () => {
+    const { service, transaction } = createUpdateService();
+
+    await service.update(edition.id, userId, { title: 'Updated title' });
+
+    expect(transaction.publicationStatement.deleteMany).not.toHaveBeenCalled();
+    expect(transaction.edition.update).toHaveBeenCalledWith({
+      where: { id: edition.id },
+      data: { title: 'Updated title' },
+    });
+  });
+
+  it('removes statements and clears projections for an explicit empty list', async () => {
+    const { service, transaction } = createUpdateService();
+
+    await service.update(edition.id, userId, { publicationStatements: [] });
+
+    expect(transaction.publicationStatement.deleteMany).toHaveBeenCalledWith({ where: { editionId: edition.id } });
+    expect(transaction.publicationStatement.createMany).not.toHaveBeenCalled();
+    expect(transaction.edition.update).toHaveBeenCalledWith({
+      where: { id: edition.id },
+      data: { publisher: null, publicationDate: null, publicationPlace: null },
+    });
+  });
+
+  it('replaces statements and recomputes projections for a non-empty list', async () => {
+    const { service, transaction } = createUpdateService();
+
+    await service.update(edition.id, userId, { publicationStatements: [statement] });
+
+    expect(transaction.publicationStatement.deleteMany).toHaveBeenCalledWith({ where: { editionId: edition.id } });
+    expect(transaction.publicationStatement.createMany).toHaveBeenCalledWith({
+      data: [{ editionId: edition.id, sortOrder: 0, indicator1: ' ', indicator2: '9', source: null }],
+    });
+    expect(transaction.publicationStatementPart.createMany).toHaveBeenCalledWith({
+      data: [{ publicationStatementId: 'statement-1', subfield: 'c', value: 'Editora', sortOrder: 0, normalizedValue: null }],
+    });
+    expect(transaction.edition.update).toHaveBeenCalledWith({
+      where: { id: edition.id },
+      data: { publisher: 'Editora', publicationDate: null, publicationPlace: null },
+    });
+  });
+});

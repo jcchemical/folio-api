@@ -127,7 +127,7 @@ export function derivePublicationProjection(
 
   const compare = [
     ['publisher', input.publisher, publisher?.value ?? null],
-    ['publicationDate', input.publicationDate, date?.normalizedValue ?? null],
+    ['publicationDate', input.publicationDate, date?.effectiveNormalizedValue ?? null],
     ['publicationPlace', input.publicationPlace, place?.value ?? null],
   ] as const;
   for (const [field, supplied, derived] of compare) {
