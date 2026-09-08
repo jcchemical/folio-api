@@ -23,7 +23,18 @@ export class EditionsService {
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       include: {
-        work: true,
+        work: {
+          include: {
+            contributions: {
+              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+              include: { agent: true, sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+            },
+          },
+        },
+        contributions: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          include: { agent: true, sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+        },
         physicalDescriptions: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
           include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
@@ -42,7 +53,20 @@ export class EditionsService {
     const edition = await this.prisma.edition.findUnique({
       where: { id },
       include: {
-        work: true,
+        work: {
+          include: {
+            workContributors: { include: { contributor: true } },
+            contributions: {
+              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+              include: { agent: true, sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+            },
+          },
+        },
+        contributions: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          include: { agent: true, sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+        },
+        editionContributors: { include: { contributor: true } },
         physicalDescriptions: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
           include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
@@ -55,7 +79,14 @@ export class EditionsService {
       },
     });
     await this.assertEditionAccess(edition, userId);
-    return edition;
+    if (!edition) throw new NotFoundException('Edition not found');
+    return {
+      ...edition,
+      contributions: [
+        ...contributionViews(edition.work.contributions, edition.work.workContributors, 'WORK'),
+        ...contributionViews(edition.contributions, edition.editionContributors, 'EDITION'),
+      ],
+    };
   }
 
   async create(userId: string, workId: string, data: EditionInput) {
@@ -221,6 +252,22 @@ export class EditionsService {
     if (!edition) throw new NotFoundException('Edition not found');
     await this.organizationMemberships.assertWorkWriteAccess(userId, edition.work);
   }
+}
+
+function contributionViews(
+  canonical: Array<{ id: string; sortOrder: number; agent: unknown }> ,
+  legacy: Array<{ id: string; role: string; sortOrder: number; contributor: { id: string; name: string } }>,
+  scope: 'WORK' | 'EDITION',
+) {
+  if (canonical.length) return canonical.map((contribution) => ({ ...contribution, scope }));
+  return legacy.map((relation) => ({
+    id: relation.id,
+    sortOrder: relation.sortOrder,
+    scope,
+    roleLabel: relation.role,
+    agent: { id: relation.contributor.id, displayName: relation.contributor.name, kind: 'UNKNOWN' as const },
+    sourceParts: [],
+  }));
 }
 
 function toPhysicalDescriptionCreate(description: NonNullable<EditionInput['physicalDescriptions']>[number]) {

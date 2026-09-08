@@ -15,6 +15,8 @@ import { ContributorsController } from '../contributors/contributors.controller.
 import { BibliographicRecordsController } from '../bibliographic-records/bibliographic_records.controller.js';
 import { ItemsController } from '../items/items.controller.js';
 import { OrganizationsModule } from '../organizations/organizations.module.js';
+import { ContributionsService } from '../contributions/contributions.service.js';
+import { ContributionsController } from '../contributions/contributions.controller.js';
 
 @Module({
   imports: [
@@ -30,6 +32,7 @@ import { OrganizationsModule } from '../organizations/organizations.module.js';
     ExternalIdentifiersService,
     BibliographicRecordsService,
     ItemsService,
+    ContributionsService,
   ],
   controllers: [
     WorksController,
@@ -38,6 +41,7 @@ import { OrganizationsModule } from '../organizations/organizations.module.js';
     BibliographicRecordsController,
     ItemsController,
     ExternalIdentifiersController,
+    ContributionsController,
   ],
   exports: [
     WorksService,
@@ -46,6 +50,7 @@ import { OrganizationsModule } from '../organizations/organizations.module.js';
     ExternalIdentifiersService,
     BibliographicRecordsService,
     ItemsService,
+    ContributionsService,
   ],
 })
 export class WorksModule {}

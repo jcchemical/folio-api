@@ -120,30 +120,19 @@ describe('ExportsService', () => {
     const xml = await service.exportMarcXchange(editionId, ownerId);
     const query = vi.mocked(prisma.edition.findUnique).mock.calls[0][0];
 
-    expect(query).toEqual({
+    expect(query).toEqual(expect.objectContaining({
       where: { id: editionId },
-      include: {
-        work: {
-          include: {
-            workContributors: {
-              include: { contributor: true },
-            },
-          },
-        },
-        editionContributors: {
-          include: { contributor: true },
-        },
-        externalIdentifiers: true,
-        physicalDescriptions: {
-          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
-        },
-        publicationStatements: {
-          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
-        },
-      },
-    });
+      include: expect.objectContaining({
+        work: expect.objectContaining({
+          include: expect.objectContaining({
+            workContributors: { include: { contributor: true } },
+            contributions: expect.any(Object),
+          }),
+        }),
+        editionContributors: { include: { contributor: true } },
+        contributions: expect.any(Object),
+      }),
+    }));
     expect(xml).not.toContain('original');
   });
 

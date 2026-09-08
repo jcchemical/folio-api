@@ -209,6 +209,19 @@ describe('local UNIMARC mapper', () => {
     });
   });
 
+  it('uses canonical contributions exclusively for their target when legacy data also exists', () => {
+    const result = mapLocalEditionToUnimarc({
+      id: 'canonical-contributions', title: 'Título', language: 'por',
+      editionContributors: [{ role: 'author', sortOrder: 0, contributor: { name: 'Legacy edition author' } }],
+      workContributors: [{ role: 'author', sortOrder: 0, contributor: { name: 'Legacy work author' } }],
+      editionContributions: [{ sortOrder: 0, sourceTag: '702', indicator1: '1', indicator2: ' ', sourceParts: [{ code: 'a', value: 'Canonical edition', sortOrder: 0 }, { code: '4', value: '730', sortOrder: 1 }] }],
+    });
+    expect(result.record.dataFields.filter(({ tag }) => ['700', '701', '702'].includes(tag))).toEqual([
+      { tag: '702', indicator1: '1', indicator2: ' ', subfields: [{ code: 'a', value: 'Canonical edition' }, { code: '4', value: '730' }] },
+      { tag: '700', indicator1: ' ', indicator2: ' ', subfields: [{ code: 'a', value: 'Legacy work author' }] },
+    ]);
+  });
+
   it('warns for external identifiers because no external type is mapped yet', () => {
     const result = mapLocalEditionToUnimarc({
       id: 'external-id-edition',

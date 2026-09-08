@@ -1,9 +1,12 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ImportPreviewService } from './import-preview.service.js';
 import { CataloguesService } from './catalogues.service.js';
 import { parsePorbaseResponse } from './porbase.parser.js';
+import { PorbaseImportDto } from './dto/porbase-import.dto.js';
 import type { PorbaseSearchResponseDto } from './dto/porbase-search-response.dto.js';
 
 const isbn = '9789724426495';
@@ -172,5 +175,30 @@ describe('ImportPreviewService', () => {
         message: 'The import title was not identified safely.',
       }),
     );
+  });
+  it('produces publication and contribution indicators valid for unchanged confirmation', async () => {
+    const rawContent = '<collection><record><datafield tag="210"><subfield code="a">Lisboa</subfield></datafield><datafield tag="700" ind2="1"><subfield code="a">Doe</subfield><subfield code="b">Jane</subfield></datafield><datafield tag="702"><subfield code="a">Roe</subfield><subfield code="b">Richard</subfield><subfield code="4">273</subfield></datafield><datafield tag="702"><subfield code="a">Smith</subfield><subfield code="b">Sam</subfield><subfield code="4">560</subfield></datafield></record></collection>';
+    const parsed = parsePorbaseResponse(isbn, rawContent, 'text/xml');
+    cataloguesService.searchPorbaseByIsbn.mockResolvedValue(parsed);
+
+    const preview = await service.createPreview(isbn);
+    const confirmation = plainToInstance(PorbaseImportDto, {
+      work: preview.work,
+      edition: { ...preview.edition, publicationPlace: preview.edition.placeOfPublication },
+      contributors: preview.contributors.map((contributor) => ({ ...contributor, scope: 'WORK' })),
+      contributions: preview.contributions,
+      externalIdentifiers: preview.externalIdentifiers,
+      bibliographicRecord: preview.bibliographicRecord,
+      item: { status: 'OWNED' },
+    });
+    const errors = await validate(confirmation);
+
+    expect(errors).toEqual([]);
+    expect(preview.edition.publicationStatements?.[0].indicator1).toBe(' ');
+    expect(preview.contributions.map(({ sourceTag, indicator1, indicator2 }) => [sourceTag, indicator1, indicator2])).toEqual([
+      ['700', ' ', '1'],
+      ['702', ' ', ' '],
+      ['702', ' ', ' '],
+    ]);
   });
 });

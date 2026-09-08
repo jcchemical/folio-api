@@ -17,6 +17,14 @@ export type LocalContributorLink = {
   };
 };
 
+export type LocalContribution = {
+  sortOrder: number;
+  sourceTag: string | null;
+  indicator1: string | null;
+  indicator2: string | null;
+  sourceParts: Array<{ code: string; value: string; sortOrder: number }>;
+};
+
 export type LocalExternalIdentifier = {
   type: string;
   value: string;
@@ -56,6 +64,8 @@ export type UnimarcLocalEditionInput = {
   } | null;
   editionContributors?: LocalContributorLink[];
   workContributors?: LocalContributorLink[];
+  editionContributions?: LocalContribution[];
+  workContributions?: LocalContribution[];
   externalIdentifiers?: LocalExternalIdentifier[];
 };
 
@@ -188,15 +198,45 @@ function appendContributorFields(
   dataFields: MarcDataField[],
   warnings: BibliographicExportWarning[],
 ): void {
-  const contributors = [
-    ...(edition.editionContributors ?? []),
-    ...(edition.workContributors ?? []),
-  ]
+  appendCanonicalContributions(edition.editionContributions, dataFields, warnings);
+  if (!edition.editionContributions?.length) {
+    appendLegacyContributors(edition.editionContributors ?? [], dataFields, warnings);
+  }
+  appendCanonicalContributions(edition.workContributions, dataFields, warnings);
+  if (!edition.workContributions?.length) {
+    appendLegacyContributors(edition.workContributors ?? [], dataFields, warnings);
+  }
+}
+
+function appendCanonicalContributions(
+  contributions: LocalContribution[] | undefined,
+  dataFields: MarcDataField[],
+  warnings: BibliographicExportWarning[],
+): void {
+  for (const contribution of [...(contributions ?? [])].sort((left, right) => left.sortOrder - right.sortOrder)) {
+    const subfields = [...contribution.sourceParts]
+      .filter(({ code, value }) => /^[a-z0-9]$/i.test(code) && isNonEmpty(value))
+      .sort((left, right) => left.sortOrder - right.sortOrder)
+      .map(({ code, value }) => ({ code: code.toLowerCase(), value }));
+    if (!['700', '701', '702'].includes(contribution.sourceTag ?? '') || contribution.indicator1?.length !== 1 || contribution.indicator2?.length !== 1 || !subfields.length) {
+      warnings.push({ field: 'contribution', code: 'unmapped_data', message: 'Canonical contribution source metadata is incomplete and was not exported.' });
+      continue;
+    }
+    dataFields.push({ tag: contribution.sourceTag!, indicator1: contribution.indicator1, indicator2: contribution.indicator2, subfields });
+  }
+}
+
+function appendLegacyContributors(
+  contributors: LocalContributorLink[],
+  dataFields: MarcDataField[],
+  warnings: BibliographicExportWarning[],
+): void {
+  const ordered = contributors
     .map((link, index) => ({ link, index }))
     .sort((left, right) => left.link.sortOrder - right.link.sortOrder || left.index - right.index)
     .map(({ link }) => link);
 
-  const authors = contributors.filter(
+  const authors = ordered.filter(
     ({ role, contributor }) => role.toLowerCase() === 'author' && isNonEmpty(contributor.name),
   );
 
@@ -209,7 +249,7 @@ function appendContributorFields(
     });
   });
 
-  contributors
+  ordered
     .filter(({ role }) => role.toLowerCase() !== 'author')
     .forEach(({ role, contributor }) => {
       if (!isNonEmpty(contributor.name)) {

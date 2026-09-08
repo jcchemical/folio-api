@@ -27,10 +27,18 @@ export class ExportsService {
             workContributors: {
               include: { contributor: true },
             },
+            contributions: {
+              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+              include: { sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+            },
           },
         },
         editionContributors: {
           include: { contributor: true },
+        },
+        contributions: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          include: { sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
         },
         externalIdentifiers: true,
         physicalDescriptions: {
@@ -67,6 +75,8 @@ export class ExportsService {
         work: { title: edition.work.title },
         editionContributors: edition.editionContributors,
         workContributors: edition.work.workContributors,
+        editionContributions: edition.contributions,
+        workContributions: edition.work.contributions,
         externalIdentifiers: edition.externalIdentifiers,
       };
 

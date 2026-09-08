@@ -80,6 +80,11 @@ export class WorksService {
       where: { id },
       include: {
         organization: true,
+        workContributors: { include: { contributor: true } },
+        contributions: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          include: { agent: true, sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+        },
         editions: {
           include: {
             physicalDescriptions: {
@@ -97,7 +102,19 @@ export class WorksService {
 
     if (!work) throw new NotFoundException('Work not found');
     await this.organizationMemberships.assertWorkAccess(userId, work);
-    return work;
+    return {
+      ...work,
+      contributions: (work.contributions ?? []).length
+        ? (work.contributions ?? []).map((contribution) => ({ ...contribution, scope: 'WORK' as const }))
+        : (work.workContributors ?? []).map((relation) => ({
+            id: relation.id,
+            sortOrder: relation.sortOrder,
+            scope: 'WORK' as const,
+            roleLabel: relation.role,
+            agent: { id: relation.contributor.id, displayName: relation.contributor.name, kind: 'UNKNOWN' as const },
+            sourceParts: [],
+          })),
+    };
   }
 
   async create(userId: string, data: WorkInput) {

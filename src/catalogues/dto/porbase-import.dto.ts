@@ -15,6 +15,25 @@ import { PhysicalDescriptionDto } from '../../editions/dto/physical-description.
 import { IsBibliographicDate } from '../../common/bibliographic-date.js';
 import { PublicationStatementDto } from '../../editions/dto/publication-statement.dto.js';
 
+export class PorbaseImportContributionSourcePartDto {
+  @ApiProperty() @IsString() @IsNotEmpty() code!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() value!: string;
+  @ApiProperty() @IsInt() @Min(0) sortOrder!: number;
+}
+
+export class PorbaseImportContributionDto {
+  @ApiProperty({ enum: ['WORK'] }) @IsIn(['WORK']) targetScope!: 'WORK';
+  @ApiProperty({ enum: ['PERSON', 'CORPORATE_BODY', 'UNKNOWN'] }) @IsIn(['PERSON', 'CORPORATE_BODY', 'UNKNOWN']) kind!: 'PERSON' | 'CORPORATE_BODY' | 'UNKNOWN';
+  @ApiProperty() @IsString() @IsNotEmpty() displayName!: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() roleLabel?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() relationshipCodeScheme?: string;
+  @ApiProperty({ enum: ['700', '701', '702'] }) @IsIn(['700', '701', '702']) sourceTag!: '700' | '701' | '702';
+  @ApiProperty() @IsString() @IsNotEmpty() indicator1!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() indicator2!: string;
+  @ApiProperty() @IsInt() @Min(0) sortOrder!: number;
+  @ApiProperty({ type: [PorbaseImportContributionSourcePartDto] }) @IsArray() @ValidateNested({ each: true }) @Type(() => PorbaseImportContributionSourcePartDto) sourceParts!: PorbaseImportContributionSourcePartDto[];
+}
+
 export class PorbaseImportWorkDto {
   @ApiProperty({ example: 'Vida e andanças de Alexis Zorbás' })
   @IsString()
@@ -203,6 +222,13 @@ export class PorbaseImportDto {
   @Type(() => PorbaseImportContributorDto)
   contributors!: PorbaseImportContributorDto[];
 
+  @ApiPropertyOptional({ type: [PorbaseImportContributionDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PorbaseImportContributionDto)
+  contributions?: PorbaseImportContributionDto[];
+
   @ApiProperty({ type: [PorbaseImportExternalIdentifierDto] })
   @IsDefined()
   @IsArray()
@@ -294,6 +320,27 @@ export class PorbasePersistedContributorDto {
   @ApiProperty() sortOrder!: number;
 }
 
+export class PorbasePersistedContributionSourcePartDto {
+  @ApiProperty() code!: string;
+  @ApiProperty() value!: string;
+  @ApiProperty() sortOrder!: number;
+}
+
+export class PorbasePersistedContributionDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() displayName!: string;
+  @ApiProperty({ enum: ['PERSON', 'CORPORATE_BODY', 'UNKNOWN'] }) kind!: string;
+  @ApiProperty({ enum: ['WORK', 'EDITION'] }) scope!: 'WORK' | 'EDITION';
+  @ApiProperty() sortOrder!: number;
+  @ApiProperty({ enum: ['PORBASE', 'MANUAL'] }) source!: string;
+  @ApiPropertyOptional() roleLabel?: string | null;
+  @ApiPropertyOptional() relationshipCodeScheme?: string | null;
+  @ApiPropertyOptional() sourceTag?: string | null;
+  @ApiPropertyOptional() indicator1?: string | null;
+  @ApiPropertyOptional() indicator2?: string | null;
+  @ApiProperty({ type: [PorbasePersistedContributionSourcePartDto] }) sourceParts!: PorbasePersistedContributionSourcePartDto[];
+}
+
 export class PorbasePersistedEditionDto {
   @ApiProperty() id!: string;
   @ApiProperty() title!: string;
@@ -316,6 +363,7 @@ export class PorbasePersistedEditionDto {
   bibliographicRecords!: PorbasePersistedBibliographicRecordDto[];
   @ApiProperty({ type: [PorbasePersistedContributorDto] })
   contributors!: PorbasePersistedContributorDto[];
+  @ApiProperty({ type: [PorbasePersistedContributionDto] }) contributions!: PorbasePersistedContributionDto[];
   @ApiProperty({ type: [PorbasePersistedItemDto] })
   items!: PorbasePersistedItemDto[];
 }
@@ -330,6 +378,7 @@ export class PorbasePersistedWorkDto {
   editions!: PorbasePersistedEditionDto[];
   @ApiProperty({ type: [PorbasePersistedContributorDto] })
   contributors!: PorbasePersistedContributorDto[];
+  @ApiProperty({ type: [PorbasePersistedContributionDto] }) contributions!: PorbasePersistedContributionDto[];
   @ApiProperty({ type: [PorbasePersistedBibliographicRecordDto] })
   bibliographicRecords!: PorbasePersistedBibliographicRecordDto[];
 }
@@ -346,6 +395,7 @@ export class PorbaseImportResponseDto {
 
   @ApiProperty({ type: [PorbasePersistedContributorDto] })
   contributors!: PorbasePersistedContributorDto[];
+  @ApiProperty({ type: [PorbasePersistedContributionDto] }) contributions!: PorbasePersistedContributionDto[];
 
   @ApiProperty({ type: [PorbasePersistedExternalIdentifierDto] })
   externalIdentifiers!: PorbasePersistedExternalIdentifierDto[];

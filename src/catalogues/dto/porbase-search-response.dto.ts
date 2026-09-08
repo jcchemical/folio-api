@@ -1,4 +1,23 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+export class PorbaseContributionSourcePartDto {
+  @ApiProperty({ example: 'a', pattern: '^[a-z0-9]$' }) code!: string;
+  @ApiProperty({ example: 'Kazantzákis' }) value!: string;
+  @ApiProperty({ example: 0 }) sortOrder!: number;
+}
+
+export class PorbaseContributionDto {
+  @ApiProperty({ enum: ['WORK'] }) targetScope!: 'WORK';
+  @ApiProperty({ enum: ['PERSON', 'CORPORATE_BODY', 'UNKNOWN'] }) kind!: 'PERSON' | 'CORPORATE_BODY' | 'UNKNOWN';
+  @ApiProperty() displayName!: string;
+  @ApiPropertyOptional() roleLabel?: string;
+  @ApiPropertyOptional() relationshipCodeScheme?: string;
+  @ApiProperty({ enum: ['700', '701', '702'] }) sourceTag!: '700' | '701' | '702';
+  @ApiProperty() indicator1!: string;
+  @ApiProperty() indicator2!: string;
+  @ApiProperty() sortOrder!: number;
+  @ApiProperty({ type: [PorbaseContributionSourcePartDto] }) sourceParts!: PorbaseContributionSourcePartDto[];
+}
+
 export class PorbasePhysicalDescriptionPartDto {
   @ApiProperty({ example: 'a', pattern: '^[a-z0-9]$' })
   subfield!: string;
@@ -72,6 +91,9 @@ export class PorbaseBibliographicFieldsDto {
 
   @ApiPropertyOptional({ example: ['Carlos Leite'] })
   translators?: string[];
+
+  @ApiProperty({ type: [PorbaseContributionDto], required: false })
+  contributions?: PorbaseContributionDto[];
 
   @ApiPropertyOptional({ example: 'Coimbra' })
   placeOfPublication?: string;

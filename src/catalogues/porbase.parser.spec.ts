@@ -116,4 +116,62 @@ describe('parsePorbaseResponse publication statements', () => {
       expect.objectContaining({ sortOrder: 1, indicator1: ' ', indicator2: '9' }),
     ]);
   });
+  it('normalizes empty and absent XML indicators while preserving supplied values', () => {
+    const result = parsePorbaseResponse(
+      query,
+      '<collection><record><datafield tag="210" ind1="" ind2="9"><subfield code="a">Lisboa</subfield></datafield><datafield tag="210" ind1="1" ind2="2"><subfield code="c">Editora</subfield></datafield></record></collection>',
+      'text/xml',
+    );
+
+    expect(result.metadata.publicationStatements).toEqual([
+      expect.objectContaining({ indicator1: ' ', indicator2: '9' }),
+      expect.objectContaining({ indicator1: '1', indicator2: '2' }),
+    ]);
+  });
+});
+
+describe('parsePorbaseResponse canonical contributions', () => {
+  it('preserves supported 7XX structure, repetitions and work scope', () => {
+    const result = parsePorbaseResponse(query, [
+      '700 $a Doe $b Jane $c Dr. $4 aut $4 999 $2 relator $x unknown',
+      '701 $a Roe $b Richard',
+      '702 $a Smith $b Sam $4 730 $o id $r qualifier $5 local $6 link $8 control',
+      '710 $a Ignored corporate body',
+    ].join('\n'), 'text/plain');
+
+    expect(result.metadata.contributions).toEqual([
+      expect.objectContaining({ sourceTag: '700', targetScope: 'WORK', kind: 'PERSON', displayName: 'Doe, Jane', relationshipCodeScheme: 'relator', roleLabel: 'author' }),
+      expect.objectContaining({ sourceTag: '701', displayName: 'Roe, Richard', roleLabel: 'author' }),
+      expect.objectContaining({ sourceTag: '702', displayName: 'Smith, Sam', roleLabel: 'translator' }),
+    ]);
+    expect(result.metadata.contributions?.[0].sourceParts.map(({ code, value }) => [code, value])).toEqual([
+      ['a', 'Doe'], ['b', 'Jane'], ['c', 'Dr.'], ['4', 'aut'], ['4', '999'], ['2', 'relator'], ['x', 'unknown'],
+    ]);
+    expect(result.metadata.contributions?.[2].sourceParts.map(({ code }) => code)).toEqual(['a', 'b', '4', 'o', 'r', '5', '6', '8']);
+  });
+
+  it('preserves unknown relationship codes without inventing a role label', () => {
+    const result = parsePorbaseResponse(query, '702 $a Doe $b Jane $4 xyz', 'text/plain');
+    expect(result.metadata.contributions?.[0]).toMatchObject({ sourceTag: '702', roleLabel: undefined });
+    expect(result.metadata.contributions?.[0].sourceParts).toContainEqual(expect.objectContaining({ code: '4', value: 'xyz' }));
+  });
+
+  it('derives a personal display name from $a alone without qualifiers', () => {
+    const result = parsePorbaseResponse(query, '700 $a Pessoa $c Dr. $f 1900-2000', 'text/plain');
+    expect(result.metadata.contributions?.[0]).toMatchObject({ displayName: 'Pessoa' });
+    expect(result.metadata.contributions?.[0].sourceParts.map(({ code }) => code)).toEqual(['a', 'c', 'f']);
+  });
+  it('normalizes empty and absent XML indicators while preserving supplied values', () => {
+    const result = parsePorbaseResponse(
+      query,
+      '<collection><record><datafield tag="700" ind1="" ind2="1"><subfield code="a">Doe</subfield></datafield><datafield tag="702"><subfield code="a">Roe</subfield><subfield code="4">273</subfield></datafield><datafield tag="702" ind1="1" ind2="2"><subfield code="a">Smith</subfield></datafield></record></collection>',
+      'text/xml',
+    );
+
+    expect(result.metadata.contributions).toEqual([
+      expect.objectContaining({ sourceTag: '700', indicator1: ' ', indicator2: '1' }),
+      expect.objectContaining({ sourceTag: '702', indicator1: ' ', indicator2: ' ' }),
+      expect.objectContaining({ sourceTag: '702', indicator1: '1', indicator2: '2' }),
+    ]);
+  });
 });

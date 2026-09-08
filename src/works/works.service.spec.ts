@@ -30,7 +30,10 @@ describe('WorksService organization access', () => {
     };
     const { service, memberships } = createWorkService(work);
 
-    await expect(service.findById('work-1', 'member')).resolves.toEqual(work);
+    await expect(service.findById('work-1', 'member')).resolves.toEqual({
+      ...work,
+      contributions: [],
+    });
     expect(memberships.assertWorkAccess).toHaveBeenCalledWith('member', work);
   });
 });

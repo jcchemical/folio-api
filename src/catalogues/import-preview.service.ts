@@ -91,6 +91,7 @@ export class ImportPreviewService {
       work: { title },
       edition,
       contributors,
+      contributions: metadata.contributions ?? [],
       externalIdentifiers,
       bibliographicRecord: {
         format:

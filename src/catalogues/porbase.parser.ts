@@ -221,6 +221,7 @@ function extractTextMetadata(
   metadata.translators = translatorFields
     .map((field) => contributorName(field))
     .filter((value): value is string => Boolean(value));
+  metadata.contributions = extractTextContributions(fields);
 
   const responsibilityAuthor = firstSubfieldValue(fields, '200', 'f');
   if (metadata.authors.length === 0 && responsibilityAuthor) {
@@ -312,6 +313,7 @@ function extractXmlMetadata(
     .filter((field) => subfieldValues(field, '4').includes('730'))
     .map(contributorNameFromXml)
     .filter((value): value is string => Boolean(value));
+  metadata.contributions = extractXmlContributions(record);
 
   const statementTranslator = firstSubfield(record, '200', 'g');
   if (metadata.translators.length === 0 && statementTranslator) {
@@ -506,7 +508,7 @@ function extractTextPublicationStatements(fields: TextField[], warnings: Porbase
 
 function extractXmlPublicationStatements(record: XmlObject, warnings: PorbaseWarningDto[]): PorbasePublicationStatementDto[] {
   return datafields(record, '210').map((field, sortOrder) => ({
-    sortOrder, indicator1: findText(field['@_ind1']) ?? ' ', indicator2: findText(field['@_ind2']) ?? '9', source: 'PORBASE',
+    sortOrder, indicator1: marcIndicator(findText(field['@_ind1'])), indicator2: marcIndicator(findText(field['@_ind2']), '9'), source: 'PORBASE',
     parts: asArray(field.subfield).map((subfield, partOrder) => {
       const code = textValue(subfield['@_code'])?.toLowerCase() ?? '';
       const value = findText(subfield)?.trim() ?? '';
@@ -577,6 +579,46 @@ function contributorName(field: TextField): string | undefined {
   const given = field.subfields.get('b')?.[0];
   const family = field.subfields.get('a')?.[0];
   return [family, given].filter(Boolean).join(', ') || undefined;
+}
+
+function roleLabel(tag: string, codes: string[]): string | undefined {
+  if (tag === '700' || tag === '701') return 'author';
+  return codes.includes('730') ? 'translator' : undefined;
+}
+
+function contributionDisplayName(parts: Array<{ code: string; value: string }>): string | undefined {
+  const family = parts.find(({ code }) => code === 'a')?.value;
+  const given = parts.find(({ code }) => code === 'b')?.value;
+  return family ? (given ? `${family}, ${given}` : family) : undefined;
+}
+
+function marcIndicator(value: string | null | undefined, fallback = ' '): string {
+  return value == null || value === '' ? fallback : value;
+}
+
+function extractTextContributions(fields: TextField[]): NonNullable<PorbaseBibliographicFieldsDto['contributions']> {
+  return fields.filter(({ tag }) => ['700', '701', '702'].includes(tag)).flatMap((field) => {
+    const sourceParts = field.orderedSubfields
+      .filter(({ code, value }) => /^[a-z0-9]$/i.test(code) && Boolean(value.trim()))
+      .map(({ code, value }, sortOrder) => ({ code: code.toLowerCase(), value, sortOrder }));
+    const displayName = contributionDisplayName(sourceParts);
+    if (!displayName) return [];
+    const codes = sourceParts.filter(({ code }) => code === '4').map(({ value }) => value);
+    return [{ targetScope: 'WORK' as const, kind: 'PERSON' as const, displayName, roleLabel: roleLabel(field.tag, codes), relationshipCodeScheme: sourceParts.find(({ code }) => code === '2')?.value, sourceTag: field.tag as '700' | '701' | '702', indicator1: ' ', indicator2: ' ', sourceParts, sortOrder: 0 }];
+  }).map((contribution, sortOrder) => ({ ...contribution, sortOrder }));
+}
+
+function extractXmlContributions(record: XmlObject): NonNullable<PorbaseBibliographicFieldsDto['contributions']> {
+  return ['700', '701', '702'].flatMap((tag) => datafields(record, tag).map((field) => {
+    const sourceParts = asArray(field.subfield)
+      .map((subfield) => ({ code: textValue(subfield['@_code'])?.toLowerCase() ?? '', value: findText(subfield)?.trim() ?? '' }))
+      .filter(({ code, value }) => /^[a-z0-9]$/.test(code) && Boolean(value))
+      .map((part, sortOrder) => ({ ...part, sortOrder }));
+    const displayName = contributionDisplayName(sourceParts);
+    if (!displayName || !sourceParts.length) return undefined;
+    const codes = sourceParts.filter(({ code }) => code === '4').map(({ value }) => value);
+    return { targetScope: 'WORK' as const, kind: 'PERSON' as const, displayName, roleLabel: roleLabel(tag, codes), relationshipCodeScheme: sourceParts.find(({ code }) => code === '2')?.value, sourceTag: tag as '700' | '701' | '702', indicator1: marcIndicator(findText(field['@_ind1'])), indicator2: marcIndicator(findText(field['@_ind2'])), sourceParts, sortOrder: 0 };
+  })).filter((contribution): contribution is NonNullable<typeof contribution> => Boolean(contribution)).map((contribution, sortOrder) => ({ ...contribution, sortOrder }));
 }
 
 function extractTranslatorName(value: string): string | undefined {

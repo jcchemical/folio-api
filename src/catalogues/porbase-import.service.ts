@@ -14,6 +14,7 @@ import type {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
 import { OrganizationRole } from '@prisma/client';
+import { ContributionsService } from '../contributions/contributions.service.js';
 import { derivePublicationProjection, normalizePublicationDateLiteral } from '../editions/dto/publication-statement.dto.js';
 
 type TransactionClient = Omit<
@@ -26,6 +27,7 @@ export class PorbaseImportService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly organizationMemberships: OrganizationMembershipService,
+    private readonly contributionsService: ContributionsService,
   ) {}
 
   async import(
@@ -104,12 +106,11 @@ export class PorbaseImportService {
           } as Prisma.EditionCreateArgs['data'],
       });
 
-      await this.persistContributors(
-        transaction,
-        work.id,
-        edition.id,
-        input.contributors,
-      );
+      if (input.contributions?.length) {
+        await this.contributionsService.persistPorbase(transaction, userId, work.id, input.contributions);
+      } else {
+        await this.persistContributors(transaction, work.id, edition.id, input.contributors);
+      }
 
       await this.persistExternalIdentifiers(
         transaction,
@@ -160,9 +161,11 @@ export class PorbaseImportService {
                 include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
               },
               editionContributors: { include: { contributor: true } },
+              contributions: { include: { agent: true, sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
             },
           },
           workContributors: { include: { contributor: true } },
+          contributions: { include: { agent: true, sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
           bibliographicRecords: true,
         },
       });
@@ -186,9 +189,14 @@ export class PorbaseImportService {
         scope: 'WORK' as const,
         sortOrder: relation.sortOrder,
       }));
+      const canonicalEditionContributors = (persistedEdition.contributions ?? [])
+        .map(toLegacyContributor);
+      const canonicalWorkContributors = (persisted.contributions ?? [])
+        .map(toLegacyContributor);
       const responseEdition = {
         ...persistedEdition,
-        contributors: editionContributors,
+        contributors: canonicalEditionContributors.length ? canonicalEditionContributors : editionContributors,
+        contributions: (persistedEdition.contributions ?? []).map(toPersistedContribution),
       };
 
       return {
@@ -199,11 +207,16 @@ export class PorbaseImportService {
           subtitle: persisted.subtitle,
           organization: persisted.organization,
           editions: [responseEdition],
-          contributors: workContributors,
+          contributors: canonicalWorkContributors.length ? canonicalWorkContributors : workContributors,
+          contributions: (persisted.contributions ?? []).map(toPersistedContribution),
           bibliographicRecords: persisted.bibliographicRecords,
         },
         edition: responseEdition,
-        contributors: [...workContributors, ...editionContributors],
+        contributors: [
+          ...(canonicalWorkContributors.length ? canonicalWorkContributors : workContributors),
+          ...(canonicalEditionContributors.length ? canonicalEditionContributors : editionContributors),
+        ],
+        contributions: [...(persisted.contributions ?? []).map(toPersistedContribution), ...(persistedEdition.contributions ?? []).map(toPersistedContribution)],
         externalIdentifiers: responseEdition.externalIdentifiers,
         bibliographicRecord,
         item,
@@ -333,6 +346,20 @@ export class PorbaseImportService {
       throw new BadRequestException(`${field} is not a valid ISBN`);
     }
   }
+}
+
+function toPersistedContribution(contribution: { id: string; sortOrder: number; source: string; roleLabel: string | null; relationshipCodeScheme: string | null; sourceTag: string | null; indicator1: string | null; indicator2: string | null; workId: string | null; agent: { displayName: string; kind: string }; sourceParts: Array<{ code: string; value: string; sortOrder: number }> }) {
+  return { id: contribution.id, displayName: contribution.agent.displayName, kind: contribution.agent.kind, scope: contribution.workId ? 'WORK' as const : 'EDITION' as const, sortOrder: contribution.sortOrder, source: contribution.source, roleLabel: contribution.roleLabel, relationshipCodeScheme: contribution.relationshipCodeScheme, sourceTag: contribution.sourceTag, indicator1: contribution.indicator1, indicator2: contribution.indicator2, sourceParts: contribution.sourceParts };
+}
+
+function toLegacyContributor(contribution: { id: string; sortOrder: number; roleLabel: string | null; workId: string | null; agent: { displayName: string } }) {
+  return {
+    id: contribution.id,
+    name: contribution.agent.displayName,
+    role: contribution.roleLabel ?? 'unclassified',
+    scope: contribution.workId ? 'WORK' as const : 'EDITION' as const,
+    sortOrder: contribution.sortOrder,
+  };
 }
 
 function derivePageCount(

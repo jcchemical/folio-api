@@ -32,7 +32,10 @@ describe('organization resource access', () => {
       membershipPolicy(true) as never,
     );
 
-    await expect(service.findById('work-1', userId)).resolves.toEqual(work);
+    await expect(service.findById('work-1', userId)).resolves.toEqual({
+      ...work,
+      contributions: [],
+    });
   });
 
   it.each([

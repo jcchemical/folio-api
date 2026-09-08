@@ -16,6 +16,7 @@ export const API_ERROR_CODES = {
   EDITION_NOT_FOUND: 'EDITION_NOT_FOUND',
   DUPLICATE_EDITION: 'CONFLICT_DUPLICATE_EDITION',
   DUPLICATE_EXTERNAL_IDENTIFIER: 'CONFLICT_DUPLICATE_EXTERNAL_IDENTIFIER',
+  AGENT_ORGANIZATION_MISMATCH: 'CONFLICT_AGENT_ORGANIZATION_MISMATCH',
   ORGANIZATION_DELETE_CONFLICT: 'CONFLICT_ORGANIZATION_DELETE',
   PORBASE_TIMEOUT: 'PORBASE_TIMEOUT',
   PORBASE_UNAVAILABLE: 'PORBASE_UNAVAILABLE',
@@ -50,6 +51,14 @@ export function conflictDuplicateEdition(message = 'An edition with this ISBN al
 
 export function conflictDuplicateExternalIdentifier(message: string) {
   return new ApiException(HttpStatus.CONFLICT, API_ERROR_CODES.DUPLICATE_EXTERNAL_IDENTIFIER, message);
+}
+
+export function conflictAgentOrganizationMismatch() {
+  return new ApiException(
+    HttpStatus.CONFLICT,
+    API_ERROR_CODES.AGENT_ORGANIZATION_MISMATCH,
+    'The Agent belongs to a different organization than the Contribution target.',
+  );
 }
 
 export function responseWithCode(exception: HttpException): ApiExceptionResponse | null {

@@ -330,6 +330,38 @@ ExternalIdentifier.organizationId
 A unicidade é `(organizationId, type, value)`: o mesmo ISBN pode existir em organizações diferentes, mas identificadores do mesmo tipo e valor são únicos dentro da mesma organização.
 - `BibliographicRecord` guarda a proveniência original recebida de fontes externas.
 
+### Agents e Contributions (Phase 1 implementada)
+
+O modelo canónico de responsabilidades bibliográficas é:
+
+```text
+Organization → Agent → Contribution → ContributionSourcePart[]
+```
+
+`Agent` pertence obrigatoriamente a uma `Organization`, tem `kind`
+(`PERSON`, `CORPORATE_BODY` ou `UNKNOWN`) e `displayName`. Este nome é uma
+forma local de apresentação, não uma forma preferida controlada por autoridade.
+`normalizedDisplayName` é derivado no servidor e a correspondência exacta por
+`organizationId + kind + normalizedDisplayName` é apenas uma conveniência de
+reuso; não há unicidade nem controlo de autoridades.
+
+`Contribution` liga um Agent a exactamente um `Work` ou `Edition` (XOR SQL).
+A organização do Agent tem de ser igual à do Work alvo; para Edition o Work é
+resolvido através de `Edition.workId`. Esta igualdade é validada em cada escrita
+transaccional. `ContributionSource` é controlado (`PORBASE` ou `MANUAL`).
+
+Para cada alvo, se existir pelo menos uma Contribution canónica, leituras e
+exportação usam apenas essas Contributions. Se não existir nenhuma, usam apenas
+o fallback legado `WorkContributor` ou `EditionContributor` daquele alvo. Os
+conjuntos nunca são misturados nesta fase.
+
+O perfil PORBASE suporta 700, 701 e 702 como Contributions de Work por defeito.
+Preserva tag, indicadores, partes ordenadas, repetições e literais, incluindo
+`$2`, `$4` repetido e códigos válidos desconhecidos. O export local prefere
+estas partes canónicas para UNIMARC/MARCXchange e mantém o fallback legado para
+registos sem Contributions. Authority control, variantes/nomes estruturados,
+710/711/712/720 e mapeamento MARC 21 continuam trabalho futuro.
+
 O modelo actual usa `cuid()` para IDs. Controllers não devem assumir UUID sem validar o padrão real usado pelo schema.
 
 ### Descrição física e datas bibliográficas

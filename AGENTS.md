@@ -40,6 +40,17 @@
 - Mappers must expose structured warnings, unmapped fields and potentially lossy conversions. Local export uses persisted Folio data, not provider `rawContent`.
 - Keep MARCXchange and MARCXML as separate serializers/endpoints. Do not implement organization-level profile selection or automatic profile conversion unless explicitly requested.
 
+## Agents and Contributions
+
+- Do not treat `Agent.displayName` as an authority-controlled preferred form.
+- `Agent` is scoped to Organization; validate Agent/target Organization equality in every Contribution write.
+- A Contribution targets exactly one Work or Edition; preserve the SQL XOR invariant.
+- Never accept client-controlled source, normalized name, 7XX tag, indicators or source parts through public contribution DTOs.
+- Trusted PORBASE paths preserve 700/701/702 tags, indicators, source-part order, repeated codes and literal values.
+- Do not merge canonical and legacy contribution sets in Phase 1; choose canonical per target only when present.
+- Do not infer Work versus Edition scope from a 7XX tag, `$4`, or role text.
+- Keep authority control and other 7XX families out of scope unless explicitly requested.
+
 ## Internationalization and error codes
 
 - Do not add new user-facing hardcoded strings in Flutter; add localization keys.

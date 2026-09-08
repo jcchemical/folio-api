@@ -37,6 +37,25 @@ para dados antigos e deve ser validada na base de desenvolvimento existente
 sem reset. Ver `docs/decisions/publication-statements-phase-1.md` para a decisão
 transicional e o plano de remoção futura dos inputs escalares.
 
+### Contributions e Agents canónicos (Phase 1)
+
+O modelo canónico de responsabilidades é `Organization → Agent → Contribution
+→ ContributionSourcePart[]`. Agents são locais à Organization e `displayName`
+não afirma controlo de autoridade. Cada Contribution tem exactamente um alvo,
+Work ou Edition, e o serviço valida que a Organization do Agent é a mesma do
+Work alcançado pelo alvo.
+
+No import PORBASE, ocorrências UNIMARC 700/701/702 tornam-se Contributions de
+Work. Tag, indicadores, códigos, valores, repetições e ordem ficam em partes
+estruturadas; não são concatenados num nome substituto. O mapper UNIMARC usa as
+partes canónicas para construir `MarcRecord` e a serialização MARCXchange.
+
+A transição é por alvo: Contributions canónicas presentes substituem apenas o
+fallback legado daquele Work/Edition; quando não existem, `WorkContributor` e
+`EditionContributor` continuam a ser exportados. Os dois conjuntos não são
+misturados. Authority control, variantes de nomes, outras famílias 7XX e
+MARC21 são fases futuras.
+
 ### Separação de proveniência
 
 Manter o `rawContent` como registo original imutável, separado dos dados locais corrigidos, é a decisão certa. Permite auditoria, comparação, reprocessamento com um parser melhor e exportação original sem sobrescrever a curadoria local. O `rawContent` não deve ser a fonte da exportação local.

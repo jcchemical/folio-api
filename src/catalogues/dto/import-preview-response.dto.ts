@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PorbaseWarningDto } from './porbase-search-response.dto.js';
 import { PorbasePhysicalDescriptionDto } from './porbase-search-response.dto.js';
 import { PorbasePublicationStatementDto } from './porbase-search-response.dto.js';
+import { PorbaseContributionDto } from './porbase-search-response.dto.js';
 
 export class ImportPreviewWorkDto {
   @ApiProperty({ example: 'Vida e andanças de Alexis Zorbás' })
@@ -91,6 +92,9 @@ export class ImportPreviewResponseDto {
 
   @ApiProperty({ type: [ImportPreviewContributorDto] })
   contributors!: ImportPreviewContributorDto[];
+
+  @ApiProperty({ type: [PorbaseContributionDto] })
+  contributions!: PorbaseContributionDto[];
 
   @ApiProperty({ type: [ImportPreviewExternalIdentifierDto] })
   externalIdentifiers!: ImportPreviewExternalIdentifierDto[];
