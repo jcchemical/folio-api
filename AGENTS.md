@@ -31,6 +31,15 @@
 - Create adaptive widgets; do not duplicate apps for Web and mobile.
 - The current authentication provider composition lives in `lib/features/auth/presentation/auth_controller.dart`; maintain a single composition pattern when adding features.
 
+## Bibliographic model and profile mappers
+
+- Treat the persisted Folio bibliographic domain as canonical; do not model Prisma as UNIMARC, MARC 21, MARCXchange, MARCXML or ISO 2709.
+- Keep the pipeline `canonical Folio model → profile mapper → MarcRecord → serializer → output format`.
+- Keep imports separate: `external payload → parser → MarcRecord → profile import mapper → preview → explicit confirmation → persistence`.
+- Preserve literals, order, repetition, indicators and supported unknown parts where applicable; never invent bibliographic values silently.
+- Mappers must expose structured warnings, unmapped fields and potentially lossy conversions. Local export uses persisted Folio data, not provider `rawContent`.
+- Keep MARCXchange and MARCXML as separate serializers/endpoints. Do not implement organization-level profile selection or automatic profile conversion unless explicitly requested.
+
 ## Internationalization and error codes
 
 - Do not add new user-facing hardcoded strings in Flutter; add localization keys.

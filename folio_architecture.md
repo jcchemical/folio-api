@@ -47,6 +47,43 @@ A melhoria necessária é transformar `BibliographicRecord` num registo de prove
 
 A cadeia `modelo local → mapper de perfil → MarcRecord → serializer` é correcta. Evita que Prisma fique acoplado a UNIMARC e permite no futuro mapear para MARC21, MARCXchange, MARCXML, ISO 2709, Dublin Core ou BIBFRAME sem duplicar todo o domínio.
 
+O modelo persistente do Folio é canónico e não é uma base de dados UNIMARC,
+MARC 21, MARCXchange, MARCXML ou ISO 2709. Tags, indicadores e códigos de
+subcampo pertencem ao perfil de intercâmbio, não à identidade duradoura dos
+conceitos do domínio. A cadeia de exportação é:
+
+```text
+modelo local canónico Folio
+→ mapper de perfil
+→ MarcRecord
+→ serializer
+→ formato de saída
+```
+
+A cadeia de importação é:
+
+```text
+payload externo
+→ parser do formato
+→ MarcRecord
+→ mapper de importação do perfil
+→ preview/modelo canónico Folio
+→ confirmação explícita
+→ persistência
+```
+
+`MarcRecord` é uma representação intermédia format-neutral para campos,
+indicadores, subcampos, ordem, repetição e warnings; não é o modelo persistente.
+Mappers devem reportar warnings estruturados, campos não mapeados e conversões
+potencialmente lossy, sem inventar dados para preencher diferenças entre
+perfis. A exportação local usa dados persistidos do Folio, não reconstrói
+`rawContent`, e MARCXchange/MARCXML permanecem serializers distintos.
+
+No PORBASE actual, `resposta UNIMARC → parser PORBASE → preview estruturado →
+confirmação explícita → persistência canónica`. Uma futura selecção de perfil
+ao nível da organização, conversão automática ou mapper MARC 21 é uma decisão
+futura e não deve reescrever os dados canónicos.
+
 O `MarcRecord` actual deve ser tratado como uma representação de intercâmbio, não como o modelo canónico completo. Deve suportar pelo menos `recordFormat`, `characterEncoding`, `leader`, control fields, data fields, indicators, subfields, ordem e metadados de conversão. Para preservar campos desconhecidos, não se deve depender apenas de mappers que conhecem os campos actuais.
 
 ### PostgreSQL e Prisma

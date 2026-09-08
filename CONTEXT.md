@@ -201,6 +201,95 @@ PORBASE warnings preserve `type`, `field`, `original`, `normalized` and `message
 
 ## Modelo actual
 
+### Modelo bibliográfico canónico e perfis de intercâmbio
+
+O Folio guarda os dados bibliográficos num modelo de domínio local canónico.
+Não é uma base de dados UNIMARC, MARC 21, MARCXchange, MARCXML ou ISO 2709.
+Esses formatos são perfis externos de catalogação, intercâmbio,
+apresentação ou serialização.
+
+Os modelos persistentes do Folio não devem ficar acoplados a um único perfil
+MARC. Tags, indicadores e códigos de subcampo são metadados do perfil; não
+constituem a identidade duradoura dos conceitos do domínio. O modelo canónico
+preserva, quando aplicável, literais bibliográficos, ordem, repetição,
+indicadores e partes suportadas desconhecidas. `MarcRecord` é a representação
+intermédia format-neutral para campos, indicadores, subcampos, ordem,
+repetição, warnings e perda potencial; não é o modelo persistente do Folio.
+
+### Pipelines bibliográficos
+
+Exportação:
+
+```text
+modelo local canónico Folio
+→ mapper de perfil
+→ MarcRecord
+→ serializer
+→ formato de saída
+```
+
+Exemplos:
+
+```text
+Folio Edition
+→ mapper UNIMARC
+→ MarcRecord(profile: UNIMARC)
+→ serializer MARCXchange
+→ XML MARCXchange
+
+Folio Edition
+→ mapper MARC 21
+→ MarcRecord(profile: MARC21)
+→ serializer MARCXML
+→ MARCXML
+```
+
+Importação:
+
+```text
+payload de formato/provider externo
+→ parser do formato
+→ MarcRecord
+→ mapper de importação do perfil
+→ preview de importação / modelo canónico Folio
+→ confirmação explícita do utilizador
+→ persistência
+```
+
+No fluxo PORBASE actual, a sequência é `resposta UNIMARC PORBASE → parser
+PORBASE → preview local estruturado → confirmação explícita → persistência
+canónica Folio`. A exportação local usa os dados persistidos do Folio e não
+reconstrói o registo original do provider a partir de `rawContent`; uma futura
+exportação de proveniência original é uma operação separada.
+
+Mappers devem devolver warnings estruturados, campos não mapeados e indicar
+conversões potencialmente lossy. Não podem inventar silenciosamente dados
+bibliográficos para preencher diferenças entre perfis. MARCXchange e MARCXML
+são serializações diferentes e exigem serializers/endpoints separados.
+
+Exemplo ilustrativo, não garantia de equivalência semântica completa:
+
+```text
+Conceito canónico Folio:
+PublicationStatement
+- place: Rio de Janeiro
+- publisher: Nova Fronteira
+- literal date: D.L. 2009
+
+Apresentação/exportação no perfil UNIMARC:
+210$a Rio de Janeiro
+210$c Nova Fronteira
+210$d D.L. 2009
+
+Apresentação/exportação no perfil MARC 21:
+264$a Rio de Janeiro
+264$b Nova Fronteira
+264$c D.L. 2009
+```
+
+O exemplo é apenas ilustrativo. Mapeamentos podem ser um-para-um,
+um-para-vários, dependentes do perfil, não mapeados ou lossy.
+
 ### Declarações de publicação UNIMARC 210 (Phase 1)
 
 `PublicationStatement` representa uma ocorrência repetível de 210 e
