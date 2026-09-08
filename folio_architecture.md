@@ -6,7 +6,10 @@ A direcção conceptual está correcta: separar o registo original da PORBASE, o
 
 A arquitectura evoluiu para usar `Organization` como tenant único, com `OrganizationMembership` para relacionar utilizadores a organizações através de roles controlados (`OWNER`, `ADMIN`, `STAFF`, `READER`). Esta fundação foi implementada, validada e consolidada.
 
+A Phase 1 de Agents e Contributions canónicos foi concluída no backend e na integração Flutter, mantendo o fallback legado durante a transição.
+
 **Fase 1 (Descrição Física Repetível e Datas Bibliográficas)** foi implementada como uma alteração breaking coordenada:
+
 - `PhysicalDescription` representa uma ocorrência UNIMARC `215`;
 - `PhysicalDescriptionPart` representa cada subcampo ordenado da ocorrência;
 - ocorrências, subcampos repetidos, ordem e códigos desconhecidos válidos são preservados;
@@ -38,6 +41,7 @@ sem reset. Ver `docs/decisions/publication-statements-phase-1.md` para a decisã
 transicional e o plano de remoção futura dos inputs escalares.
 
 ### Contributions e Agents canónicos (Phase 1)
+
 
 O modelo canónico de responsabilidades é `Organization → Agent → Contribution
 → ContributionSourcePart[]`. Agents são locais à Organization e `displayName`
@@ -153,7 +157,7 @@ Esta fundação resolve o risco histórico de ownership por `userId` e prepara o
 
 ### Actuais (pendentes)
 
-1. **Contributors:** não são ainda autoridades bibliográficas; falta `Agent`, `AgentName`, `AuthorityIdentifier` e `Contribution` com role codes.[^4]
+1. **Contributors:** `Agent`, `Contribution` e `ContributionSourcePart` estão implementados para o import PORBASE 700/701/702; permanecem pendentes o controlo de autoridades, variantes de nomes e famílias 7XX adicionais, não o modelo canónico básico.[^4]
 2. **Proveniência versionada:** `BibliographicRecord` precisa de mais metadados (source, format, schema, encoding, hash, parserVersion, warnings) e deve suportar múltiplas versões/fontes por obra ou edição.
 3. **Datas e texto original:** `publicationDate` já suporta precisão bibliográfica; permanece futuro preservar texto original adicional quando uma normalização não puder ser representada no modelo local.
 4. **Normalização de dados:** `PhysicalDescription.normalizedValue` é ainda derivado manualmente; é futuro automatizar a normalização e a extracção de dimensões, material e ilustrações.
@@ -170,7 +174,8 @@ O sistema está operacional para o fluxo de importação PORBASE e exportação 
 
 - `PhysicalDescription.normalizedValue` não é preenchido automaticamente (design para permitir normalização inteligente futura);
 - não existe UI de edição para descrições físicas (integração Flutter é aditiva e pode ser implementada em fase posterior);
-- não existe controlo de autoridades para contribuidores;
+- Agents e Contributions canónicos estão implementados no backend e disponíveis em leitura no Flutter; permanecem futuros o controlo de autoridades, variantes de nomes e famílias 7XX adicionais;
+- não existe ainda UI de criação ou edição de Contributions;
 - não existe versionamento de provenância (cada registo original substitui o anterior);
 - não existe modelo de holdings, filiais ou circulação;
 - não existe auditoria de acessos e alterações;
@@ -320,6 +325,11 @@ Concluída:
 - preservação de ocorrências, subcampos, ordem e códigos desconhecidos de `215`;
 - `pageCount` derivado conservativamente;
 - `publicationDate` textual com precisão bibliográfica preservada;
+- modelos canónicos `Agent`, `Contribution` e `ContributionSourcePart`;
+- parsing e persistência PORBASE 700/701/702 como Contributions direccionadas ao Work;
+- leituras e exportação que preferem Contributions canónicas por alvo, com fallback legado exclusivo;
+- visualização Flutter read-only de Contributions no detalhe de Edition, com UI localizada e testes;
+- normalização de indicadores MARC vazios ou ausentes no preview para `" "`;
 - importação PORBASE transaccional;
 - exportação local MARCXchange sem depender de `rawContent`;
 - contrato Flutter coordenado;
@@ -329,7 +339,6 @@ Concluída:
 Pendente:
 
 - `PublicationStatement` para local, agente/editor e data de publicação;
-- `Contribution` e evolução de contributors/roles;
 - provenance versionada e metadados ricos;
 - normalizações derivadas e não destrutivas;
 - `MarcRecord` mais completo, incluindo encoding, syntax e relatório de perda;
