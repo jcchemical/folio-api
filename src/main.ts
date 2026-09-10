@@ -20,26 +20,35 @@ async function bootstrap() {
   // CORS para desenvolvimento (ajusta origins em produção)
  
     if (isDevelopment) {
-    // Aceita qualquer localhost:porta em desenvolvimento
-    app.enableCors({
-      origin: (origin: string | undefined, callback: (err: Error | null, allowed?: boolean) => void) => {
-        if (!origin) {
-          // curl, Postman, etc.
-          callback(null, true);
-          return;
-        }
+  app.enableCors({
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allowed?: boolean) => void,
+    ) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
 
-        const allowed = /^http:\/\/localhost:\d+$/;
-        if (allowed.test(origin)) {
-          callback(null, true);
-        } else {
-          callback(new Error('CORS não permitido para este origin'), false);
-        }
-      },
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
-      credentials: true,
-    });
+      const allowed =
+        /^https?:\/\/localhost(?::\d+)?$/.test(origin) ||
+        /^https?:\/\/127\.0\.0\.1(?::\d+)?$/.test(origin) ||
+        /^https?:\/\/192\.168\.\d{1,3}\.\d{1,3}(?::\d+)?$/.test(origin) ||
+        /^https?:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?$/.test(origin) ||
+        /^https?:\/\/172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(?::\d+)?$/.test(
+          origin,
+        );
+
+      if (allowed) {
+        callback(null, true);
+      } else {
+        callback(new Error('CORS não permitido para este origin'), false);
+      }
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  });
   } else {
     // Produção: lista explícita de origins confiáveis
     app.enableCors({
