@@ -517,6 +517,20 @@ GET /catalogues/porbase/search?isbn={isbn}
 → POST /catalogues/porbase/import
 ```
 
+O catálogo é abstraído por `CatalogueProvider`. PORBASE é o único provider
+registado e o default actual (`porbase`), com pesquisa apenas por ISBN e perfil
+UNIMARC. Os endpoints genéricos autenticados são `POST /catalogues/search`,
+com `{ query: { isbn }, sourceId? }`, e `POST /catalogues/import`, que aceita o
+payload confirmado actual e `sourceId?`. Sem `sourceId`, ambos usam PORBASE.
+O import continua a receber o preview editável completo: não existe cache de
+preview no servidor e um `recordId` isolado não pode contornar a confirmação
+explícita. Os endpoints PORBASE existentes permanecem wrappers compatíveis.
+
+`Organization.defaultCatalogueSource` é nullable e recebe `porbase` por
+defeito; `Organization.enabledCatalogueSources` recebe `['porbase']`. A
+configuração é exposta nas respostas de organizações para permitir futura
+selecção na app, mas não há selector nesta fase.
+
 - pesquisa e preview são protegidos por JWT;
 - a app Flutter nunca contacta PORBASE directamente;
 - preview não cria nem actualiza Work, Edition, Contributor, ExternalIdentifier, BibliographicRecord ou Item;

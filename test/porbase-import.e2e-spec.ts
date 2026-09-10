@@ -4,8 +4,9 @@ import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { PorbaseImportService } from '../src/catalogues/porbase-import.service.js';
+import { PorbaseCatalogueProvider } from '../src/catalogues/porbase/porbase.provider.js';
 import { hashPassword } from '../src/auth/password.utils.js';
+import { ApiExceptionFilter } from '../src/common/api-exception.filter.js';
 
 describe('PORBASE import confirmation (e2e)', () => {
   let app: INestApplication<App>;
@@ -29,7 +30,11 @@ describe('PORBASE import confirmation (e2e)', () => {
       $connect: async () => undefined,
       $disconnect: async () => undefined,
     };
-    const importService = {
+    const porbaseProvider = {
+      id: 'porbase',
+      name: 'PORBASE',
+      format: 'UNIMARC',
+      searchPreview: async () => ({ work: { title: 'E2E Preview' } }),
       import: async (userId: string) => ({
         id: 'e2e-work',
         work: { title: `owned-by-${userId}` },
@@ -51,11 +56,12 @@ describe('PORBASE import confirmation (e2e)', () => {
     })
       .overrideProvider(PrismaService)
       .useValue(prisma)
-      .overrideProvider(PorbaseImportService)
-      .useValue(importService)
+      .overrideProvider(PorbaseCatalogueProvider)
+      .useValue(porbaseProvider)
       .compile();
 
     app = moduleFixture.createNestApplication();
+    app.useGlobalFilters(new ApiExceptionFilter());
     await app.init();
   });
 
@@ -86,5 +92,54 @@ describe('PORBASE import confirmation (e2e)', () => {
       .post('/catalogues/porbase/import')
       .send({})
       .expect(401);
+  });
+
+  it('uses PORBASE by default through the generic endpoints', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'e2e@example.com', password: 'password' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/catalogues/search')
+      .set('Authorization', `Bearer ${login.body.accessToken as string}`)
+      .send({ query: { isbn: '9789724426495' } })
+      .expect(201)
+      .expect(({ body }) => expect(body.work.title).toBe('E2E Preview'));
+
+    await request(app.getHttpServer())
+      .post('/catalogues/import')
+      .set('Authorization', `Bearer ${login.body.accessToken as string}`)
+      .send({})
+      .expect(201)
+      .expect(({ body }) => expect(body.work.title).toBe('owned-by-e2e-user'));
+  });
+
+  it('returns the standard not-found error for an unknown search source', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'e2e@example.com', password: 'password' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/catalogues/search')
+      .set('Authorization', `Bearer ${login.body.accessToken as string}`)
+      .send({ sourceId: 'missing-source', query: { isbn: '9789724426495' } })
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+  });
+
+  it('returns the standard not-found error for an unknown import source', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'e2e@example.com', password: 'password' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/catalogues/import')
+      .set('Authorization', `Bearer ${login.body.accessToken as string}`)
+      .send({ sourceId: 'missing-source' })
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
   });
 });

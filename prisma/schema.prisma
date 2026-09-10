@@ -29,10 +29,12 @@ enum ContributionSource {
 }
 
 model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                      String   @id @default(cuid())
+  name                    String
+  defaultCatalogueSource  String?  @default("porbase")
+  enabledCatalogueSources String[] @default(["porbase"])
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
   memberships         OrganizationMembership[]
   works               Work[]

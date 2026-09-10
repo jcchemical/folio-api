@@ -12,7 +12,7 @@ import {
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
-import { PorbaseImportService } from './porbase-import.service.js';
+import { CatalogueService } from './catalogue.service.js';
 import {
   PorbaseImportDto,
   PorbaseImportResponseDto,
@@ -24,7 +24,7 @@ import { ApiErrorDto } from '../common/dto/api-error.dto.js';
 @Controller('catalogues/porbase')
 @UseGuards(JwtAuthGuard)
 export class PorbaseImportController {
-  constructor(private readonly porbaseImportService: PorbaseImportService) {}
+  constructor(private readonly catalogueService: CatalogueService) {}
 
   @Post('import')
   @ApiOperation({
@@ -48,6 +48,6 @@ export class PorbaseImportController {
     @Body() body: PorbaseImportDto,
   ): Promise<PorbaseImportResponseDto> {
     const userId = (request.user as AuthenticatedUser).id;
-    return this.porbaseImportService.import(userId, body);
+    return this.catalogueService.getProvider('porbase').import(userId, body);
   }
 }

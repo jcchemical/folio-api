@@ -1,0 +1,44 @@
+import { BadRequestException } from '@nestjs/common';
+import { describe, expect, it, vi } from 'vitest';
+import { ImportPreviewService } from '../import-preview.service.js';
+import { PorbaseImportService } from '../porbase-import.service.js';
+import { PorbaseCatalogueProvider } from './porbase.provider.js';
+
+describe('PorbaseCatalogueProvider', () => {
+  it('delegates preview and confirmed imports to existing PORBASE services', async () => {
+    const previews = {
+      createPreview: vi.fn().mockResolvedValue({ preview: true }),
+    };
+    const imports = { import: vi.fn().mockResolvedValue({ id: 'work-1' }) };
+    const provider = new PorbaseCatalogueProvider(
+      previews as unknown as ImportPreviewService,
+      imports as unknown as PorbaseImportService,
+    );
+    const input = {} as never;
+
+    await expect(
+      provider.searchPreview({ isbn: '9789724426495' }),
+    ).resolves.toEqual({ preview: true });
+    await expect(provider.import('user-1', input)).resolves.toEqual({
+      id: 'work-1',
+    });
+
+    expect(previews.createPreview).toHaveBeenCalledWith('9789724426495');
+    expect(imports.import).toHaveBeenCalledWith('user-1', input);
+  });
+
+  it('accepts only ISBN searches and UNIMARC', async () => {
+    const provider = new PorbaseCatalogueProvider(
+      {} as ImportPreviewService,
+      {} as PorbaseImportService,
+    );
+
+    expect(provider.supportsSearchType('isbn')).toBe(true);
+    expect(provider.supportsSearchType('title')).toBe(false);
+    expect(provider.supportsFormat('UNIMARC')).toBe(true);
+    expect(provider.supportsFormat('MARC21')).toBe(false);
+    await expect(provider.searchPreview({})).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+});

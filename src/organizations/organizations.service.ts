@@ -13,6 +13,8 @@ import type { UpdateOrganizationDto } from './dto/update-organization.dto.js';
 export type OrganizationSummary = {
   id: string;
   name: string;
+  defaultCatalogueSource: string | null;
+  enabledCatalogueSources: string[];
   role: OrganizationRole;
   createdAt: Date;
 };
@@ -54,7 +56,11 @@ export class OrganizationsService {
     const name = normalizeOrganizationName(input.name);
     const organization = await this.prisma.$transaction(async (transaction) => {
       const created = await transaction.organization.create({
-        data: { name },
+        data: {
+          name,
+          defaultCatalogueSource: 'porbase',
+          enabledCatalogueSources: ['porbase'],
+        },
       });
       await transaction.organizationMembership.create({
         data: {
@@ -127,12 +133,20 @@ export class OrganizationsService {
   }
 
   private toSummary(
-    organization: { id: string; name: string; createdAt: Date },
+    organization: {
+      id: string;
+      name: string;
+      defaultCatalogueSource: string | null;
+      enabledCatalogueSources: string[];
+      createdAt: Date;
+    },
     role: OrganizationRole,
   ): OrganizationSummary {
     return {
       id: organization.id,
       name: organization.name,
+      defaultCatalogueSource: organization.defaultCatalogueSource,
+      enabledCatalogueSources: organization.enabledCatalogueSources,
       role,
       createdAt: organization.createdAt,
     };

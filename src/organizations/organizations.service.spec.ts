@@ -1,4 +1,8 @@
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { OrganizationRole } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -8,6 +12,8 @@ import { OrganizationMembershipService } from './organization-membership.service
 const organization = {
   id: 'organization-1',
   name: 'Biblioteca Original',
+  defaultCatalogueSource: 'porbase',
+  enabledCatalogueSources: ['porbase'],
   createdAt: new Date('2026-09-06T00:00:00.000Z'),
 };
 
@@ -58,9 +64,9 @@ function createService() {
 describe('OrganizationsService', () => {
   it('lists only the authenticated user memberships', async () => {
     const memberships = {
-      getMemberships: vi.fn().mockResolvedValue([
-        { organization, role: OrganizationRole.READER },
-      ]),
+      getMemberships: vi
+        .fn()
+        .mockResolvedValue([{ organization, role: OrganizationRole.READER }]),
     } as unknown as OrganizationMembershipService;
     const { prisma } = createService();
     const scoped = new OrganizationsService(prisma, memberships);
@@ -69,6 +75,8 @@ describe('OrganizationsService', () => {
       {
         id: organization.id,
         name: organization.name,
+        defaultCatalogueSource: 'porbase',
+        enabledCatalogueSources: ['porbase'],
         role: OrganizationRole.READER,
         createdAt: organization.createdAt,
       },
@@ -88,7 +96,11 @@ describe('OrganizationsService', () => {
     });
     expect(prisma.$transaction).toHaveBeenCalledOnce();
     expect(transaction.organization.create).toHaveBeenCalledWith({
-      data: { name: 'Biblioteca Nova' },
+      data: {
+        name: 'Biblioteca Nova',
+        defaultCatalogueSource: 'porbase',
+        enabledCatalogueSources: ['porbase'],
+      },
     });
     expect(transaction.organizationMembership.create).toHaveBeenCalledWith({
       data: {
@@ -158,9 +170,9 @@ describe('OrganizationsService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
 
     vi.mocked(memberships.assertRole).mockResolvedValue(undefined);
-    await expect(service.remove('owner-user', organization.id)).rejects.toBeInstanceOf(
-      ConflictException,
-    );
+    await expect(
+      service.remove('owner-user', organization.id),
+    ).rejects.toBeInstanceOf(ConflictException);
     expect(memberships.assertRole).toHaveBeenLastCalledWith(
       'owner-user',
       organization.id,
