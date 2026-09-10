@@ -18,6 +18,9 @@ export const API_ERROR_CODES = {
   DUPLICATE_EXTERNAL_IDENTIFIER: 'CONFLICT_DUPLICATE_EXTERNAL_IDENTIFIER',
   AGENT_ORGANIZATION_MISMATCH: 'CONFLICT_AGENT_ORGANIZATION_MISMATCH',
   ORGANIZATION_DELETE_CONFLICT: 'CONFLICT_ORGANIZATION_DELETE',
+  DUPLICATE_RESOURCE: 'CONFLICT_DUPLICATE_RESOURCE',
+  FOREIGN_KEY_CONFLICT: 'CONFLICT_FOREIGN_KEY_REFERENCE',
+  INVALID_REQUEST_DATA: 'VALIDATION_INVALID_REQUEST_DATA',
   PORBASE_TIMEOUT: 'PORBASE_TIMEOUT',
   PORBASE_UNAVAILABLE: 'PORBASE_UNAVAILABLE',
   PORBASE_INVALID_RESPONSE: 'PORBASE_INVALID_RESPONSE',
@@ -25,7 +28,8 @@ export const API_ERROR_CODES = {
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
-export type ApiErrorCode = (typeof API_ERROR_CODES)[keyof typeof API_ERROR_CODES];
+export type ApiErrorCode =
+  (typeof API_ERROR_CODES)[keyof typeof API_ERROR_CODES];
 
 type ApiExceptionResponse = {
   statusCode: number;
@@ -41,16 +45,29 @@ export class ApiException extends HttpException {
     message: string,
     details?: unknown,
   ) {
-    super({ statusCode: status, code, message, ...(details ? { details } : {}) }, status);
+    super(
+      { statusCode: status, code, message, ...(details ? { details } : {}) },
+      status,
+    );
   }
 }
 
-export function conflictDuplicateEdition(message = 'An edition with this ISBN already exists for this organization.') {
-  return new ApiException(HttpStatus.CONFLICT, API_ERROR_CODES.DUPLICATE_EDITION, message);
+export function conflictDuplicateEdition(
+  message = 'An edition with this ISBN already exists for this organization.',
+) {
+  return new ApiException(
+    HttpStatus.CONFLICT,
+    API_ERROR_CODES.DUPLICATE_EDITION,
+    message,
+  );
 }
 
 export function conflictDuplicateExternalIdentifier(message: string) {
-  return new ApiException(HttpStatus.CONFLICT, API_ERROR_CODES.DUPLICATE_EXTERNAL_IDENTIFIER, message);
+  return new ApiException(
+    HttpStatus.CONFLICT,
+    API_ERROR_CODES.DUPLICATE_EXTERNAL_IDENTIFIER,
+    message,
+  );
 }
 
 export function conflictAgentOrganizationMismatch() {
@@ -61,11 +78,16 @@ export function conflictAgentOrganizationMismatch() {
   );
 }
 
-export function responseWithCode(exception: HttpException): ApiExceptionResponse | null {
+export function responseWithCode(
+  exception: HttpException,
+): ApiExceptionResponse | null {
   const response = exception.getResponse();
   if (typeof response === 'object' && response !== null) {
     const candidate = response as Partial<ApiExceptionResponse>;
-    if (typeof candidate.code === 'string' && typeof candidate.message === 'string') {
+    if (
+      typeof candidate.code === 'string' &&
+      typeof candidate.message === 'string'
+    ) {
       return {
         statusCode: exception.getStatus(),
         code: candidate.code as ApiErrorCode,

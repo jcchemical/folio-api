@@ -70,6 +70,16 @@
 - Do not persist bibliographic imports without explicit user confirmation.
 - Never add tokens, credentials or production URLs to code, logs, tests or version control.
 
+## Backend logging and error handling
+
+- Use NestJS `Logger` for server-side logging; do not add `console.log`, `console.warn` or `console.error` for application diagnostics.
+- Route unhandled HTTP errors through the global `ApiExceptionFilter`; preserve the stable `{ statusCode, error, code, message, details? }` contract and do not expose raw exception messages, stacks, Prisma metadata, SQL, filesystem paths or environment values in production.
+- Log unhandled server errors with the HTTP method, request path, status, exception name and stack trace. Do not log complete request bodies by default.
+- Before logging request context, redact at minimum passwords, tokens, authorization headers, cookies, client secrets and `DATABASE_URL`; use `safe-error-diagnostics.ts` or an equivalent central sanitizer.
+- Never log access tokens, refresh tokens, passwords, credentials or secrets, including in tests and temporary debugging code.
+- Response diagnostics are opt-in only: `ERROR_DETAILS_IN_RESPONSE=true` is effective only with `NODE_ENV=development`; malformed or missing values and every other environment must remain sanitized.
+- Add new error mappings to the central error handling path and preserve existing stable error codes unless a contract change is explicitly approved.
+
 ## State and tooling
 
 - Before validating the app, confirm that the Flutter/Dart SDK is available in the environment.

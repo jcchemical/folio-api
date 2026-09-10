@@ -425,6 +425,33 @@ O schema mantém `User.passwordHash String` exclusivamente como armazenamento in
 
 Estas mudanças devem ser feitas com migrações e compatibilidade explícita, não através de alterações silenciosas aos contratos.
 
+### Error handling e logging global
+
+O backend usa `ApiExceptionFilter` como filtro global em `src/main.ts`. O
+contrato público de erros mantém `{ statusCode, error, code, message,
+details? }`; erros desconhecidos devolvem `500 INTERNAL_ERROR` com uma mensagem
+genérica. O filtro não expõe mensagens ou stacks de exceções, SQL, metadata
+Prisma, caminhos de ficheiros ou valores de ambiente em produção.
+
+Excepções não tratadas e erros de servidor são registados server-side através
+do NestJS `Logger`, incluindo método HTTP, path, status, nome da excepção e
+stack trace. Contexto de pedidos não é registado por defeito e, quando
+necessário, é sanitizado para remover passwords, tokens, headers de
+autorização, cookies, client secrets e `DATABASE_URL`. Não existe actualmente
+um mecanismo de correlation/request id.
+
+Os mapeamentos globais de Prisma incluem `P2002` para `409
+CONFLICT_DUPLICATE_RESOURCE`, `P2025` para `404 RESOURCE_NOT_FOUND`, `P2003`
+para `409 CONFLICT_FOREIGN_KEY_REFERENCE` e erros de validação Prisma para
+`400 VALIDATION_INVALID_REQUEST_DATA`. Tratamentos mais específicos existentes
+nos services mantêm precedência.
+
+Detalhes de diagnóstico usam `safe-error-diagnostics.ts` e só podem aparecer
+quando `NODE_ENV=development` e `ERROR_DETAILS_IN_RESPONSE=true`. A opção é
+false por defeito, é fail-closed para valores inválidos e nunca activa
+diagnósticos em `test` ou `production`. Mesmo em desenvolvimento, apenas nome,
+mensagem, stack e, quando aplicável, código Prisma seguro podem ser devolvidos.
+
 ### Estratégia de tokens
 
 O login devolve um access token JWT com validade de 15 minutos e um refresh token opaco com validade de 7 dias. O refresh token inclui apenas um identificador de utilizador e um UUID aleatório para permitir localizar a sessão; o valor completo nunca é persistido. Apenas o seu hash Argon2id e a data `refreshTokenExpires` são guardados em `User`.
