@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ImportPreviewService } from '../import-preview.service.js';
 import { PorbaseImportService } from '../porbase-import.service.js';
@@ -17,7 +16,7 @@ describe('PorbaseCatalogueProvider', () => {
     const input = {} as never;
 
     await expect(
-      provider.searchPreview({ isbn: '9789724426495' }),
+      provider.searchPreview({ type: 'isbn', isbn: '9789724426495' }),
     ).resolves.toEqual({ preview: true });
     await expect(provider.import('user-1', input)).resolves.toEqual({
       id: 'work-1',
@@ -27,7 +26,7 @@ describe('PorbaseCatalogueProvider', () => {
     expect(imports.import).toHaveBeenCalledWith('user-1', input);
   });
 
-  it('accepts only ISBN searches and UNIMARC', async () => {
+  it('supports only ISBN searches and UNIMARC', async () => {
     const provider = new PorbaseCatalogueProvider(
       {} as ImportPreviewService,
       {} as PorbaseImportService,
@@ -35,10 +34,27 @@ describe('PorbaseCatalogueProvider', () => {
 
     expect(provider.supportsSearchType('isbn')).toBe(true);
     expect(provider.supportsSearchType('title')).toBe(false);
+    expect(provider.supportsSearchType('author')).toBe(false);
+    expect(provider.supportsSearchType('keyword')).toBe(false);
     expect(provider.supportsFormat('UNIMARC')).toBe(true);
     expect(provider.supportsFormat('MARC21')).toBe(false);
-    await expect(provider.searchPreview({})).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(
+      provider.searchPreview({ type: 'title', title: 'Zorbás' }),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: { code: 'CATALOGUE_SEARCH_TYPE_UNSUPPORTED' },
+    });
+    await expect(
+      provider.searchPreview({ type: 'author', author: 'Kazantzakis' }),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: { code: 'CATALOGUE_SEARCH_TYPE_UNSUPPORTED' },
+    });
+    await expect(
+      provider.searchPreview({ type: 'keyword', keyword: 'grega' }),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: { code: 'CATALOGUE_SEARCH_TYPE_UNSUPPORTED' },
+    });
   });
 });

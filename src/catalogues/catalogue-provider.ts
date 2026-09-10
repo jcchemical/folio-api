@@ -7,9 +7,11 @@ import type {
 export type SearchType = 'isbn' | 'title' | 'author' | 'keyword';
 export type MarcFormat = 'UNIMARC' | 'MARC21' | 'OTHER';
 
-export interface CatalogueSearchQuery {
-  isbn?: string;
-}
+export type CatalogueSearchQuery =
+  | { type: 'isbn'; isbn: string }
+  | { type: 'title'; title: string }
+  | { type: 'author'; author: string }
+  | { type: 'keyword'; keyword: string };
 
 export type CataloguePreview = ImportPreviewResponseDto;
 export type ImportedCatalogueRecord = PorbaseImportResponseDto;

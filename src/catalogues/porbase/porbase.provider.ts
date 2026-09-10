@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import type {
   CataloguePreview,
   CatalogueProvider,
@@ -10,6 +10,7 @@ import type {
 import type { PorbaseImportDto } from '../dto/porbase-import.dto.js';
 import { ImportPreviewService } from '../import-preview.service.js';
 import { PorbaseImportService } from '../porbase-import.service.js';
+import { ApiException, API_ERROR_CODES } from '../../common/api-errors.js';
 
 @Injectable()
 export class PorbaseCatalogueProvider implements CatalogueProvider {
@@ -23,10 +24,18 @@ export class PorbaseCatalogueProvider implements CatalogueProvider {
   ) {}
 
   async searchPreview(query: CatalogueSearchQuery): Promise<CataloguePreview> {
-    if (!query.isbn) {
-      throw new BadRequestException('An ISBN is required for PORBASE searches');
+    switch (query.type) {
+      case 'isbn':
+        return this.importPreviewService.createPreview(query.isbn);
+      case 'title':
+      case 'author':
+      case 'keyword':
+        throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          API_ERROR_CODES.CATALOGUE_SEARCH_TYPE_UNSUPPORTED,
+          `PORBASE does not support ${query.type} searches.`,
+        );
     }
-    return this.importPreviewService.createPreview(query.isbn);
   }
 
   import(

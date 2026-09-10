@@ -193,7 +193,7 @@ Organizações inexistentes devolvem `404`; utilizadores sem membership devolvem
 
 Expected API errors use the stable envelope `{ statusCode, error, code, message }`. The `code` is the machine-readable contract; `message` is a safe fallback and must not drive client control flow. Validation errors may include safe field-level `details`.
 
-The initial taxonomy includes `AUTH_INVALID_CREDENTIALS`, refresh-token codes, `VALIDATION_INVALID_BODY`, `CATALOGUE_INVALID_ISBN`, `BIBLIOGRAPHIC_INVALID_DATE`, pagination validation, membership/role authorization codes, resource/organization/edition not-found codes, duplicate edition/identifier conflicts, organization deletion conflict, PORBASE timeout/unavailable/invalid-response/record-not-found codes, and `INTERNAL_ERROR`.
+The initial taxonomy includes `AUTH_INVALID_CREDENTIALS`, refresh-token codes, `VALIDATION_INVALID_BODY`, `CATALOGUE_INVALID_ISBN`, `CATALOGUE_SEARCH_TYPE_UNSUPPORTED`, `BIBLIOGRAPHIC_INVALID_DATE`, pagination validation, membership/role authorization codes, resource/organization/edition not-found codes, duplicate edition/identifier conflicts, organization deletion conflict, PORBASE timeout/unavailable/invalid-response/record-not-found codes, and `INTERNAL_ERROR`.
 
 The current taxonomy covers authentication (`AUTH_*`), validation (`VALIDATION_*`), authorization (`AUTHORIZATION_*`), resources (`RESOURCE_*`, `*_NOT_FOUND`), conflicts (`CONFLICT_*`), pagination (`PAGINATION_*`), PORBASE upstream failures (`PORBASE_*`) and unexpected failures (`INTERNAL_ERROR`).
 
@@ -328,6 +328,7 @@ ExternalIdentifier.organizationId
 ```
 
 A unicidade é `(organizationId, type, value)`: o mesmo ISBN pode existir em organizações diferentes, mas identificadores do mesmo tipo e valor são únicos dentro da mesma organização.
+
 - `BibliographicRecord` guarda a proveniência original recebida de fontes externas.
 
 ### Agents e Contributions (Phase 1 implementada)
@@ -538,20 +539,25 @@ O endpoint do registo original ainda não existe. MARCXML da Library of Congress
 ### Fluxo
 
 ```text
-GET /catalogues/porbase/search?isbn={isbn}
-→ POST /catalogues/porbase/import-preview
+POST /catalogues/search
 → revisão do utilizador
-→ POST /catalogues/porbase/import
+→ POST /catalogues/import
 ```
 
 O catálogo é abstraído por `CatalogueProvider`. PORBASE é o único provider
 registado e o default actual (`porbase`), com pesquisa apenas por ISBN e perfil
 UNIMARC. Os endpoints genéricos autenticados são `POST /catalogues/search`,
-com `{ query: { isbn }, sourceId? }`, e `POST /catalogues/import`, que aceita o
-payload confirmado actual e `sourceId?`. Sem `sourceId`, ambos usam PORBASE.
+com `{ query: { type, ...campoCorrespondente }, sourceId? }`, e
+`POST /catalogues/import`, que aceita o payload confirmado actual e `sourceId?`.
+As variantes de pesquisa são `{ type: 'isbn', isbn }`, `{ type: 'title', title }`,
+`{ type: 'author', author }` e `{ type: 'keyword', keyword }`; cada pedido tem
+exactamente o campo correspondente ao seu `type`. Sem `sourceId`, ambos usam
+PORBASE. Actualmente, PORBASE só suporta `isbn`; as restantes variantes
+devolvem `CATALOGUE_SEARCH_TYPE_UNSUPPORTED`.
 O import continua a receber o preview editável completo: não existe cache de
 preview no servidor e um `recordId` isolado não pode contornar a confirmação
-explícita. Os endpoints PORBASE existentes permanecem wrappers compatíveis.
+explícita. As rotas PORBASE específicas foram removidas para evitar superfície
+de API duplicada.
 
 `Organization.defaultCatalogueSource` é nullable e recebe `porbase` por
 defeito; `Organization.enabledCatalogueSources` recebe `['porbase']`. A
@@ -746,6 +752,7 @@ O suporte actual é dividido em:
 Campos desconhecidos ou ainda não modelados não devem ser descartados silenciosamente quando o fluxo permitir preservar o `MarcRecord` original.
 
 A implementação semântica de novos campos deve ser orientada por:
+
 1. casos de uso;
 2. dados PORBASE reais;
 3. necessidade de edição local;

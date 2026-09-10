@@ -1,4 +1,4 @@
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import type { App } from 'supertest/types';
@@ -8,7 +8,7 @@ import { PorbaseCatalogueProvider } from '../src/catalogues/porbase/porbase.prov
 import { hashPassword } from '../src/auth/password.utils.js';
 import { ApiExceptionFilter } from '../src/common/api-exception.filter.js';
 
-describe('PORBASE import confirmation (e2e)', () => {
+describe('Catalogue source operations (e2e)', () => {
   let app: INestApplication<App>;
 
   beforeEach(async () => {
@@ -61,6 +61,9 @@ describe('PORBASE import confirmation (e2e)', () => {
       .compile();
 
     app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true }),
+    );
     app.useGlobalFilters(new ApiExceptionFilter());
     await app.init();
   });
@@ -69,30 +72,19 @@ describe('PORBASE import confirmation (e2e)', () => {
     await app.close();
   });
 
-  it('logs in and confirms an authenticated import with HTTP 201', async () => {
-    const login = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: 'e2e@example.com', password: 'password' })
-      .expect(201);
-
-    await request(app.getHttpServer())
-      .post('/catalogues/porbase/import')
-      .set('Authorization', `Bearer ${login.body.accessToken as string}`)
-      .send({})
-      .expect(201)
-      .expect(({ body }) => {
-        if (body.work.title !== 'owned-by-e2e-user') {
-          throw new Error('The import did not receive the JWT user id');
-        }
-      });
-  });
-
-  it('rejects confirmation without a token', async () => {
-    await request(app.getHttpServer())
-      .post('/catalogues/porbase/import')
-      .send({})
-      .expect(401);
-  });
+  const validImport = {
+    work: { title: 'E2E Work' },
+    edition: { title: 'E2E Edition' },
+    contributors: [],
+    externalIdentifiers: [],
+    bibliographicRecord: {
+      format: 'MARCXCHANGE',
+      schema: 'UNIMARC',
+      source: 'PORBASE',
+      rawContent: '<collection />',
+    },
+    item: { status: 'OWNED' },
+  };
 
   it('uses PORBASE by default through the generic endpoints', async () => {
     const login = await request(app.getHttpServer())
@@ -103,16 +95,57 @@ describe('PORBASE import confirmation (e2e)', () => {
     await request(app.getHttpServer())
       .post('/catalogues/search')
       .set('Authorization', `Bearer ${login.body.accessToken as string}`)
-      .send({ query: { isbn: '9789724426495' } })
+      .send({ query: { type: 'isbn', isbn: '9789724426495' } })
       .expect(201)
       .expect(({ body }) => expect(body.work.title).toBe('E2E Preview'));
 
     await request(app.getHttpServer())
       .post('/catalogues/import')
       .set('Authorization', `Bearer ${login.body.accessToken as string}`)
-      .send({})
+      .send(validImport)
       .expect(201)
       .expect(({ body }) => expect(body.work.title).toBe('owned-by-e2e-user'));
+  });
+
+  it('rejects implicit, unknown, incomplete, and mismatched search queries', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'e2e@example.com', password: 'password' })
+      .expect(201);
+    const token = login.body.accessToken as string;
+
+    for (const body of [
+      { query: { isbn: '9789724426495' } },
+      { query: { type: 'identifier', isbn: '9789724426495' } },
+      { query: { type: 'title' } },
+      { query: { type: 'isbn', isbn: '9789724426495', title: 'Zorbás' } },
+    ]) {
+      await request(app.getHttpServer())
+        .post('/catalogues/search')
+        .set('Authorization', `Bearer ${token}`)
+        .send(body)
+        .expect(400)
+        .expect(({ body: responseBody }) =>
+          expect(responseBody.code).toBe('VALIDATION_INVALID_BODY'),
+        );
+    }
+  });
+
+  it('uses an explicitly selected PORBASE source for a discriminated ISBN query', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'e2e@example.com', password: 'password' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/catalogues/search')
+      .set('Authorization', `Bearer ${login.body.accessToken as string}`)
+      .send({
+        sourceId: 'porbase',
+        query: { type: 'isbn', isbn: '9789724426495' },
+      })
+      .expect(201)
+      .expect(({ body }) => expect(body.work.title).toBe('E2E Preview'));
   });
 
   it('returns the standard not-found error for an unknown search source', async () => {
@@ -124,7 +157,10 @@ describe('PORBASE import confirmation (e2e)', () => {
     await request(app.getHttpServer())
       .post('/catalogues/search')
       .set('Authorization', `Bearer ${login.body.accessToken as string}`)
-      .send({ sourceId: 'missing-source', query: { isbn: '9789724426495' } })
+      .send({
+        sourceId: 'missing-source',
+        query: { type: 'isbn', isbn: '9789724426495' },
+      })
       .expect(404)
       .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
   });
@@ -138,7 +174,7 @@ describe('PORBASE import confirmation (e2e)', () => {
     await request(app.getHttpServer())
       .post('/catalogues/import')
       .set('Authorization', `Bearer ${login.body.accessToken as string}`)
-      .send({ sourceId: 'missing-source' })
+      .send({ ...validImport, sourceId: 'missing-source' })
       .expect(404)
       .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
   });
