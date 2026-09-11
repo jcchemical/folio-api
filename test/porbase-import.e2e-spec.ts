@@ -34,9 +34,13 @@ describe('Catalogue source operations (e2e)', () => {
       id: 'porbase',
       name: 'PORBASE',
       format: 'UNIMARC',
-      searchPreview: async () => ({ work: { title: 'E2E Preview' } }),
+      searchPreview: async () => ({
+        sourceId: 'porbase',
+        work: { title: 'E2E Preview' },
+      }),
       import: async (userId: string) => ({
         id: 'e2e-work',
+        sourceId: 'porbase',
         work: { title: `owned-by-${userId}` },
         edition: { title: 'E2E Edition' },
         contributors: [],
@@ -97,14 +101,20 @@ describe('Catalogue source operations (e2e)', () => {
       .set('Authorization', `Bearer ${login.body.accessToken as string}`)
       .send({ query: { type: 'isbn', isbn: '9789724426495' } })
       .expect(201)
-      .expect(({ body }) => expect(body.work.title).toBe('E2E Preview'));
+      .expect(({ body }) => {
+        expect(body.work.title).toBe('E2E Preview');
+        expect(body.sourceId).toBe('porbase');
+      });
 
     await request(app.getHttpServer())
       .post('/catalogues/import')
       .set('Authorization', `Bearer ${login.body.accessToken as string}`)
       .send(validImport)
       .expect(201)
-      .expect(({ body }) => expect(body.work.title).toBe('owned-by-e2e-user'));
+      .expect(({ body }) => {
+        expect(body.work.title).toBe('owned-by-e2e-user');
+        expect(body.sourceId).toBe('porbase');
+      });
   });
 
   it('rejects implicit, unknown, incomplete, and mismatched search queries', async () => {

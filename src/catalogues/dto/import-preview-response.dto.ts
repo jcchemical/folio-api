@@ -1,8 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { PorbaseWarningDto } from './porbase-search-response.dto.js';
-import { PorbasePhysicalDescriptionDto } from './porbase-search-response.dto.js';
-import { PorbasePublicationStatementDto } from './porbase-search-response.dto.js';
-import { PorbaseContributionDto } from './porbase-search-response.dto.js';
+import { PhysicalDescriptionDto } from '../../editions/dto/physical-description.dto.js';
+import { CataloguePublicationStatementDto } from './catalogue-publication-statement.dto.js';
+import { CatalogueContributionDto } from './catalogue-contribution.dto.js';
+import { CatalogueWarningDto } from './catalogue-warning.dto.js';
 
 export class ImportPreviewWorkDto {
   @ApiProperty({ example: 'Vida e andanças de Alexis Zorbás' })
@@ -40,11 +40,11 @@ export class ImportPreviewEditionDto {
   @ApiPropertyOptional({ example: 383, nullable: true })
   pageCount?: number | null;
 
-  @ApiProperty({ type: [PorbasePhysicalDescriptionDto], required: false })
-  physicalDescriptions?: PorbasePhysicalDescriptionDto[];
+  @ApiProperty({ type: [PhysicalDescriptionDto], required: false })
+  physicalDescriptions?: PhysicalDescriptionDto[];
 
-  @ApiProperty({ type: [PorbasePublicationStatementDto], required: false })
-  publicationStatements?: PorbasePublicationStatementDto[];
+  @ApiProperty({ type: [CataloguePublicationStatementDto], required: false })
+  publicationStatements?: CataloguePublicationStatementDto[];
 }
 
 export class ImportPreviewContributorDto {
@@ -84,6 +84,9 @@ export class ImportPreviewBibliographicRecordDto {
 }
 
 export class ImportPreviewResponseDto {
+  @ApiProperty({ example: 'porbase' })
+  sourceId!: string;
+
   @ApiProperty({ type: ImportPreviewWorkDto })
   work!: ImportPreviewWorkDto;
 
@@ -93,8 +96,8 @@ export class ImportPreviewResponseDto {
   @ApiProperty({ type: [ImportPreviewContributorDto] })
   contributors!: ImportPreviewContributorDto[];
 
-  @ApiProperty({ type: [PorbaseContributionDto] })
-  contributions!: PorbaseContributionDto[];
+  @ApiProperty({ type: [CatalogueContributionDto] })
+  contributions!: CatalogueContributionDto[];
 
   @ApiProperty({ type: [ImportPreviewExternalIdentifierDto] })
   externalIdentifiers!: ImportPreviewExternalIdentifierDto[];
@@ -102,6 +105,6 @@ export class ImportPreviewResponseDto {
   @ApiProperty({ type: ImportPreviewBibliographicRecordDto })
   bibliographicRecord!: ImportPreviewBibliographicRecordDto;
 
-  @ApiProperty({ type: [PorbaseWarningDto], example: [] })
-  warnings!: PorbaseWarningDto[];
+  @ApiProperty({ type: [CatalogueWarningDto], example: [] })
+  warnings!: CatalogueWarningDto[];
 }

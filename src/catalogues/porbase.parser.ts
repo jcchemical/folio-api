@@ -3,11 +3,13 @@ import {
   PorbaseBibliographicFieldsDto,
   PorbaseDetectedFormat,
   PorbaseSearchResponseDto,
-  PorbaseWarningDto,
-  PorbaseWarningCode,
-  PorbaseWarningType,
-  PorbasePublicationStatementDto,
 } from './dto/porbase-search-response.dto.js';
+import {
+  CatalogueWarningDto,
+  CatalogueWarningCode,
+  CatalogueWarningType,
+} from './dto/catalogue-warning.dto.js';
+import type { CataloguePublicationStatementDto } from './dto/catalogue-publication-statement.dto.js';
 import { PorbaseXmlError } from './catalogues.types.js';
 import { isValidBibliographicDate } from '../common/bibliographic-date.js';
 
@@ -28,7 +30,14 @@ export function parsePorbaseResponse(
 
   if (!trimmed) {
     return buildResponse(query, rawContent, 'UNKNOWN', false, {
-      warnings: [warning('PORBASE returned an empty response.', 'provider_error', undefined, 'PORBASE_EMPTY_RESPONSE')],
+      warnings: [
+        warning(
+          'PORBASE returned an empty response.',
+          'provider_error',
+          undefined,
+          'PORBASE_EMPTY_RESPONSE',
+        ),
+      ],
     });
   }
 
@@ -74,7 +83,14 @@ export function notFoundResponse(
       : 'UNKNOWN';
 
   return buildResponse(query, rawContent, detectedFormat, false, {
-    warnings: [warning('No PORBASE record was found.', 'provider_error', undefined, 'PORBASE_RECORD_NOT_FOUND')],
+    warnings: [
+      warning(
+        'No PORBASE record was found.',
+        'provider_error',
+        undefined,
+        'PORBASE_RECORD_NOT_FOUND',
+      ),
+    ],
   });
 }
 
@@ -101,7 +117,7 @@ function parseXmlResponse(
     throw new PorbaseXmlError('PORBASE XML did not contain a MARC record');
   }
 
-  const warnings: PorbaseWarningDto[] = [];
+  const warnings: CatalogueWarningDto[] = [];
   const metadata = extractXmlMetadata(record, warnings);
   return buildResponse(query, rawContent, 'MARCXCHANGE_XML', true, {
     format: textValue(record['@_format']) ?? 'Unimarc',
@@ -115,7 +131,7 @@ function parseMarcTextResponse(
   query: string,
   rawContent: string,
 ): PorbaseSearchResponseDto {
-  const warnings: PorbaseWarningDto[] = [];
+  const warnings: CatalogueWarningDto[] = [];
   const fields = parseMarcTextFields(rawContent, warnings);
   const metadata = extractTextMetadata(fields, warnings);
 
@@ -136,7 +152,7 @@ interface TextField {
 
 function parseMarcTextFields(
   rawContent: string,
-  warnings: PorbaseWarningDto[],
+  warnings: CatalogueWarningDto[],
 ): TextField[] {
   const fields: TextField[] = [];
   for (const [index, line] of rawContent.split(/\r?\n/).entries()) {
@@ -185,7 +201,7 @@ function parseMarcTextFields(
 
 function extractTextMetadata(
   fields: TextField[],
-  warnings: PorbaseWarningDto[],
+  warnings: CatalogueWarningDto[],
 ): PorbaseBibliographicFieldsDto {
   const metadata: PorbaseBibliographicFieldsDto = {
     authors: [],
@@ -206,7 +222,10 @@ function extractTextMetadata(
   );
   metadata.extent = firstSubfieldValue(fields, '215', 'a');
   metadata.physicalDescriptions = extractTextPhysicalDescriptions(fields);
-  metadata.publicationStatements = extractTextPublicationStatements(fields, warnings);
+  metadata.publicationStatements = extractTextPublicationStatements(
+    fields,
+    warnings,
+  );
 
   const authorFields = fields.filter((field) =>
     ['700', '701'].includes(field.tag),
@@ -283,7 +302,7 @@ function extractTextMetadata(
 
 function extractXmlMetadata(
   record: XmlObject,
-  warnings: PorbaseWarningDto[],
+  warnings: CatalogueWarningDto[],
 ): PorbaseBibliographicFieldsDto {
   const metadata: PorbaseBibliographicFieldsDto = {
     authors: [],
@@ -304,7 +323,10 @@ function extractXmlMetadata(
   );
   metadata.extent = firstSubfield(record, '215', 'a');
   metadata.physicalDescriptions = extractXmlPhysicalDescriptions(record);
-  metadata.publicationStatements = extractXmlPublicationStatements(record, warnings);
+  metadata.publicationStatements = extractXmlPublicationStatements(
+    record,
+    warnings,
+  );
 
   metadata.authors = ['700', '701']
     .flatMap((tag) => datafields(record, tag).map(contributorNameFromXml))
@@ -342,7 +364,7 @@ function buildResponse(
     format?: string;
     schema?: string;
     metadata?: PorbaseBibliographicFieldsDto;
-    warnings: PorbaseWarningDto[];
+    warnings: CatalogueWarningDto[];
   },
 ): PorbaseSearchResponseDto {
   const metadata = options.metadata ?? emptyMetadata();
@@ -362,7 +384,7 @@ function buildResponse(
 
 function normalizePublicationDate(
   value: string | undefined,
-  warnings: PorbaseWarningDto[],
+  warnings: CatalogueWarningDto[],
 ): string | null | undefined {
   if (!value) return undefined;
 
@@ -395,20 +417,25 @@ function normalizePublicationDate(
 
 function warning(
   message: string,
-  type: PorbaseWarningType,
+  type: CatalogueWarningType,
   field?: string,
-  codeOverride?: PorbaseWarningCode,
-): PorbaseWarningDto {
+  codeOverride?: CatalogueWarningCode,
+): CatalogueWarningDto {
   return { code: codeOverride ?? warningCode(type), field, message, type };
 }
 
-function warningCode(type: PorbaseWarningType): PorbaseWarningCode {
+function warningCode(type: CatalogueWarningType): CatalogueWarningCode {
   switch (type) {
-    case 'normalization': return 'PORBASE_NORMALIZATION';
-    case 'missing_field': return 'PORBASE_MISSING_FIELD';
-    case 'provider_error': return 'PORBASE_PROVIDER_ERROR';
-    case 'parse_warning': return 'PORBASE_PARSE_WARNING';
-    case 'parse_error': return 'PORBASE_PARSE_ERROR';
+    case 'normalization':
+      return 'PORBASE_NORMALIZATION';
+    case 'missing_field':
+      return 'PORBASE_MISSING_FIELD';
+    case 'provider_error':
+      return 'PORBASE_PROVIDER_ERROR';
+    case 'parse_warning':
+      return 'PORBASE_PARSE_WARNING';
+    case 'parse_error':
+      return 'PORBASE_PARSE_ERROR';
   }
 }
 
@@ -422,9 +449,7 @@ function emptyMetadata(): PorbaseBibliographicFieldsDto {
   };
 }
 
-function extractTextPhysicalDescriptions(
-  fields: TextField[],
-): Array<{
+function extractTextPhysicalDescriptions(fields: TextField[]): Array<{
   sortOrder: number;
   source: string;
   parts: Array<{
@@ -456,9 +481,7 @@ function extractTextPhysicalDescriptions(
   return descriptions;
 }
 
-function extractXmlPhysicalDescriptions(
-  record: XmlObject,
-): Array<{
+function extractXmlPhysicalDescriptions(record: XmlObject): Array<{
   sortOrder: number;
   source: string;
   parts: Array<{
@@ -496,36 +519,93 @@ function extractXmlPhysicalDescriptions(
   return descriptions;
 }
 
-function extractTextPublicationStatements(fields: TextField[], warnings: PorbaseWarningDto[]): PorbasePublicationStatementDto[] {
-  return fields.filter(({ tag }) => tag === '210').map((field, sortOrder) => ({
-    sortOrder, indicator1: ' ', indicator2: '9', source: 'PORBASE',
+function extractTextPublicationStatements(
+  fields: TextField[],
+  warnings: CatalogueWarningDto[],
+): CataloguePublicationStatementDto[] {
+  return fields
+    .filter(({ tag }) => tag === '210')
+    .map((field, sortOrder) => ({
+      sortOrder,
+      indicator1: ' ',
+      indicator2: '9',
+      source: 'PORBASE',
       parts: field.orderedSubfields.map(({ code, value }, partOrder) => ({
-      subfield: code, value, sortOrder: partOrder,
-      normalizedValue: code === 'd' ? normalizePublicationDateForPart(value, warnings) : null,
-    })),
-  })).filter(({ parts }) => parts.length > 0);
+        subfield: code,
+        value,
+        sortOrder: partOrder,
+        normalizedValue:
+          code === 'd'
+            ? normalizePublicationDateForPart(value, warnings)
+            : null,
+      })),
+    }))
+    .filter(({ parts }) => parts.length > 0);
 }
 
-function extractXmlPublicationStatements(record: XmlObject, warnings: PorbaseWarningDto[]): PorbasePublicationStatementDto[] {
-  return datafields(record, '210').map((field, sortOrder) => ({
-    sortOrder, indicator1: marcIndicator(findText(field['@_ind1'])), indicator2: marcIndicator(findText(field['@_ind2']), '9'), source: 'PORBASE',
-    parts: asArray(field.subfield).map((subfield, partOrder) => {
-      const code = textValue(subfield['@_code'])?.toLowerCase() ?? '';
-      const value = findText(subfield)?.trim() ?? '';
-      return { subfield: code, value, sortOrder: partOrder, normalizedValue: code === 'd' ? normalizePublicationDateForPart(value, warnings) : null };
-    }).filter(({ subfield, value }) => /^[a-z0-9]$/.test(subfield) && value.length > 0),
-  })).filter(({ parts }) => parts.length > 0);
+function extractXmlPublicationStatements(
+  record: XmlObject,
+  warnings: CatalogueWarningDto[],
+): CataloguePublicationStatementDto[] {
+  return datafields(record, '210')
+    .map((field, sortOrder) => ({
+      sortOrder,
+      indicator1: marcIndicator(findText(field['@_ind1'])),
+      indicator2: marcIndicator(findText(field['@_ind2']), '9'),
+      source: 'PORBASE',
+      parts: asArray(field.subfield)
+        .map((subfield, partOrder) => {
+          const code = textValue(subfield['@_code'])?.toLowerCase() ?? '';
+          const value = findText(subfield)?.trim() ?? '';
+          return {
+            subfield: code,
+            value,
+            sortOrder: partOrder,
+            normalizedValue:
+              code === 'd'
+                ? normalizePublicationDateForPart(value, warnings)
+                : null,
+          };
+        })
+        .filter(
+          ({ subfield, value }) =>
+            /^[a-z0-9]$/.test(subfield) && value.length > 0,
+        ),
+    }))
+    .filter(({ parts }) => parts.length > 0);
 }
 
-function normalizePublicationDateForPart(value: string, warnings: PorbaseWarningDto[]): string | null {
+function normalizePublicationDateForPart(
+  value: string,
+  warnings: CatalogueWarningDto[],
+): string | null {
   const original = value.trim();
-  const match = /^(?:D\.?\s*L\.?\s*)?(\d{4})(?:-(\d{2})(?:-(\d{2}))?)[.?]?$|^(?:D\.?\s*L\.?\s*)?(\d{4})[.?]?$/.exec(original);
+  const match =
+    /^(?:D\.?\s*L\.?\s*)?(\d{4})(?:-(\d{2})(?:-(\d{2}))?)[.?]?$|^(?:D\.?\s*L\.?\s*)?(\d{4})[.?]?$/.exec(
+      original,
+    );
   if (!match) {
-    warnings.push({ code: 'PORBASE_PARSE_ERROR', field: 'edition.publicationStatements.210$d', message: `Não foi possível extrair data de '${original}'`, original, type: 'parse_error' });
+    warnings.push({
+      code: 'PORBASE_PARSE_ERROR',
+      field: 'edition.publicationStatements.210$d',
+      message: `Não foi possível extrair data de '${original}'`,
+      original,
+      type: 'parse_error',
+    });
     return null;
   }
-  const normalized = [match[1] ?? match[4], match[2], match[3]].filter(Boolean).join('-');
-  if (original !== normalized) warnings.push({ code: 'PORBASE_NORMALIZATION', field: 'edition.publicationStatements.210$d', message: `Data normalizada de '${original}' para '${normalized}'`, original, normalized, type: 'normalization' });
+  const normalized = [match[1] ?? match[4], match[2], match[3]]
+    .filter(Boolean)
+    .join('-');
+  if (original !== normalized)
+    warnings.push({
+      code: 'PORBASE_NORMALIZATION',
+      field: 'edition.publicationStatements.210$d',
+      message: `Data normalizada de '${original}' para '${normalized}'`,
+      original,
+      normalized,
+      type: 'normalization',
+    });
   return isValidBibliographicDate(normalized) ? normalized : null;
 }
 
@@ -586,39 +666,100 @@ function roleLabel(tag: string, codes: string[]): string | undefined {
   return codes.includes('730') ? 'translator' : undefined;
 }
 
-function contributionDisplayName(parts: Array<{ code: string; value: string }>): string | undefined {
+function contributionDisplayName(
+  parts: Array<{ code: string; value: string }>,
+): string | undefined {
   const family = parts.find(({ code }) => code === 'a')?.value;
   const given = parts.find(({ code }) => code === 'b')?.value;
   return family ? (given ? `${family}, ${given}` : family) : undefined;
 }
 
-function marcIndicator(value: string | null | undefined, fallback = ' '): string {
+function marcIndicator(
+  value: string | null | undefined,
+  fallback = ' ',
+): string {
   return value == null || value === '' ? fallback : value;
 }
 
-function extractTextContributions(fields: TextField[]): NonNullable<PorbaseBibliographicFieldsDto['contributions']> {
-  return fields.filter(({ tag }) => ['700', '701', '702'].includes(tag)).flatMap((field) => {
-    const sourceParts = field.orderedSubfields
-      .filter(({ code, value }) => /^[a-z0-9]$/i.test(code) && Boolean(value.trim()))
-      .map(({ code, value }, sortOrder) => ({ code: code.toLowerCase(), value, sortOrder }));
-    const displayName = contributionDisplayName(sourceParts);
-    if (!displayName) return [];
-    const codes = sourceParts.filter(({ code }) => code === '4').map(({ value }) => value);
-    return [{ targetScope: 'WORK' as const, kind: 'PERSON' as const, displayName, roleLabel: roleLabel(field.tag, codes), relationshipCodeScheme: sourceParts.find(({ code }) => code === '2')?.value, sourceTag: field.tag as '700' | '701' | '702', indicator1: ' ', indicator2: ' ', sourceParts, sortOrder: 0 }];
-  }).map((contribution, sortOrder) => ({ ...contribution, sortOrder }));
+function extractTextContributions(
+  fields: TextField[],
+): NonNullable<PorbaseBibliographicFieldsDto['contributions']> {
+  return fields
+    .filter(({ tag }) => ['700', '701', '702'].includes(tag))
+    .flatMap((field) => {
+      const sourceParts = field.orderedSubfields
+        .filter(
+          ({ code, value }) =>
+            /^[a-z0-9]$/i.test(code) && Boolean(value.trim()),
+        )
+        .map(({ code, value }, sortOrder) => ({
+          code: code.toLowerCase(),
+          value,
+          sortOrder,
+        }));
+      const displayName = contributionDisplayName(sourceParts);
+      if (!displayName) return [];
+      const codes = sourceParts
+        .filter(({ code }) => code === '4')
+        .map(({ value }) => value);
+      return [
+        {
+          targetScope: 'WORK' as const,
+          kind: 'PERSON' as const,
+          displayName,
+          roleLabel: roleLabel(field.tag, codes),
+          relationshipCodeScheme: sourceParts.find(({ code }) => code === '2')
+            ?.value,
+          sourceTag: field.tag as '700' | '701' | '702',
+          indicator1: ' ',
+          indicator2: ' ',
+          sourceParts,
+          sortOrder: 0,
+        },
+      ];
+    })
+    .map((contribution, sortOrder) => ({ ...contribution, sortOrder }));
 }
 
-function extractXmlContributions(record: XmlObject): NonNullable<PorbaseBibliographicFieldsDto['contributions']> {
-  return ['700', '701', '702'].flatMap((tag) => datafields(record, tag).map((field) => {
-    const sourceParts = asArray(field.subfield)
-      .map((subfield) => ({ code: textValue(subfield['@_code'])?.toLowerCase() ?? '', value: findText(subfield)?.trim() ?? '' }))
-      .filter(({ code, value }) => /^[a-z0-9]$/.test(code) && Boolean(value))
-      .map((part, sortOrder) => ({ ...part, sortOrder }));
-    const displayName = contributionDisplayName(sourceParts);
-    if (!displayName || !sourceParts.length) return undefined;
-    const codes = sourceParts.filter(({ code }) => code === '4').map(({ value }) => value);
-    return { targetScope: 'WORK' as const, kind: 'PERSON' as const, displayName, roleLabel: roleLabel(tag, codes), relationshipCodeScheme: sourceParts.find(({ code }) => code === '2')?.value, sourceTag: tag as '700' | '701' | '702', indicator1: marcIndicator(findText(field['@_ind1'])), indicator2: marcIndicator(findText(field['@_ind2'])), sourceParts, sortOrder: 0 };
-  })).filter((contribution): contribution is NonNullable<typeof contribution> => Boolean(contribution)).map((contribution, sortOrder) => ({ ...contribution, sortOrder }));
+function extractXmlContributions(
+  record: XmlObject,
+): NonNullable<PorbaseBibliographicFieldsDto['contributions']> {
+  return ['700', '701', '702']
+    .flatMap((tag) =>
+      datafields(record, tag).map((field) => {
+        const sourceParts = asArray(field.subfield)
+          .map((subfield) => ({
+            code: textValue(subfield['@_code'])?.toLowerCase() ?? '',
+            value: findText(subfield)?.trim() ?? '',
+          }))
+          .filter(
+            ({ code, value }) => /^[a-z0-9]$/.test(code) && Boolean(value),
+          )
+          .map((part, sortOrder) => ({ ...part, sortOrder }));
+        const displayName = contributionDisplayName(sourceParts);
+        if (!displayName || !sourceParts.length) return undefined;
+        const codes = sourceParts
+          .filter(({ code }) => code === '4')
+          .map(({ value }) => value);
+        return {
+          targetScope: 'WORK' as const,
+          kind: 'PERSON' as const,
+          displayName,
+          roleLabel: roleLabel(tag, codes),
+          relationshipCodeScheme: sourceParts.find(({ code }) => code === '2')
+            ?.value,
+          sourceTag: tag as '700' | '701' | '702',
+          indicator1: marcIndicator(findText(field['@_ind1'])),
+          indicator2: marcIndicator(findText(field['@_ind2'])),
+          sourceParts,
+          sortOrder: 0,
+        };
+      }),
+    )
+    .filter((contribution): contribution is NonNullable<typeof contribution> =>
+      Boolean(contribution),
+    )
+    .map((contribution, sortOrder) => ({ ...contribution, sortOrder }));
 }
 
 function extractTranslatorName(value: string): string | undefined {

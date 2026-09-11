@@ -559,6 +559,22 @@ preview no servidor e um `recordId` isolado não pode contornar a confirmação
 explícita. As rotas PORBASE específicas foram removidas para evitar superfície
 de API duplicada.
 
+Ambas as respostas (`POST /catalogues/search` e `POST /catalogues/import`)
+incluem `sourceId` com o `id` do provider que produziu o resultado (`porbase`
+actualmente), para que o cliente saiba sempre a proveniência sem inferir a
+partir de `bibliographicRecord.source`. O `sourceId` é anexado pelo provider,
+não pelo serviço de persistência ou de preview, para manter esses serviços
+agnósticos da identidade do provider.
+
+Os DTOs que atravessam a fronteira genérica (`CatalogueImportDto`,
+`CatalogueImportResponseDto`, `CatalogueContributionDto`, `CatalogueWarningDto`,
+`ImportPreviewResponseDto` e afins) usam nomes de domínio genéricos, não
+`Porbase*`. Os tipos `Porbase*` que permanecem (`PorbaseSearchResponseDto`,
+`PorbaseBibliographicFieldsDto`, `PorbaseAdapter`, `PorbaseCatalogueProvider`,
+`PorbaseImportService`, `porbase.parser.ts`) são deliberadamente internos ao
+adapter PORBASE: fazem parsing e persistência específicos deste provider e
+nunca são expostos directamente como o contrato de `CatalogueProvider`.
+
 `Organization.defaultCatalogueSource` é nullable e recebe `porbase` por
 defeito; `Organization.enabledCatalogueSources` recebe `['porbase']`. A
 configuração é exposta nas respostas de organizações para permitir futura

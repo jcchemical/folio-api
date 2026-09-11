@@ -1,13 +1,15 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import type {
-  CataloguePreview,
   CatalogueProvider,
   CatalogueSearchQuery,
-  ImportedCatalogueRecord,
+  CatalogueSearchResult,
   MarcFormat,
   SearchType,
 } from '../catalogue-provider.js';
-import type { PorbaseImportDto } from '../dto/porbase-import.dto.js';
+import type {
+  CatalogueImportDto,
+  CatalogueImportResponseDto,
+} from '../dto/catalogue-import.dto.js';
 import { ImportPreviewService } from '../import-preview.service.js';
 import { PorbaseImportService } from '../porbase-import.service.js';
 import { ApiException, API_ERROR_CODES } from '../../common/api-errors.js';
@@ -23,10 +25,16 @@ export class PorbaseCatalogueProvider implements CatalogueProvider {
     private readonly porbaseImportService: PorbaseImportService,
   ) {}
 
-  async searchPreview(query: CatalogueSearchQuery): Promise<CataloguePreview> {
+  async searchPreview(
+    query: CatalogueSearchQuery,
+  ): Promise<CatalogueSearchResult> {
     switch (query.type) {
-      case 'isbn':
-        return this.importPreviewService.createPreview(query.isbn);
+      case 'isbn': {
+        const result = await this.importPreviewService.createPreview(
+          query.isbn,
+        );
+        return { ...result, sourceId: this.id };
+      }
       case 'title':
       case 'author':
       case 'keyword':
@@ -38,11 +46,12 @@ export class PorbaseCatalogueProvider implements CatalogueProvider {
     }
   }
 
-  import(
+  async import(
     userId: string,
-    input: PorbaseImportDto,
-  ): Promise<ImportedCatalogueRecord> {
-    return this.porbaseImportService.import(userId, input);
+    input: CatalogueImportDto,
+  ): Promise<CatalogueImportResponseDto> {
+    const result = await this.porbaseImportService.import(userId, input);
+    return { ...result, sourceId: this.id };
   }
 
   supportsSearchType(type: SearchType): boolean {

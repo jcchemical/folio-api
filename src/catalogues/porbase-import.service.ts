@@ -7,15 +7,18 @@ import {
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { isValidIsbn, normalizeIsbn } from './isbn.utils.js';
 import type {
-  PorbaseImportContributorDto,
-  PorbaseImportDto,
-  PorbaseImportResponseDto,
-} from './dto/porbase-import.dto.js';
+  CatalogueImportContributorDto,
+  CatalogueImportDto,
+  CatalogueImportResponseDto,
+} from './dto/catalogue-import.dto.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
 import { OrganizationRole } from '@prisma/client';
 import { ContributionsService } from '../contributions/contributions.service.js';
-import { derivePublicationProjection, normalizePublicationDateLiteral } from '../editions/dto/publication-statement.dto.js';
+import {
+  derivePublicationProjection,
+  normalizePublicationDateLiteral,
+} from '../editions/dto/publication-statement.dto.js';
 
 type TransactionClient = Omit<
   PrismaClient,
@@ -32,23 +35,27 @@ export class PorbaseImportService {
 
   async import(
     userId: string,
-    input: PorbaseImportDto,
-  ): Promise<PorbaseImportResponseDto> {
+    input: CatalogueImportDto,
+  ): Promise<Omit<CatalogueImportResponseDto, 'sourceId'>> {
     const isbn10 = normalizeOptionalIsbn(input.edition.isbn10);
     const isbn13 = normalizeOptionalIsbn(input.edition.isbn13);
     this.validateIsbn(isbn10, 'edition.isbn10');
     this.validateIsbn(isbn13, 'edition.isbn13');
     const organization = input.work.organizationId
-      ? await this.organizationMemberships.assertRole(
-          userId,
-          input.work.organizationId,
-          OrganizationRole.STAFF,
-        ).then((membership) => membership.organization)
+      ? await this.organizationMemberships
+          .assertRole(userId, input.work.organizationId, OrganizationRole.STAFF)
+          .then((membership) => membership.organization)
       : await this.organizationMemberships.getDefaultOrganization(userId);
-    if (!organization) throw new NotFoundException('Personal organization not found');
+    if (!organization)
+      throw new NotFoundException('Personal organization not found');
 
     return this.prisma.$transaction(async (transaction) => {
-      await this.assertNoDuplicateEdition(transaction, organization.id, isbn10, isbn13);
+      await this.assertNoDuplicateEdition(
+        transaction,
+        organization.id,
+        isbn10,
+        isbn13,
+      );
 
       const work = await transaction.work.create({
         data: {
@@ -59,18 +66,28 @@ export class PorbaseImportService {
       });
 
       const projection = input.edition.publicationStatements?.length
-        ? derivePublicationProjection({ statements: input.edition.publicationStatements })
+        ? derivePublicationProjection({
+            statements: input.edition.publicationStatements,
+          })
         : null;
-      const hasPublicationStatements = Boolean(input.edition.publicationStatements?.length);
+      const hasPublicationStatements = Boolean(
+        input.edition.publicationStatements?.length,
+      );
       const edition = await transaction.edition.create({
         data: {
           title: input.edition.title,
           subtitle: input.edition.subtitle ?? null,
           isbn10,
           isbn13,
-          publisher: hasPublicationStatements ? projection?.publisher ?? null : input.edition.publisher ?? null,
-          publicationDate: hasPublicationStatements ? projection?.publicationDate ?? null : input.edition.publicationDate ?? null,
-          publicationPlace: hasPublicationStatements ? projection?.publicationPlace ?? null : null,
+          publisher: hasPublicationStatements
+            ? (projection?.publisher ?? null)
+            : (input.edition.publisher ?? null),
+          publicationDate: hasPublicationStatements
+            ? (projection?.publicationDate ?? null)
+            : (input.edition.publicationDate ?? null),
+          publicationPlace: hasPublicationStatements
+            ? (projection?.publicationPlace ?? null)
+            : null,
           language: input.edition.language ?? null,
           country: input.edition.country ?? null,
           format: input.edition.format ?? null,
@@ -78,38 +95,62 @@ export class PorbaseImportService {
           workId: work.id,
           physicalDescriptions: input.edition.physicalDescriptions?.length
             ? {
-                create: input.edition.physicalDescriptions.map((description) => ({
-                  sortOrder: description.sortOrder,
-                  source: description.source ?? null,
-                  parts: {
-                    create: description.parts.map((part) => ({
-                      subfield: part.subfield.toLowerCase(),
-                      value: part.value.trim(),
-                      sortOrder: part.sortOrder,
-                      normalizedValue: null,
-                    })),
-                  },
-                })),
+                create: input.edition.physicalDescriptions.map(
+                  (description) => ({
+                    sortOrder: description.sortOrder,
+                    source: description.source ?? null,
+                    parts: {
+                      create: description.parts.map((part) => ({
+                        subfield: part.subfield.toLowerCase(),
+                        value: part.value.trim(),
+                        sortOrder: part.sortOrder,
+                        normalizedValue: null,
+                      })),
+                    },
+                  }),
+                ),
               }
             : undefined,
           publicationStatements: input.edition.publicationStatements?.length
-            ? { create: input.edition.publicationStatements.map((statement) => ({
-                sortOrder: statement.sortOrder,
-                indicator1: statement.indicator1 ?? ' ',
-                indicator2: statement.indicator2 ?? '9',
-                source: 'PORBASE',
-                parts: { create: statement.parts.map((part) => ({
-                  subfield: part.subfield.toLowerCase(), value: part.value.trim(), sortOrder: part.sortOrder, normalizedValue: part.subfield.toLowerCase() === 'd' ? normalizePublicationDateLiteral(part.value.trim()) : null,
-                })) },
-              })) }
+            ? {
+                create: input.edition.publicationStatements.map(
+                  (statement) => ({
+                    sortOrder: statement.sortOrder,
+                    indicator1: statement.indicator1 ?? ' ',
+                    indicator2: statement.indicator2 ?? '9',
+                    source: 'PORBASE',
+                    parts: {
+                      create: statement.parts.map((part) => ({
+                        subfield: part.subfield.toLowerCase(),
+                        value: part.value.trim(),
+                        sortOrder: part.sortOrder,
+                        normalizedValue:
+                          part.subfield.toLowerCase() === 'd'
+                            ? normalizePublicationDateLiteral(part.value.trim())
+                            : null,
+                      })),
+                    },
+                  }),
+                ),
+              }
             : undefined,
-          } as Prisma.EditionCreateArgs['data'],
+        } as Prisma.EditionCreateArgs['data'],
       });
 
       if (input.contributions?.length) {
-        await this.contributionsService.persistPorbase(transaction, userId, work.id, input.contributions);
+        await this.contributionsService.persistPorbase(
+          transaction,
+          userId,
+          work.id,
+          input.contributions,
+        );
       } else {
-        await this.persistContributors(transaction, work.id, edition.id, input.contributors);
+        await this.persistContributors(
+          transaction,
+          work.id,
+          edition.id,
+          input.contributors,
+        );
       }
 
       await this.persistExternalIdentifiers(
@@ -158,14 +199,30 @@ export class PorbaseImportService {
               },
               publicationStatements: {
                 orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-                include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+                include: {
+                  parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+                },
               },
               editionContributors: { include: { contributor: true } },
-              contributions: { include: { agent: true, sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+              contributions: {
+                include: {
+                  agent: true,
+                  sourceParts: {
+                    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+                  },
+                },
+                orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+              },
             },
           },
           workContributors: { include: { contributor: true } },
-          contributions: { include: { agent: true, sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+          contributions: {
+            include: {
+              agent: true,
+              sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+            },
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          },
           bibliographicRecords: true,
         },
       });
@@ -189,14 +246,20 @@ export class PorbaseImportService {
         scope: 'WORK' as const,
         sortOrder: relation.sortOrder,
       }));
-      const canonicalEditionContributors = (persistedEdition.contributions ?? [])
-        .map(toLegacyContributor);
-      const canonicalWorkContributors = (persisted.contributions ?? [])
-        .map(toLegacyContributor);
+      const canonicalEditionContributors = (
+        persistedEdition.contributions ?? []
+      ).map(toLegacyContributor);
+      const canonicalWorkContributors = (persisted.contributions ?? []).map(
+        toLegacyContributor,
+      );
       const responseEdition = {
         ...persistedEdition,
-        contributors: canonicalEditionContributors.length ? canonicalEditionContributors : editionContributors,
-        contributions: (persistedEdition.contributions ?? []).map(toPersistedContribution),
+        contributors: canonicalEditionContributors.length
+          ? canonicalEditionContributors
+          : editionContributors,
+        contributions: (persistedEdition.contributions ?? []).map(
+          toPersistedContribution,
+        ),
       };
 
       return {
@@ -207,28 +270,45 @@ export class PorbaseImportService {
           subtitle: persisted.subtitle,
           organization: persisted.organization,
           editions: [responseEdition],
-          contributors: canonicalWorkContributors.length ? canonicalWorkContributors : workContributors,
-          contributions: (persisted.contributions ?? []).map(toPersistedContribution),
+          contributors: canonicalWorkContributors.length
+            ? canonicalWorkContributors
+            : workContributors,
+          contributions: (persisted.contributions ?? []).map(
+            toPersistedContribution,
+          ),
           bibliographicRecords: persisted.bibliographicRecords,
         },
         edition: responseEdition,
         contributors: [
-          ...(canonicalWorkContributors.length ? canonicalWorkContributors : workContributors),
-          ...(canonicalEditionContributors.length ? canonicalEditionContributors : editionContributors),
+          ...(canonicalWorkContributors.length
+            ? canonicalWorkContributors
+            : workContributors),
+          ...(canonicalEditionContributors.length
+            ? canonicalEditionContributors
+            : editionContributors),
         ],
-        contributions: [...(persisted.contributions ?? []).map(toPersistedContribution), ...(persistedEdition.contributions ?? []).map(toPersistedContribution)],
+        contributions: [
+          ...(persisted.contributions ?? []).map(toPersistedContribution),
+          ...(persistedEdition.contributions ?? []).map(
+            toPersistedContribution,
+          ),
+        ],
         externalIdentifiers: responseEdition.externalIdentifiers,
         bibliographicRecord,
         item,
-        warnings: projection?.warnings.map((warning) => ({
-          code: warning.code,
-          field: warning.field,
-          message: warning.message,
-          original: warning.original,
-          normalized: warning.normalized,
-          type: warning.type === 'validation_warning' ? 'parse_warning' : warning.type,
-        })) ?? [],
-      } satisfies PorbaseImportResponseDto;
+        warnings:
+          projection?.warnings.map((warning) => ({
+            code: warning.code,
+            field: warning.field,
+            message: warning.message,
+            original: warning.original,
+            normalized: warning.normalized,
+            type:
+              warning.type === 'validation_warning'
+                ? 'parse_warning'
+                : warning.type,
+          })) ?? [],
+      } satisfies Omit<CatalogueImportResponseDto, 'sourceId'>;
     });
   }
 
@@ -259,7 +339,7 @@ export class PorbaseImportService {
     transaction: TransactionClient,
     workId: string,
     editionId: string,
-    inputs: PorbaseImportContributorDto[],
+    inputs: CatalogueImportContributorDto[],
   ) {
     const persisted: Array<{
       id: string;
@@ -317,7 +397,7 @@ export class PorbaseImportService {
     transaction: TransactionClient,
     editionId: string,
     organizationId: string,
-    inputs: PorbaseImportDto['externalIdentifiers'],
+    inputs: CatalogueImportDto['externalIdentifiers'],
   ): Promise<void> {
     for (const input of inputs) {
       try {
@@ -348,22 +428,54 @@ export class PorbaseImportService {
   }
 }
 
-function toPersistedContribution(contribution: { id: string; sortOrder: number; source: string; roleLabel: string | null; relationshipCodeScheme: string | null; sourceTag: string | null; indicator1: string | null; indicator2: string | null; workId: string | null; agent: { displayName: string; kind: string }; sourceParts: Array<{ code: string; value: string; sortOrder: number }> }) {
-  return { id: contribution.id, displayName: contribution.agent.displayName, kind: contribution.agent.kind, scope: contribution.workId ? 'WORK' as const : 'EDITION' as const, sortOrder: contribution.sortOrder, source: contribution.source, roleLabel: contribution.roleLabel, relationshipCodeScheme: contribution.relationshipCodeScheme, sourceTag: contribution.sourceTag, indicator1: contribution.indicator1, indicator2: contribution.indicator2, sourceParts: contribution.sourceParts };
+function toPersistedContribution(contribution: {
+  id: string;
+  sortOrder: number;
+  source: string;
+  roleLabel: string | null;
+  relationshipCodeScheme: string | null;
+  sourceTag: string | null;
+  indicator1: string | null;
+  indicator2: string | null;
+  workId: string | null;
+  agent: { displayName: string; kind: string };
+  sourceParts: Array<{ code: string; value: string; sortOrder: number }>;
+}) {
+  return {
+    id: contribution.id,
+    displayName: contribution.agent.displayName,
+    kind: contribution.agent.kind,
+    scope: contribution.workId ? ('WORK' as const) : ('EDITION' as const),
+    sortOrder: contribution.sortOrder,
+    source: contribution.source,
+    roleLabel: contribution.roleLabel,
+    relationshipCodeScheme: contribution.relationshipCodeScheme,
+    sourceTag: contribution.sourceTag,
+    indicator1: contribution.indicator1,
+    indicator2: contribution.indicator2,
+    sourceParts: contribution.sourceParts,
+  };
 }
 
-function toLegacyContributor(contribution: { id: string; sortOrder: number; roleLabel: string | null; workId: string | null; agent: { displayName: string } }) {
+function toLegacyContributor(contribution: {
+  id: string;
+  sortOrder: number;
+  roleLabel: string | null;
+  workId: string | null;
+  agent: { displayName: string };
+}) {
   return {
     id: contribution.id,
     name: contribution.agent.displayName,
     role: contribution.roleLabel ?? 'unclassified',
-    scope: contribution.workId ? 'WORK' as const : 'EDITION' as const,
+    scope: contribution.workId ? ('WORK' as const) : ('EDITION' as const),
     sortOrder: contribution.sortOrder,
   };
 }
 
 function derivePageCount(
-  descriptions: PorbaseImportDto['edition']['physicalDescriptions'] | undefined,
+  descriptions:
+    CatalogueImportDto['edition']['physicalDescriptions'] | undefined,
 ): number | null {
   const candidates = (descriptions ?? [])
     .flatMap(({ parts }) => parts)

@@ -15,26 +15,37 @@ import { PhysicalDescriptionDto } from '../../editions/dto/physical-description.
 import { IsBibliographicDate } from '../../common/bibliographic-date.js';
 import { PublicationStatementDto } from '../../editions/dto/publication-statement.dto.js';
 
-export class PorbaseImportContributionSourcePartDto {
+export class CatalogueContributionSourcePartInputDto {
   @ApiProperty() @IsString() @IsNotEmpty() code!: string;
   @ApiProperty() @IsString() @IsNotEmpty() value!: string;
   @ApiProperty() @IsInt() @Min(0) sortOrder!: number;
 }
 
-export class PorbaseImportContributionDto {
+export class CatalogueContributionInputDto {
   @ApiProperty({ enum: ['WORK'] }) @IsIn(['WORK']) targetScope!: 'WORK';
-  @ApiProperty({ enum: ['PERSON', 'CORPORATE_BODY', 'UNKNOWN'] }) @IsIn(['PERSON', 'CORPORATE_BODY', 'UNKNOWN']) kind!: 'PERSON' | 'CORPORATE_BODY' | 'UNKNOWN';
+  @ApiProperty({ enum: ['PERSON', 'CORPORATE_BODY', 'UNKNOWN'] })
+  @IsIn(['PERSON', 'CORPORATE_BODY', 'UNKNOWN'])
+  kind!: 'PERSON' | 'CORPORATE_BODY' | 'UNKNOWN';
   @ApiProperty() @IsString() @IsNotEmpty() displayName!: string;
   @ApiPropertyOptional() @IsOptional() @IsString() roleLabel?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() relationshipCodeScheme?: string;
-  @ApiProperty({ enum: ['700', '701', '702'] }) @IsIn(['700', '701', '702']) sourceTag!: '700' | '701' | '702';
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  relationshipCodeScheme?: string;
+  @ApiProperty({ enum: ['700', '701', '702'] })
+  @IsIn(['700', '701', '702'])
+  sourceTag!: '700' | '701' | '702';
   @ApiProperty() @IsString() @IsNotEmpty() indicator1!: string;
   @ApiProperty() @IsString() @IsNotEmpty() indicator2!: string;
   @ApiProperty() @IsInt() @Min(0) sortOrder!: number;
-  @ApiProperty({ type: [PorbaseImportContributionSourcePartDto] }) @IsArray() @ValidateNested({ each: true }) @Type(() => PorbaseImportContributionSourcePartDto) sourceParts!: PorbaseImportContributionSourcePartDto[];
+  @ApiProperty({ type: [CatalogueContributionSourcePartInputDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CatalogueContributionSourcePartInputDto)
+  sourceParts!: CatalogueContributionSourcePartInputDto[];
 }
 
-export class PorbaseImportWorkDto {
+export class CatalogueImportWorkDto {
   @ApiProperty({ example: 'Vida e andanças de Alexis Zorbás' })
   @IsString()
   @IsNotEmpty()
@@ -51,7 +62,7 @@ export class PorbaseImportWorkDto {
   organizationId?: string | null;
 }
 
-export class PorbaseImportEditionDto {
+export class CatalogueImportEditionDto {
   @ApiProperty({ example: 'Vida e andanças de Alexis Zorbás' })
   @IsString()
   @IsNotEmpty()
@@ -113,7 +124,7 @@ export class PorbaseImportEditionDto {
   @ApiPropertyOptional({ nullable: true }) publicationPlace?: string | null;
 }
 
-export class PorbaseImportContributorDto {
+export class CatalogueImportContributorDto {
   @ApiProperty({ example: 'Nikos Kazantzakis' })
   @IsString()
   @IsNotEmpty()
@@ -135,7 +146,7 @@ export class PorbaseImportContributorDto {
   sortOrder?: number;
 }
 
-export class PorbaseImportExternalIdentifierDto {
+export class CatalogueImportExternalIdentifierDto {
   @ApiProperty({ example: 'ISBN-13' })
   @IsString()
   @IsNotEmpty()
@@ -152,7 +163,7 @@ export class PorbaseImportExternalIdentifierDto {
   source?: string | null;
 }
 
-export class PorbaseImportBibliographicRecordDto {
+export class CatalogueImportBibliographicRecordDto {
   @ApiProperty({ example: 'MARCXCHANGE' })
   @IsString()
   @IsNotEmpty()
@@ -179,7 +190,7 @@ export class PorbaseImportBibliographicRecordDto {
   rawContent!: string;
 }
 
-export class PorbaseImportItemDto {
+export class CatalogueImportItemDto {
   @ApiPropertyOptional({ example: null, nullable: true })
   @IsOptional()
   @IsString()
@@ -199,69 +210,74 @@ export class PorbaseImportItemDto {
   @IsOptional()
   @IsString()
   notes?: string | null;
-
 }
 
-export class PorbaseImportDto {
-  @ApiProperty({ type: PorbaseImportWorkDto })
+export class CatalogueImportDto {
+  @ApiPropertyOptional({ example: 'porbase' })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  sourceId?: string;
+
+  @ApiProperty({ type: CatalogueImportWorkDto })
   @IsDefined()
   @ValidateNested()
-  @Type(() => PorbaseImportWorkDto)
-  work!: PorbaseImportWorkDto;
+  @Type(() => CatalogueImportWorkDto)
+  work!: CatalogueImportWorkDto;
 
-  @ApiProperty({ type: PorbaseImportEditionDto })
+  @ApiProperty({ type: CatalogueImportEditionDto })
   @IsDefined()
   @ValidateNested()
-  @Type(() => PorbaseImportEditionDto)
-  edition!: PorbaseImportEditionDto;
+  @Type(() => CatalogueImportEditionDto)
+  edition!: CatalogueImportEditionDto;
 
-  @ApiProperty({ type: [PorbaseImportContributorDto] })
+  @ApiProperty({ type: [CatalogueImportContributorDto] })
   @IsDefined()
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => PorbaseImportContributorDto)
-  contributors!: PorbaseImportContributorDto[];
+  @Type(() => CatalogueImportContributorDto)
+  contributors!: CatalogueImportContributorDto[];
 
-  @ApiPropertyOptional({ type: [PorbaseImportContributionDto] })
+  @ApiPropertyOptional({ type: [CatalogueContributionInputDto] })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => PorbaseImportContributionDto)
-  contributions?: PorbaseImportContributionDto[];
+  @Type(() => CatalogueContributionInputDto)
+  contributions?: CatalogueContributionInputDto[];
 
-  @ApiProperty({ type: [PorbaseImportExternalIdentifierDto] })
+  @ApiProperty({ type: [CatalogueImportExternalIdentifierDto] })
   @IsDefined()
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => PorbaseImportExternalIdentifierDto)
-  externalIdentifiers!: PorbaseImportExternalIdentifierDto[];
+  @Type(() => CatalogueImportExternalIdentifierDto)
+  externalIdentifiers!: CatalogueImportExternalIdentifierDto[];
 
-  @ApiProperty({ type: PorbaseImportBibliographicRecordDto })
+  @ApiProperty({ type: CatalogueImportBibliographicRecordDto })
   @IsDefined()
   @ValidateNested()
-  @Type(() => PorbaseImportBibliographicRecordDto)
-  bibliographicRecord!: PorbaseImportBibliographicRecordDto;
+  @Type(() => CatalogueImportBibliographicRecordDto)
+  bibliographicRecord!: CatalogueImportBibliographicRecordDto;
 
-  @ApiProperty({ type: PorbaseImportItemDto })
+  @ApiProperty({ type: CatalogueImportItemDto })
   @IsDefined()
   @ValidateNested()
-  @Type(() => PorbaseImportItemDto)
-  item!: PorbaseImportItemDto;
+  @Type(() => CatalogueImportItemDto)
+  item!: CatalogueImportItemDto;
 }
 
-export class PorbasePersistedOrganizationDto {
+export class CatalogueImportedOrganizationDto {
   @ApiProperty() id!: string;
   @ApiProperty() name!: string;
 }
 
-export class PorbasePersistedExternalIdentifierDto {
+export class CatalogueImportedExternalIdentifierDto {
   @ApiProperty() id!: string;
   @ApiProperty() type!: string;
   @ApiProperty() value!: string;
   @ApiPropertyOptional({ nullable: true }) source?: string | null;
 }
 
-export class PorbasePersistedBibliographicRecordDto {
+export class CatalogueImportedBibliographicRecordDto {
   @ApiProperty() id!: string;
   @ApiProperty() format!: string;
   @ApiProperty() rawContent!: string;
@@ -269,7 +285,7 @@ export class PorbasePersistedBibliographicRecordDto {
   @ApiPropertyOptional({ nullable: true }) remoteId?: string | null;
 }
 
-export class PorbasePersistedPhysicalDescriptionPartDto {
+export class CatalogueImportedPhysicalDescriptionPartDto {
   @ApiProperty() id!: string;
   @ApiProperty() subfield!: string;
   @ApiProperty() value!: string;
@@ -277,15 +293,15 @@ export class PorbasePersistedPhysicalDescriptionPartDto {
   @ApiPropertyOptional({ nullable: true }) normalizedValue?: string | null;
 }
 
-export class PorbasePersistedPhysicalDescriptionDto {
+export class CatalogueImportedPhysicalDescriptionDto {
   @ApiProperty() id!: string;
   @ApiProperty() sortOrder!: number;
   @ApiPropertyOptional({ nullable: true }) source?: string | null;
-  @ApiProperty({ type: [PorbasePersistedPhysicalDescriptionPartDto] })
-  parts!: PorbasePersistedPhysicalDescriptionPartDto[];
+  @ApiProperty({ type: [CatalogueImportedPhysicalDescriptionPartDto] })
+  parts!: CatalogueImportedPhysicalDescriptionPartDto[];
 }
 
-export class PorbasePersistedPublicationStatementPartDto {
+export class CatalogueImportedPublicationStatementPartDto {
   @ApiProperty() id!: string;
   @ApiProperty() subfield!: string;
   @ApiProperty() value!: string;
@@ -293,17 +309,17 @@ export class PorbasePersistedPublicationStatementPartDto {
   @ApiPropertyOptional({ nullable: true }) normalizedValue?: string | null;
 }
 
-export class PorbasePersistedPublicationStatementDto {
+export class CatalogueImportedPublicationStatementDto {
   @ApiProperty() id!: string;
   @ApiProperty() sortOrder!: number;
   @ApiProperty() indicator1!: string;
   @ApiProperty() indicator2!: string;
   @ApiPropertyOptional({ nullable: true }) source?: string | null;
-  @ApiProperty({ type: [PorbasePersistedPublicationStatementPartDto] })
-  parts!: PorbasePersistedPublicationStatementPartDto[];
+  @ApiProperty({ type: [CatalogueImportedPublicationStatementPartDto] })
+  parts!: CatalogueImportedPublicationStatementPartDto[];
 }
 
-export class PorbasePersistedItemDto {
+export class CatalogueImportedItemDto {
   @ApiProperty() id!: string;
   @ApiPropertyOptional({ nullable: true }) label?: string | null;
   @ApiPropertyOptional({ nullable: true }) location?: string | null;
@@ -312,7 +328,7 @@ export class PorbasePersistedItemDto {
   @ApiProperty() organizationId!: string;
 }
 
-export class PorbasePersistedContributorDto {
+export class CatalogueImportedContributorDto {
   @ApiProperty() id!: string;
   @ApiProperty() name!: string;
   @ApiProperty() role!: string;
@@ -320,13 +336,13 @@ export class PorbasePersistedContributorDto {
   @ApiProperty() sortOrder!: number;
 }
 
-export class PorbasePersistedContributionSourcePartDto {
+export class CatalogueImportedContributionSourcePartDto {
   @ApiProperty() code!: string;
   @ApiProperty() value!: string;
   @ApiProperty() sortOrder!: number;
 }
 
-export class PorbasePersistedContributionDto {
+export class CatalogueImportedContributionDto {
   @ApiProperty() id!: string;
   @ApiProperty() displayName!: string;
   @ApiProperty({ enum: ['PERSON', 'CORPORATE_BODY', 'UNKNOWN'] }) kind!: string;
@@ -338,10 +354,11 @@ export class PorbasePersistedContributionDto {
   @ApiPropertyOptional() sourceTag?: string | null;
   @ApiPropertyOptional() indicator1?: string | null;
   @ApiPropertyOptional() indicator2?: string | null;
-  @ApiProperty({ type: [PorbasePersistedContributionSourcePartDto] }) sourceParts!: PorbasePersistedContributionSourcePartDto[];
+  @ApiProperty({ type: [CatalogueImportedContributionSourcePartDto] })
+  sourceParts!: CatalogueImportedContributionSourcePartDto[];
 }
 
-export class PorbasePersistedEditionDto {
+export class CatalogueImportedEditionDto {
   @ApiProperty() id!: string;
   @ApiProperty() title!: string;
   @ApiPropertyOptional({ nullable: true }) subtitle?: string | null;
@@ -353,59 +370,78 @@ export class PorbasePersistedEditionDto {
   @ApiPropertyOptional({ nullable: true }) country?: string | null;
   @ApiPropertyOptional({ nullable: true }) format?: string | null;
   @ApiPropertyOptional({ nullable: true }) pageCount?: number | null;
-  @ApiProperty({ type: [PorbasePersistedPhysicalDescriptionDto], required: false })
-  physicalDescriptions?: PorbasePersistedPhysicalDescriptionDto[];
-    @ApiProperty({ type: [PorbasePersistedPublicationStatementDto], required: false })
-    publicationStatements?: PorbasePersistedPublicationStatementDto[];
-  @ApiProperty({ type: [PorbasePersistedExternalIdentifierDto] })
-  externalIdentifiers!: PorbasePersistedExternalIdentifierDto[];
-  @ApiProperty({ type: [PorbasePersistedBibliographicRecordDto] })
-  bibliographicRecords!: PorbasePersistedBibliographicRecordDto[];
-  @ApiProperty({ type: [PorbasePersistedContributorDto] })
-  contributors!: PorbasePersistedContributorDto[];
-  @ApiProperty({ type: [PorbasePersistedContributionDto] }) contributions!: PorbasePersistedContributionDto[];
-  @ApiProperty({ type: [PorbasePersistedItemDto] })
-  items!: PorbasePersistedItemDto[];
+  @ApiProperty({
+    type: [CatalogueImportedPhysicalDescriptionDto],
+    required: false,
+  })
+  physicalDescriptions?: CatalogueImportedPhysicalDescriptionDto[];
+  @ApiProperty({
+    type: [CatalogueImportedPublicationStatementDto],
+    required: false,
+  })
+  publicationStatements?: CatalogueImportedPublicationStatementDto[];
+  @ApiProperty({ type: [CatalogueImportedExternalIdentifierDto] })
+  externalIdentifiers!: CatalogueImportedExternalIdentifierDto[];
+  @ApiProperty({ type: [CatalogueImportedBibliographicRecordDto] })
+  bibliographicRecords!: CatalogueImportedBibliographicRecordDto[];
+  @ApiProperty({ type: [CatalogueImportedContributorDto] })
+  contributors!: CatalogueImportedContributorDto[];
+  @ApiProperty({ type: [CatalogueImportedContributionDto] })
+  contributions!: CatalogueImportedContributionDto[];
+  @ApiProperty({ type: [CatalogueImportedItemDto] })
+  items!: CatalogueImportedItemDto[];
 }
 
-export class PorbasePersistedWorkDto {
+export class CatalogueImportedWorkDto {
   @ApiProperty() id!: string;
   @ApiProperty() title!: string;
   @ApiPropertyOptional({ nullable: true }) subtitle?: string | null;
-  @ApiProperty({ type: PorbasePersistedOrganizationDto })
-  organization!: PorbasePersistedOrganizationDto;
-  @ApiProperty({ type: [PorbasePersistedEditionDto] })
-  editions!: PorbasePersistedEditionDto[];
-  @ApiProperty({ type: [PorbasePersistedContributorDto] })
-  contributors!: PorbasePersistedContributorDto[];
-  @ApiProperty({ type: [PorbasePersistedContributionDto] }) contributions!: PorbasePersistedContributionDto[];
-  @ApiProperty({ type: [PorbasePersistedBibliographicRecordDto] })
-  bibliographicRecords!: PorbasePersistedBibliographicRecordDto[];
+  @ApiProperty({ type: CatalogueImportedOrganizationDto })
+  organization!: CatalogueImportedOrganizationDto;
+  @ApiProperty({ type: [CatalogueImportedEditionDto] })
+  editions!: CatalogueImportedEditionDto[];
+  @ApiProperty({ type: [CatalogueImportedContributorDto] })
+  contributors!: CatalogueImportedContributorDto[];
+  @ApiProperty({ type: [CatalogueImportedContributionDto] })
+  contributions!: CatalogueImportedContributionDto[];
+  @ApiProperty({ type: [CatalogueImportedBibliographicRecordDto] })
+  bibliographicRecords!: CatalogueImportedBibliographicRecordDto[];
 }
 
-export class PorbaseImportResponseDto {
+export class CatalogueImportResponseDto {
+  @ApiProperty({ example: 'porbase' })
+  sourceId!: string;
+
   @ApiProperty({ example: 'work_cuid' })
   id!: string;
 
-  @ApiProperty({ type: PorbasePersistedWorkDto })
-  work!: PorbasePersistedWorkDto;
+  @ApiProperty({ type: CatalogueImportedWorkDto })
+  work!: CatalogueImportedWorkDto;
 
-  @ApiProperty({ type: PorbasePersistedEditionDto })
-  edition!: PorbasePersistedEditionDto;
+  @ApiProperty({ type: CatalogueImportedEditionDto })
+  edition!: CatalogueImportedEditionDto;
 
-  @ApiProperty({ type: [PorbasePersistedContributorDto] })
-  contributors!: PorbasePersistedContributorDto[];
-  @ApiProperty({ type: [PorbasePersistedContributionDto] }) contributions!: PorbasePersistedContributionDto[];
+  @ApiProperty({ type: [CatalogueImportedContributorDto] })
+  contributors!: CatalogueImportedContributorDto[];
+  @ApiProperty({ type: [CatalogueImportedContributionDto] })
+  contributions!: CatalogueImportedContributionDto[];
 
-  @ApiProperty({ type: [PorbasePersistedExternalIdentifierDto] })
-  externalIdentifiers!: PorbasePersistedExternalIdentifierDto[];
+  @ApiProperty({ type: [CatalogueImportedExternalIdentifierDto] })
+  externalIdentifiers!: CatalogueImportedExternalIdentifierDto[];
 
-  @ApiProperty({ type: PorbasePersistedBibliographicRecordDto })
-  bibliographicRecord!: PorbasePersistedBibliographicRecordDto;
+  @ApiProperty({ type: CatalogueImportedBibliographicRecordDto })
+  bibliographicRecord!: CatalogueImportedBibliographicRecordDto;
 
-  @ApiProperty({ type: PorbasePersistedItemDto })
-  item!: PorbasePersistedItemDto;
+  @ApiProperty({ type: CatalogueImportedItemDto })
+  item!: CatalogueImportedItemDto;
 
-  @ApiProperty({ type: [Object], required: false })
-  warnings?: Array<{ code: string; field?: string; message: string; original?: string; normalized?: string; type: string }>;
+  @ApiProperty({ type: [Object], example: [] })
+  warnings?: Array<{
+    code: string;
+    field?: string;
+    message: string;
+    original?: string;
+    normalized?: string;
+    type: string;
+  }>;
 }

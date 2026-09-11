@@ -17,9 +17,10 @@ describe('PorbaseCatalogueProvider', () => {
 
     await expect(
       provider.searchPreview({ type: 'isbn', isbn: '9789724426495' }),
-    ).resolves.toEqual({ preview: true });
+    ).resolves.toEqual({ preview: true, sourceId: 'porbase' });
     await expect(provider.import('user-1', input)).resolves.toEqual({
       id: 'work-1',
+      sourceId: 'porbase',
     });
 
     expect(previews.createPreview).toHaveBeenCalledWith('9789724426495');

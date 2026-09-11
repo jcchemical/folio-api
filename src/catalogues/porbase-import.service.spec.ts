@@ -1,9 +1,9 @@
 import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { PorbaseImportService } from './porbase-import.service.js';
-import type { PorbaseImportDto } from './dto/porbase-import.dto.js';
+import type { CatalogueImportDto } from './dto/catalogue-import.dto.js';
 
-const baseInput: PorbaseImportDto = {
+const baseInput: CatalogueImportDto = {
   work: { title: 'Work title', subtitle: null },
   edition: {
     title: 'Edition title',
@@ -16,10 +16,14 @@ const baseInput: PorbaseImportDto = {
     country: 'PT',
     format: null,
     physicalDescriptions: [
-      { sortOrder: 0, source: 'PORBASE', parts: [
-        { subfield: 'a', value: '383 p.', sortOrder: 0 },
-        { subfield: 'd', value: '24 cm', sortOrder: 1 },
-      ] },
+      {
+        sortOrder: 0,
+        source: 'PORBASE',
+        parts: [
+          { subfield: 'a', value: '383 p.', sortOrder: 0 },
+          { subfield: 'd', value: '24 cm', sortOrder: 1 },
+        ],
+      },
     ],
   },
   contributors: [
@@ -101,7 +105,14 @@ describe('PorbaseImportService', () => {
         async (callback: (transaction: typeof tx) => unknown) => callback(tx),
       ),
     };
-    const service = new PorbaseImportService(prisma as never, { getDefaultOrganization: vi.fn().mockResolvedValue({ id: 'organization-1' }) } as never);
+    const service = new PorbaseImportService(
+      prisma as never,
+      {
+        getDefaultOrganization: vi
+          .fn()
+          .mockResolvedValue({ id: 'organization-1' }),
+      } as never,
+    );
 
     const result = await service.import('jwt-user-1', baseInput);
 
@@ -117,15 +128,17 @@ describe('PorbaseImportService', () => {
         publicationDate: '2022',
         pageCount: 383,
         physicalDescriptions: expect.objectContaining({
-          create: [expect.objectContaining({
-            sortOrder: 0,
-            parts: expect.objectContaining({
-              create: [
-                expect.objectContaining({ subfield: 'a', value: '383 p.' }),
-                expect.objectContaining({ subfield: 'd', value: '24 cm' }),
-              ],
+          create: [
+            expect.objectContaining({
+              sortOrder: 0,
+              parts: expect.objectContaining({
+                create: [
+                  expect.objectContaining({ subfield: 'a', value: '383 p.' }),
+                  expect.objectContaining({ subfield: 'd', value: '24 cm' }),
+                ],
+              }),
             }),
-          })],
+          ],
         }),
       }),
     });
@@ -144,19 +157,28 @@ describe('PorbaseImportService', () => {
         async (callback: (transaction: typeof tx) => unknown) => callback(tx),
       ),
     };
-    const service = new PorbaseImportService(prisma as never, {
-      getDefaultOrganization: vi.fn().mockResolvedValue({ id: 'organization-1' }),
-    } as never);
-    const input: PorbaseImportDto = {
+    const service = new PorbaseImportService(
+      prisma as never,
+      {
+        getDefaultOrganization: vi
+          .fn()
+          .mockResolvedValue({ id: 'organization-1' }),
+      } as never,
+    );
+    const input: CatalogueImportDto = {
       ...baseInput,
       edition: {
         ...baseInput.edition,
         publisher: 'Legacy publisher',
         publicationDate: '2022',
-        publicationStatements: [{
-          sortOrder: 0,
-          parts: [{ subfield: 'b', value: 'Additional information', sortOrder: 0 }],
-        }],
+        publicationStatements: [
+          {
+            sortOrder: 0,
+            parts: [
+              { subfield: 'b', value: 'Additional information', sortOrder: 0 },
+            ],
+          },
+        ],
       },
     };
 
@@ -179,7 +201,14 @@ describe('PorbaseImportService', () => {
         async (callback: (transaction: typeof tx) => unknown) => callback(tx),
       ),
     };
-    const service = new PorbaseImportService(prisma as never, { getDefaultOrganization: vi.fn().mockResolvedValue({ id: 'organization-1' }) } as never);
+    const service = new PorbaseImportService(
+      prisma as never,
+      {
+        getDefaultOrganization: vi
+          .fn()
+          .mockResolvedValue({ id: 'organization-1' }),
+      } as never,
+    );
 
     await expect(
       service.import('jwt-user-1', baseInput),
@@ -194,11 +223,18 @@ describe('PorbaseImportService', () => {
         async (callback: (transaction: typeof tx) => unknown) => callback(tx),
       ),
     };
-    const service = new PorbaseImportService(prisma as never, {
-      getDefaultOrganization: vi.fn().mockResolvedValue({ id: 'organization-b' }),
-    } as never);
+    const service = new PorbaseImportService(
+      prisma as never,
+      {
+        getDefaultOrganization: vi
+          .fn()
+          .mockResolvedValue({ id: 'organization-b' }),
+      } as never,
+    );
 
-    await expect(service.import('jwt-user-b', baseInput)).resolves.toBeDefined();
+    await expect(
+      service.import('jwt-user-b', baseInput),
+    ).resolves.toBeDefined();
     expect(tx.work.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ organizationId: 'organization-b' }),
     });
@@ -214,7 +250,14 @@ describe('PorbaseImportService', () => {
         async (callback: (transaction: typeof tx) => unknown) => callback(tx),
       ),
     };
-    const service = new PorbaseImportService(prisma as never, { getDefaultOrganization: vi.fn().mockResolvedValue({ id: 'organization-1' }) } as never);
+    const service = new PorbaseImportService(
+      prisma as never,
+      {
+        getDefaultOrganization: vi
+          .fn()
+          .mockResolvedValue({ id: 'organization-1' }),
+      } as never,
+    );
     const input = {
       ...baseInput,
       edition: { ...baseInput.edition, isbn10: null, isbn13: null },
@@ -227,7 +270,14 @@ describe('PorbaseImportService', () => {
 
   it('validates ISBNs before opening a transaction', async () => {
     const prisma = { $transaction: vi.fn() };
-    const service = new PorbaseImportService(prisma as never, { getDefaultOrganization: vi.fn().mockResolvedValue({ id: 'organization-1' }) } as never);
+    const service = new PorbaseImportService(
+      prisma as never,
+      {
+        getDefaultOrganization: vi
+          .fn()
+          .mockResolvedValue({ id: 'organization-1' }),
+      } as never,
+    );
     const input = {
       ...baseInput,
       edition: { ...baseInput.edition, isbn13: '9789724426496' },
@@ -247,7 +297,14 @@ describe('PorbaseImportService', () => {
         async (callback: (transaction: typeof tx) => unknown) => callback(tx),
       ),
     };
-    const service = new PorbaseImportService(prisma as never, { getDefaultOrganization: vi.fn().mockResolvedValue({ id: 'organization-1' }) } as never);
+    const service = new PorbaseImportService(
+      prisma as never,
+      {
+        getDefaultOrganization: vi
+          .fn()
+          .mockResolvedValue({ id: 'organization-1' }),
+      } as never,
+    );
 
     await expect(service.import('jwt-user-1', baseInput)).rejects.toThrow(
       'item failure',
@@ -262,7 +319,14 @@ describe('PorbaseImportService', () => {
         async (callback: (transaction: typeof tx) => unknown) => callback(tx),
       ),
     };
-    const service = new PorbaseImportService(prisma as never, { getDefaultOrganization: vi.fn().mockResolvedValue({ id: 'organization-1' }) } as never);
+    const service = new PorbaseImportService(
+      prisma as never,
+      {
+        getDefaultOrganization: vi
+          .fn()
+          .mockResolvedValue({ id: 'organization-1' }),
+      } as never,
+    );
 
     await service.import('jwt-user-1', baseInput);
 

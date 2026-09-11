@@ -1,8 +1,8 @@
 import type { ImportPreviewResponseDto } from './dto/import-preview-response.dto.js';
 import type {
-  PorbaseImportDto,
-  PorbaseImportResponseDto,
-} from './dto/porbase-import.dto.js';
+  CatalogueImportDto,
+  CatalogueImportResponseDto,
+} from './dto/catalogue-import.dto.js';
 
 export type SearchType = 'isbn' | 'title' | 'author' | 'keyword';
 export type MarcFormat = 'UNIMARC' | 'MARC21' | 'OTHER';
@@ -13,20 +13,19 @@ export type CatalogueSearchQuery =
   | { type: 'author'; author: string }
   | { type: 'keyword'; keyword: string };
 
-export type CataloguePreview = ImportPreviewResponseDto;
-export type ImportedCatalogueRecord = PorbaseImportResponseDto;
-export type CatalogueImportInput = PorbaseImportDto;
+// The generic search/preview result any catalogue provider must return.
+export type CatalogueSearchResult = ImportPreviewResponseDto;
 
 export interface CatalogueProvider {
   readonly id: string;
   readonly name: string;
   readonly format: MarcFormat;
 
-  searchPreview(query: CatalogueSearchQuery): Promise<CataloguePreview>;
+  searchPreview(query: CatalogueSearchQuery): Promise<CatalogueSearchResult>;
   import(
     userId: string,
-    input: CatalogueImportInput,
-  ): Promise<ImportedCatalogueRecord>;
+    input: CatalogueImportDto,
+  ): Promise<CatalogueImportResponseDto>;
   supportsSearchType(type: SearchType): boolean;
   supportsFormat(format: MarcFormat): boolean;
 }

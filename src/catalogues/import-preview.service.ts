@@ -5,10 +5,8 @@ import {
 } from '@nestjs/common';
 import { isValidIsbn, normalizeIsbn } from './isbn.utils.js';
 import { CataloguesService } from './catalogues.service.js';
-import type {
-  PorbaseBibliographicFieldsDto,
-  PorbaseWarningDto,
-} from './dto/porbase-search-response.dto.js';
+import type { PorbaseBibliographicFieldsDto } from './dto/porbase-search-response.dto.js';
+import type { CatalogueWarningDto } from './dto/catalogue-warning.dto.js';
 import type {
   ImportPreviewContributorDto,
   ImportPreviewEditionDto,
@@ -20,7 +18,9 @@ import type {
 export class ImportPreviewService {
   constructor(private readonly cataloguesService: CataloguesService) {}
 
-  async createPreview(isbn: string): Promise<ImportPreviewResponseDto> {
+  async createPreview(
+    isbn: string,
+  ): Promise<Omit<ImportPreviewResponseDto, 'sourceId'>> {
     const normalizedIsbn = normalizeIsbn(isbn);
     if (!isValidIsbn(normalizedIsbn)) {
       throw new BadRequestException('Invalid ISBN-10 or ISBN-13');
@@ -43,9 +43,9 @@ export class ImportPreviewService {
       detectedFormat: string;
       schema: string;
       rawContent: string;
-      warnings: PorbaseWarningDto[];
+      warnings: CatalogueWarningDto[];
     },
-  ): ImportPreviewResponseDto {
+  ): Omit<ImportPreviewResponseDto, 'sourceId'> {
     const title = metadata.title ?? `Import preview for ${query}`;
     const normalizedIsbn = normalizeIsbn(metadata.isbn ?? query);
     const edition: ImportPreviewEditionDto = {
@@ -70,21 +70,59 @@ export class ImportPreviewService {
     const warnings = [...result.warnings];
 
     if (!metadata.title)
-      warnings.push(warning('The import title was not identified safely.', 'missing_field', 'work.title'));
+      warnings.push(
+        warning(
+          'The import title was not identified safely.',
+          'missing_field',
+          'work.title',
+        ),
+      );
     if (!metadata.publisher)
-      warnings.push(warning('Publisher was not identified.', 'missing_field', 'edition.publisher'));
-    if (!metadata.publicationDate && !hasWarningForField(warnings, 'edition.publicationDate'))
-      warnings.push(warning('Publication date was not identified.', 'missing_field', 'edition.publicationDate'));
+      warnings.push(
+        warning(
+          'Publisher was not identified.',
+          'missing_field',
+          'edition.publisher',
+        ),
+      );
+    if (
+      !metadata.publicationDate &&
+      !hasWarningForField(warnings, 'edition.publicationDate')
+    )
+      warnings.push(
+        warning(
+          'Publication date was not identified.',
+          'missing_field',
+          'edition.publicationDate',
+        ),
+      );
     if (!metadata.language)
-      warnings.push(warning('Language was not identified.', 'missing_field', 'edition.language'));
+      warnings.push(
+        warning(
+          'Language was not identified.',
+          'missing_field',
+          'edition.language',
+        ),
+      );
     if (metadata.extent && edition.pageCount == null) {
-      warnings.push(warning('The physical description was preserved, but no reliable numeric page count could be derived.', 'parse_error', 'edition.physicalDescriptions'));
+      warnings.push(
+        warning(
+          'The physical description was preserved, but no reliable numeric page count could be derived.',
+          'parse_error',
+          'edition.physicalDescriptions',
+        ),
+      );
     }
     if (
       result.detectedFormat !== 'MARCXCHANGE_XML' &&
       result.detectedFormat !== 'MARC_TEXT'
     ) {
-      warnings.push(warning('The detected response format is not a supported bibliographic format.', 'parse_error'));
+      warnings.push(
+        warning(
+          'The detected response format is not a supported bibliographic format.',
+          'parse_error',
+        ),
+      );
     }
 
     return {
@@ -151,28 +189,32 @@ function parsePages(
   return candidates.length === 1 ? Number(candidates[0]) : null;
 }
 
-function hasWarningForField(warnings: PorbaseWarningDto[], field: string): boolean {
+function hasWarningForField(
+  warnings: CatalogueWarningDto[],
+  field: string,
+): boolean {
   return warnings.some((warning) => warning.field === field);
 }
 
 function warning(
   message: string,
-  type: PorbaseWarningDto['type'],
+  type: CatalogueWarningDto['type'],
   field?: string,
-): PorbaseWarningDto {
-  const code = type === 'normalization'
-    ? 'PORBASE_NORMALIZATION'
-    : type === 'missing_field'
-      ? 'PORBASE_MISSING_FIELD'
-      : type === 'provider_error'
-        ? 'PORBASE_PROVIDER_ERROR'
-        : type === 'parse_warning'
-          ? 'PORBASE_PARSE_WARNING'
-          : 'PORBASE_PARSE_ERROR';
+): CatalogueWarningDto {
+  const code =
+    type === 'normalization'
+      ? 'PORBASE_NORMALIZATION'
+      : type === 'missing_field'
+        ? 'PORBASE_MISSING_FIELD'
+        : type === 'provider_error'
+          ? 'PORBASE_PROVIDER_ERROR'
+          : type === 'parse_warning'
+            ? 'PORBASE_PARSE_WARNING'
+            : 'PORBASE_PARSE_ERROR';
   return { code, field, message, type };
 }
 
-function unique(values: PorbaseWarningDto[]): PorbaseWarningDto[] {
+function unique(values: CatalogueWarningDto[]): CatalogueWarningDto[] {
   return values.filter(
     (value, index) =>
       values.findIndex(

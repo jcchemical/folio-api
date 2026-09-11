@@ -1,71 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-export class PorbaseContributionSourcePartDto {
-  @ApiProperty({ example: 'a', pattern: '^[a-z0-9]$' }) code!: string;
-  @ApiProperty({ example: 'Kazantzákis' }) value!: string;
-  @ApiProperty({ example: 0 }) sortOrder!: number;
-}
-
-export class PorbaseContributionDto {
-  @ApiProperty({ enum: ['WORK'] }) targetScope!: 'WORK';
-  @ApiProperty({ enum: ['PERSON', 'CORPORATE_BODY', 'UNKNOWN'] }) kind!: 'PERSON' | 'CORPORATE_BODY' | 'UNKNOWN';
-  @ApiProperty() displayName!: string;
-  @ApiPropertyOptional() roleLabel?: string;
-  @ApiPropertyOptional() relationshipCodeScheme?: string;
-  @ApiProperty({ enum: ['700', '701', '702'] }) sourceTag!: '700' | '701' | '702';
-  @ApiProperty() indicator1!: string;
-  @ApiProperty() indicator2!: string;
-  @ApiProperty() sortOrder!: number;
-  @ApiProperty({ type: [PorbaseContributionSourcePartDto] }) sourceParts!: PorbaseContributionSourcePartDto[];
-}
-
-export class PorbasePhysicalDescriptionPartDto {
-  @ApiProperty({ example: 'a', pattern: '^[a-z0-9]$' })
-  subfield!: string;
-
-  @ApiProperty({ example: '383 p.' })
-  value!: string;
-
-  @ApiProperty({ example: 0 })
-  sortOrder!: number;
-
-  @ApiPropertyOptional({ example: '383 p.', nullable: true })
-  normalizedValue?: string | null;
-}
-
-export class PorbasePublicationStatementPartDto {
-  @ApiProperty({ example: 'a', pattern: '^[a-z0-9]$' })
-  subfield!: string;
-  @ApiProperty({ example: 'Coimbra' })
-  value!: string;
-  @ApiProperty({ example: 0 })
-  sortOrder!: number;
-  @ApiPropertyOptional({ nullable: true })
-  normalizedValue?: string | null;
-}
-
-export class PorbasePublicationStatementDto {
-  @ApiProperty({ example: 0 })
-  sortOrder!: number;
-  @ApiProperty({ example: ' ' })
-  indicator1!: string;
-  @ApiProperty({ example: '9' })
-  indicator2!: string;
-  @ApiProperty({ type: [PorbasePublicationStatementPartDto] })
-  parts!: PorbasePublicationStatementPartDto[];
-  @ApiPropertyOptional({ example: 'PORBASE', nullable: true })
-  source?: string | null;
-}
-
-export class PorbasePhysicalDescriptionDto {
-  @ApiProperty({ example: 0 })
-  sortOrder!: number;
-
-  @ApiPropertyOptional({ example: 'PORBASE', nullable: true })
-  source?: string | null;
-
-  @ApiProperty({ type: [PorbasePhysicalDescriptionPartDto] })
-  parts!: PorbasePhysicalDescriptionPartDto[];
-}
+import { PhysicalDescriptionDto } from '../../editions/dto/physical-description.dto.js';
+import { CataloguePublicationStatementDto } from './catalogue-publication-statement.dto.js';
+import { CatalogueContributionDto } from './catalogue-contribution.dto.js';
+import { CatalogueWarningDto } from './catalogue-warning.dto.js';
 
 export class PorbaseBibliographicFieldsDto {
   @ApiPropertyOptional({ example: 'O Principezinho' })
@@ -92,8 +29,8 @@ export class PorbaseBibliographicFieldsDto {
   @ApiPropertyOptional({ example: ['Carlos Leite'] })
   translators?: string[];
 
-  @ApiProperty({ type: [PorbaseContributionDto], required: false })
-  contributions?: PorbaseContributionDto[];
+  @ApiProperty({ type: [CatalogueContributionDto], required: false })
+  contributions?: CatalogueContributionDto[];
 
   @ApiPropertyOptional({ example: 'Coimbra' })
   placeOfPublication?: string;
@@ -101,11 +38,11 @@ export class PorbaseBibliographicFieldsDto {
   @ApiPropertyOptional({ example: '383 p.' })
   extent?: string;
 
-  @ApiProperty({ type: [PorbasePhysicalDescriptionDto], required: false })
-  physicalDescriptions?: PorbasePhysicalDescriptionDto[];
+  @ApiProperty({ type: [PhysicalDescriptionDto], required: false })
+  physicalDescriptions?: PhysicalDescriptionDto[];
 
-  @ApiProperty({ type: [PorbasePublicationStatementDto], required: false })
-  publicationStatements?: PorbasePublicationStatementDto[];
+  @ApiProperty({ type: [CataloguePublicationStatementDto], required: false })
+  publicationStatements?: CataloguePublicationStatementDto[];
 
   @ApiPropertyOptional({ example: ['4-(1)-40-5-39'] })
   shelfmarks?: string[];
@@ -118,56 +55,6 @@ export class PorbaseBibliographicFieldsDto {
 
 export type PorbaseDetectedFormat =
   'MARCXCHANGE_XML' | 'MARC_TEXT' | 'UNKNOWN' | 'ERROR';
-
-export type PorbaseWarningType =
-  | 'normalization'
-  | 'parse_error'
-  | 'missing_field'
-  | 'provider_error'
-  | 'parse_warning';
-
-export type PorbaseWarningCode =
-  | 'PORBASE_EMPTY_RESPONSE'
-  | 'PORBASE_RECORD_NOT_FOUND'
-  | 'PORBASE_PROVIDER_ERROR'
-  | 'PORBASE_INVALID_RESPONSE'
-  | 'PORBASE_PARSE_ERROR'
-  | 'PORBASE_PARSE_WARNING'
-  | 'PORBASE_NORMALIZATION'
-  | 'PORBASE_MISSING_FIELD'
-  | 'PUBLICATION_DATE_NORMALIZED'
-  | 'PUBLICATION_SCALAR_DIVERGENCE';
-
-export class PorbaseWarningDto {
-  @ApiProperty({ example: 'PORBASE_NORMALIZATION' })
-  code!: PorbaseWarningCode;
-
-  @ApiPropertyOptional({ example: 'edition.publicationDate' })
-  field?: string;
-
-  @ApiProperty({
-    example: "Data normalizada de 'D.L. 2009' para '2009'",
-  })
-  message!: string;
-
-  @ApiPropertyOptional({ example: 'D.L. 2009' })
-  original?: string;
-
-  @ApiPropertyOptional({ example: '2009' })
-  normalized?: string;
-
-  @ApiProperty({
-    enum: [
-      'normalization',
-      'parse_error',
-      'missing_field',
-      'provider_error',
-      'parse_warning',
-    ],
-    example: 'normalization',
-  })
-  type!: PorbaseWarningType;
-}
 
 export class PorbaseSearchResponseDto {
   @ApiProperty({ example: 'PORBASE' })
@@ -200,6 +87,6 @@ export class PorbaseSearchResponseDto {
   @ApiProperty({ type: PorbaseBibliographicFieldsDto, required: false })
   fields!: PorbaseBibliographicFieldsDto;
 
-  @ApiProperty({ type: [PorbaseWarningDto], example: [] })
-  warnings!: PorbaseWarningDto[];
+  @ApiProperty({ type: [CatalogueWarningDto], example: [] })
+  warnings!: CatalogueWarningDto[];
 }

@@ -10,10 +10,10 @@ import type { Request } from 'express';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { CatalogueService } from './catalogue.service.js';
 import type { CatalogueSearchQuery } from './catalogue-provider.js';
-import { ImportCatalogueDto } from './dto/import-catalogue.dto.js';
+import { CatalogueImportDto } from './dto/catalogue-import.dto.js';
 import { SearchCatalogueDto } from './dto/search-catalogue.dto.js';
 import { ImportPreviewResponseDto } from './dto/import-preview-response.dto.js';
-import { PorbaseImportResponseDto } from './dto/porbase-import.dto.js';
+import { CatalogueImportResponseDto } from './dto/catalogue-import.dto.js';
 
 @ApiTags('catalogues')
 @ApiBearerAuth()
@@ -36,8 +36,8 @@ export class CataloguesController {
   @ApiOperation({
     summary: 'Confirm and persist an import from a catalogue source',
   })
-  @ApiOkResponse({ type: PorbaseImportResponseDto })
-  import(@Req() request: Request, @Body() body: ImportCatalogueDto) {
+  @ApiOkResponse({ type: CatalogueImportResponseDto })
+  import(@Req() request: Request, @Body() body: CatalogueImportDto) {
     const provider = body.sourceId
       ? this.catalogueService.getProvider(body.sourceId)
       : this.catalogueService.getDefaultProvider();
