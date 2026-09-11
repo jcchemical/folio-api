@@ -130,18 +130,21 @@ describe('parsePorbaseResponse publication statements', () => {
             subfield: 'a',
             value: '[S.l.]',
             sortOrder: 0,
+            groupIndex: 0,
             normalizedValue: null,
           },
           {
             subfield: 'a',
             value: 'Lisboa',
             sortOrder: 1,
+            groupIndex: 0,
             normalizedValue: null,
           },
           {
             subfield: 'd',
             value: 'D.L. 2009',
             sortOrder: 2,
+            groupIndex: 0,
             normalizedValue: '2009',
           },
         ],
@@ -353,9 +356,22 @@ describe('parsePorbaseResponse Phase 1 enrichment', () => {
         sourceCode: '101$c',
       },
     ]);
-    expect(result.metadata.editionStatements.map(({ value }) => value)).toEqual(
-      ['1ª ed', 'reimp'],
-    );
+    expect(result.metadata.editionStatements).toEqual([
+      {
+        value: '1ª ed',
+        kind: 'EDITION',
+        label: null,
+        sortOrder: 0,
+        sourceTag: '205',
+      },
+      {
+        value: 'reimp',
+        kind: 'OTHER',
+        label: null,
+        sortOrder: 1,
+        sourceTag: '205',
+      },
+    ]);
     expect(result.metadata.generalMaterialDesignation).toBe('Manuscrito]');
     expect(result.metadata.resourceType).toBe('UNSPECIFIED');
   });
@@ -375,8 +391,10 @@ describe('parsePorbaseResponse Phase 1 enrichment', () => {
     ).toEqual(['a', 'a', 'c', 'e', 'g', 'd']);
     expect(result.metadata.publicationStatements?.[1].sortOrder).toBe(1);
     expect(
-      result.metadata.publicationStatements?.[0].parts[3],
-    ).not.toHaveProperty('groupIndex');
+      result.metadata.publicationStatements?.[0].parts.map(
+        ({ groupIndex }) => groupIndex,
+      ),
+    ).toEqual([0, 0, 0, 1, 1, 1]);
     expect(
       result.metadata.physicalDescriptions?.map(({ sortOrder }) => sortOrder),
     ).toEqual([0, 1]);

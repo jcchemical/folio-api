@@ -10,6 +10,7 @@ import type {
   CatalogueImportContributorDto,
   CatalogueImportDto,
   CatalogueImportResponseDto,
+  CatalogueTitleInputDto,
 } from './dto/catalogue-import.dto.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
@@ -19,11 +20,18 @@ import {
   derivePublicationProjection,
   normalizePublicationDateLiteral,
 } from '../editions/dto/publication-statement.dto.js';
+import { parsePorbaseResponse } from './porbase.parser.js';
 
 type TransactionClient = Omit<
   PrismaClient,
   '$connect' | '$disconnect' | '$on' | '$transaction' | '$extends'
 >;
+
+// Structural relations persisted for this import are always attributed to
+// the PORBASE provider; only one provider exists today, and this is not a
+// client-controllable value (mirrors the existing PublicationStatement
+// precedent).
+const PORBASE_SOURCE = 'PORBASE';
 
 @Injectable()
 export class PorbaseImportService {
@@ -36,6 +44,7 @@ export class PorbaseImportService {
   async import(
     userId: string,
     input: CatalogueImportDto,
+    providerId = 'porbase',
   ): Promise<Omit<CatalogueImportResponseDto, 'sourceId'>> {
     const isbn10 = normalizeOptionalIsbn(input.edition.isbn10);
     const isbn13 = normalizeOptionalIsbn(input.edition.isbn13);
@@ -57,11 +66,19 @@ export class PorbaseImportService {
         isbn13,
       );
 
+      const workTitleProjection = deriveMainTitle(
+        input.work.titles,
+        input.work.title,
+        input.work.subtitle ?? null,
+      );
       const work = await transaction.work.create({
         data: {
-          title: input.work.title,
-          subtitle: input.work.subtitle ?? null,
+          title: workTitleProjection.title,
+          subtitle: workTitleProjection.subtitle,
           organizationId: organization.id,
+          titles: input.work.titles?.length
+            ? { create: input.work.titles.map(toTitleCreate) }
+            : undefined,
         },
       });
 
@@ -73,10 +90,19 @@ export class PorbaseImportService {
       const hasPublicationStatements = Boolean(
         input.edition.publicationStatements?.length,
       );
+      const editionTitleProjection = deriveMainTitle(
+        input.edition.titles,
+        input.edition.title,
+        input.edition.subtitle ?? null,
+      );
+      const editionLanguageProjection = deriveTextLanguage(
+        input.edition.languages,
+        input.edition.language ?? null,
+      );
       const edition = await transaction.edition.create({
         data: {
-          title: input.edition.title,
-          subtitle: input.edition.subtitle ?? null,
+          title: editionTitleProjection.title,
+          subtitle: editionTitleProjection.subtitle,
           isbn10,
           isbn13,
           publisher: hasPublicationStatements
@@ -88,11 +114,81 @@ export class PorbaseImportService {
           publicationPlace: hasPublicationStatements
             ? (projection?.publicationPlace ?? null)
             : null,
-          language: input.edition.language ?? null,
+          language: editionLanguageProjection,
           country: input.edition.country ?? null,
           format: input.edition.format ?? null,
           pageCount: derivePageCount(input.edition.physicalDescriptions),
           workId: work.id,
+          titles: input.edition.titles?.length
+            ? { create: input.edition.titles.map(toTitleCreate) }
+            : undefined,
+          responsibilityStatements: input.edition.responsibilityStatements
+            ?.length
+            ? {
+                create: input.edition.responsibilityStatements.map(
+                  (statement) => ({
+                    label: statement.label,
+                    value: statement.value,
+                    sortOrder: statement.sortOrder,
+                    source: PORBASE_SOURCE,
+                  }),
+                ),
+              }
+            : undefined,
+          languages: input.edition.languages?.length
+            ? {
+                create: input.edition.languages.map((language) => ({
+                  code: language.code,
+                  role: language.role,
+                  sortOrder: language.sortOrder,
+                })),
+              }
+            : undefined,
+          series: input.edition.series?.length
+            ? {
+                create: input.edition.series.map((series) => ({
+                  title: series.title,
+                  parallelTitle: series.parallelTitle ?? null,
+                  volumeNumber: series.volumeNumber ?? null,
+                  issn: series.issn ?? null,
+                  sortOrder: series.sortOrder,
+                  source: PORBASE_SOURCE,
+                })),
+              }
+            : undefined,
+          editionStatements: input.edition.editionStatements?.length
+            ? {
+                create: input.edition.editionStatements.map((statement) => ({
+                  value: statement.value,
+                  kind: statement.kind,
+                  label: statement.label ?? null,
+                  sortOrder: statement.sortOrder,
+                  sourceTag: statement.sourceTag,
+                })),
+              }
+            : undefined,
+          notes: input.edition.notes?.length
+            ? {
+                create: input.edition.notes.map((note) => ({
+                  type: note.type,
+                  value: note.value,
+                  sortOrder: note.sortOrder,
+                  source: PORBASE_SOURCE,
+                })),
+              }
+            : undefined,
+          classifications: input.edition.classifications?.length
+            ? {
+                create: input.edition.classifications.map((classification) => ({
+                  notation: classification.notation,
+                  system: classification.system,
+                  systemEdition: classification.systemEdition ?? null,
+                  authorityId: classification.authorityId ?? null,
+                  sortOrder: classification.sortOrder,
+                  source: PORBASE_SOURCE,
+                })),
+              }
+            : undefined,
           physicalDescriptions: input.edition.physicalDescriptions?.length
             ? {
                 create: input.edition.physicalDescriptions.map(
@@ -118,12 +214,13 @@ export class PorbaseImportService {
                     sortOrder: statement.sortOrder,
                     indicator1: statement.indicator1 ?? ' ',
                     indicator2: statement.indicator2 ?? '9',
-                    source: 'PORBASE',
+                    source: PORBASE_SOURCE,
                     parts: {
                       create: statement.parts.map((part) => ({
                         subfield: part.subfield.toLowerCase(),
                         value: part.value.trim(),
                         sortOrder: part.sortOrder,
+                        groupIndex: part.groupIndex ?? 0,
                         normalizedValue:
                           part.subfield.toLowerCase() === 'd'
                             ? normalizePublicationDateLiteral(part.value.trim())
@@ -160,14 +257,48 @@ export class PorbaseImportService {
         input.externalIdentifiers,
       );
 
+      const unmappedFields = safeReparseUnmappedFields(
+        input.bibliographicRecord.rawContent,
+      );
       const bibliographicRecord = await transaction.bibliographicRecord.create({
         data: {
           format: input.bibliographicRecord.format,
           rawContent: input.bibliographicRecord.rawContent,
-          source: input.bibliographicRecord.source,
+          // source/schema/sourceId are never client-controlled: only one
+          // provider format exists today, and the provider identity is
+          // supplied by the CatalogueProvider that authenticated the request.
+          source: PORBASE_SOURCE,
+          schema: 'UNIMARC',
+          sourceId: providerId,
           remoteId: input.bibliographicRecord.remoteId ?? null,
           workId: work.id,
           editionId: edition.id,
+          unmappedSourceFields: unmappedFields.length
+            ? {
+                create: unmappedFields.map((field) => ({
+                  tag: field.tag,
+                  indicator1: field.indicator1 ?? null,
+                  indicator2: field.indicator2 ?? null,
+                  occurrence: field.occurrence,
+                  reason: field.reason,
+                  subfields: {
+                    create: field.subfields.map((subfield, sortOrder) => ({
+                      code: subfield.code || '-',
+                      value: subfield.value,
+                      sortOrder,
+                    })),
+                  },
+                })),
+              }
+            : undefined,
+        },
+        include: {
+          unmappedSourceFields: {
+            orderBy: [{ tag: 'asc' }, { occurrence: 'asc' }, { id: 'asc' }],
+            include: {
+              subfields: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+            },
+          },
         },
       });
 
@@ -186,11 +317,41 @@ export class PorbaseImportService {
         where: { id: work.id },
         include: {
           organization: true,
+          titles: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
           editions: {
             include: {
               externalIdentifiers: true,
-              bibliographicRecords: true,
+              bibliographicRecords: {
+                orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                include: {
+                  unmappedSourceFields: {
+                    orderBy: [
+                      { tag: 'asc' },
+                      { occurrence: 'asc' },
+                      { id: 'asc' },
+                    ],
+                    include: {
+                      subfields: {
+                        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+                      },
+                    },
+                  },
+                },
+              },
               items: true,
+              titles: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+              responsibilityStatements: {
+                orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+              },
+              languages: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+              series: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+              editionStatements: {
+                orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+              },
+              notes: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+              classifications: {
+                orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+              },
               physicalDescriptions: {
                 orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
                 include: {
@@ -223,7 +384,19 @@ export class PorbaseImportService {
             },
             orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
           },
-          bibliographicRecords: true,
+          bibliographicRecords: {
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            include: {
+              unmappedSourceFields: {
+                orderBy: [{ tag: 'asc' }, { occurrence: 'asc' }, { id: 'asc' }],
+                include: {
+                  subfields: {
+                    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+                  },
+                },
+              },
+            },
+          },
         },
       });
 
@@ -270,6 +443,7 @@ export class PorbaseImportService {
           subtitle: persisted.subtitle,
           organization: persisted.organization,
           editions: [responseEdition],
+          titles: persisted.titles,
           contributors: canonicalWorkContributors.length
             ? canonicalWorkContributors
             : workContributors,
@@ -428,12 +602,75 @@ export class PorbaseImportService {
   }
 }
 
+function toTitleCreate(title: CatalogueTitleInputDto) {
+  return {
+    type: title.type,
+    value: title.value,
+    subtitle: title.subtitle ?? null,
+    language: title.language ?? null,
+    sortOrder: title.sortOrder,
+    source: PORBASE_SOURCE,
+  };
+}
+
+function deriveMainTitle(
+  titles: CatalogueTitleInputDto[] | undefined,
+  fallbackTitle: string,
+  fallbackSubtitle: string | null,
+): { title: string; subtitle: string | null } {
+  const main = [...(titles ?? [])]
+    .filter((title) => title.type === 'MAIN')
+    .sort((a, b) => a.sortOrder - b.sortOrder)[0];
+  if (!main) return { title: fallbackTitle, subtitle: fallbackSubtitle };
+  return { title: main.value, subtitle: main.subtitle ?? null };
+}
+
+function deriveTextLanguage(
+  languages: { code: string; role: string; sortOrder: number }[] | undefined,
+  fallbackLanguage: string | null,
+): string | null {
+  const text = [...(languages ?? [])]
+    .filter((language) => language.role === 'TEXT')
+    .sort((a, b) => a.sortOrder - b.sortOrder)[0];
+  return text ? text.code : fallbackLanguage;
+}
+
+/**
+ * Re-derives unmapped/local fields from the persisted rawContent so that
+ * provenance the client cannot control (which datafields were left
+ * unmapped) always matches what was actually stored. Best-effort: parse
+ * failures never block the import, they simply yield no unmapped fields.
+ */
+function safeReparseUnmappedFields(rawContent: string): Array<{
+  tag: string;
+  indicator1: string | null;
+  indicator2: string | null;
+  occurrence: number;
+  reason: string;
+  subfields: Array<{ code: string; value: string }>;
+}> {
+  try {
+    const result = parsePorbaseResponse('reparse', rawContent);
+    return (result.metadata.unmappedFields ?? []).map((field) => ({
+      tag: field.tag,
+      indicator1: field.indicator1 ?? null,
+      indicator2: field.indicator2 ?? null,
+      occurrence: field.occurrence,
+      reason: field.reason,
+      subfields: field.subfields,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 function toPersistedContribution(contribution: {
   id: string;
   sortOrder: number;
   source: string;
   roleLabel: string | null;
   relationshipCodeScheme: string | null;
+  authorityId: string | null;
   sourceTag: string | null;
   indicator1: string | null;
   indicator2: string | null;
@@ -450,6 +687,7 @@ function toPersistedContribution(contribution: {
     source: contribution.source,
     roleLabel: contribution.roleLabel,
     relationshipCodeScheme: contribution.relationshipCodeScheme,
+    authorityId: contribution.authorityId,
     sourceTag: contribution.sourceTag,
     indicator1: contribution.indicator1,
     indicator2: contribution.indicator2,

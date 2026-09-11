@@ -627,8 +627,15 @@ function extractEditionStatementsFromText(
       ['a', 'b', 'f'].flatMap((code) =>
         (field.subfields.get(code) ?? []).map((value) => ({
           value,
+          kind:
+            code === 'a'
+              ? ('EDITION' as const)
+              : code === 'b'
+                ? ('OTHER' as const)
+                : ('RESPONSIBILITY' as const),
+          label: null,
           sortOrder: 0,
-          sourceCode: `205$${code}`,
+          sourceTag: '205',
         })),
       ),
     )
@@ -953,27 +960,39 @@ function extractXmlPhysicalDescriptions(record: XmlObject): Array<{
   return descriptions;
 }
 
+function groupIndexFor(
+  code: string,
+  seenSecondaryGroup: { value: boolean },
+): number {
+  if (['e', 'f', 'g'].includes(code)) seenSecondaryGroup.value = true;
+  return seenSecondaryGroup.value ? 1 : 0;
+}
+
 function extractTextPublicationStatements(
   fields: TextField[],
   warnings: CatalogueWarningDto[],
 ): CataloguePublicationStatementDto[] {
   return fields
     .filter(({ tag }) => tag === '210')
-    .map((field, sortOrder) => ({
-      sortOrder,
-      indicator1: ' ',
-      indicator2: '9',
-      source: 'PORBASE',
-      parts: field.orderedSubfields.map(({ code, value }, partOrder) => ({
-        subfield: code,
-        value,
-        sortOrder: partOrder,
-        normalizedValue:
-          code === 'd'
-            ? normalizePublicationDateForPart(value, warnings)
-            : null,
-      })),
-    }))
+    .map((field, sortOrder) => {
+      const seenSecondaryGroup = { value: false };
+      return {
+        sortOrder,
+        indicator1: ' ',
+        indicator2: '9',
+        source: 'PORBASE',
+        parts: field.orderedSubfields.map(({ code, value }, partOrder) => ({
+          subfield: code,
+          value,
+          sortOrder: partOrder,
+          groupIndex: groupIndexFor(code, seenSecondaryGroup),
+          normalizedValue:
+            code === 'd'
+              ? normalizePublicationDateForPart(value, warnings)
+              : null,
+        })),
+      };
+    })
     .filter(({ parts }) => parts.length > 0);
 }
 
@@ -982,29 +1001,33 @@ function extractXmlPublicationStatements(
   warnings: CatalogueWarningDto[],
 ): CataloguePublicationStatementDto[] {
   return datafields(record, '210')
-    .map((field, sortOrder) => ({
-      sortOrder,
-      indicator1: marcIndicator(findText(field['@_ind1'])),
-      indicator2: marcIndicator(findText(field['@_ind2']), '9'),
-      source: 'PORBASE',
-      parts: asArray(field.subfield)
-        .map((subfield) => ({
-          code: textValue(subfield['@_code'])?.toLowerCase() ?? '',
-          value: findText(subfield)?.trim() ?? '',
-        }))
-        .filter(
-          ({ code, value }) => /^[a-z0-9]$/.test(code) && value.length > 0,
-        )
-        .map((subfield, partOrder) => ({
-          subfield: subfield.code,
-          value: subfield.value,
-          sortOrder: partOrder,
-          normalizedValue:
-            subfield.code === 'd'
-              ? normalizePublicationDateForPart(subfield.value, warnings)
-              : null,
-        })),
-    }))
+    .map((field, sortOrder) => {
+      const seenSecondaryGroup = { value: false };
+      return {
+        sortOrder,
+        indicator1: marcIndicator(findText(field['@_ind1'])),
+        indicator2: marcIndicator(findText(field['@_ind2']), '9'),
+        source: 'PORBASE',
+        parts: asArray(field.subfield)
+          .map((subfield) => ({
+            code: textValue(subfield['@_code'])?.toLowerCase() ?? '',
+            value: findText(subfield)?.trim() ?? '',
+          }))
+          .filter(
+            ({ code, value }) => /^[a-z0-9]$/.test(code) && value.length > 0,
+          )
+          .map((subfield, partOrder) => ({
+            subfield: subfield.code,
+            value: subfield.value,
+            sortOrder: partOrder,
+            groupIndex: groupIndexFor(subfield.code, seenSecondaryGroup),
+            normalizedValue:
+              subfield.code === 'd'
+                ? normalizePublicationDateForPart(subfield.value, warnings)
+                : null,
+          })),
+      };
+    })
     .filter(({ parts }) => parts.length > 0);
 }
 

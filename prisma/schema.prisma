@@ -134,6 +134,7 @@ model Edition {
   responsibilityStatements ResponsibilityStatement[]
   languages                EditionLanguage[]
   series                   Series[]
+  editionStatements        EditionStatement[]
   classifications          Classification[]
   notes                    BibliographicNote[]
 
@@ -149,8 +150,8 @@ model Edition {
 // language, publisher, publicationDate, publicationPlace) are transitional
 // projections kept for read/query convenience and backward compatibility;
 // they are not authoritative once a structured row exists for that concept.
-// The PORBASE parser, preview mapper and import persistence are not yet
-// updated to write these relations; that is a later sub-iteration.
+// The PORBASE parser, preview mapper and import persistence write these
+// relations during the explicit import confirmation flow.
 
 enum TitleType {
   MAIN
@@ -237,15 +238,32 @@ model EditionLanguage {
 }
 
 model Series {
-  id           String   @id @default(cuid())
-  editionId    String
-  title        String
-  volumeNumber String?
-  issn         String?
-  sortOrder    Int      @default(0)
-  source       String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String   @id @default(cuid())
+  editionId     String
+  title         String
+  parallelTitle String?
+  volumeNumber  String?
+  issn          String?
+  sortOrder     Int      @default(0)
+  source        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  edition Edition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+
+  @@index([editionId, sortOrder, id])
+}
+
+model EditionStatement {
+  id        String   @id @default(cuid())
+  editionId String
+  value     String   @db.Text
+  kind      String
+  label     String?
+  sortOrder Int      @default(0)
+  sourceTag String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   edition Edition @relation(fields: [editionId], references: [id], onDelete: Cascade)
 
@@ -355,6 +373,7 @@ model PublicationStatementPart {
   subfield               String   @db.Char(1)
   value                  String   @db.Text
   sortOrder              Int      @default(0)
+  groupIndex             Int      @default(0)
   normalizedValue        String?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
@@ -430,6 +449,7 @@ model Contribution {
   sortOrder              Int                @default(0)
   roleLabel              String?
   relationshipCodeScheme String?
+  authorityId            String?
   source                 ContributionSource
   sourceTag              String?            @db.Char(3)
   indicator1             String?            @db.Char(1)

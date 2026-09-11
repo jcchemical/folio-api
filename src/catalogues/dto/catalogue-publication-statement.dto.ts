@@ -12,6 +12,13 @@ export class CataloguePublicationStatementPartDto {
   @ApiProperty({ example: 0 })
   sortOrder!: number;
 
+  @ApiPropertyOptional({
+    example: 0,
+    description:
+      'Groups subfields belonging to the same 210 place/name/date occurrence (e.g. publication vs. distribution).',
+  })
+  groupIndex?: number;
+
   @ApiPropertyOptional({ example: '2009', nullable: true })
   normalizedValue?: string | null;
 }

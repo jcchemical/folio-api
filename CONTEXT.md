@@ -470,13 +470,81 @@ mas representam conceitos diferentes e não devem ser inferidos um do outro.
 `bibliographicRecord` mantém raw content e proveniência, mas não duplica a
 lista de campos não mapeados.
 
-O agrupamento semântico de subcampos `210` (publicação, distribuição e
-produção) ainda não faz parte do contrato persistível da Phase 1: a migração
-1F-API.1 aplicada não tem `groupIndex` em `PublicationStatementPart`. O
-preview preserva todas as ocorrências, subcampos e ordem, mas não expõe um
-`groupIndex` transitório. A modelação e persistência lossless desse agrupamento
-ficam explicitamente para 1F-API.3, com migração própria se continuar a ser
-necessário.
+O agrupamento semântico de subcampos `210` (publicação vs. distribuição/produção)
+faz agora parte do contrato persistível: `PublicationStatementPart.groupIndex`
+(migração `20260911170440_add_publication_statement_group_index`, aditiva,
+`Int @default(0)`) regista a que grupo de lugar/nome/data pertence cada
+subcampo dentro de uma ocorrência `210`. O parser incrementa o grupo quando
+encontra `$e`/`$f`/`$g` (segunda zona, tipicamente distribuição/produção); o
+DTO de escrita (`PublicationStatementPartDto`) aceita `groupIndex` como campo
+estrutural editável, não como proveniência sensível.
+
+### Persistência do modelo canónico Phase 1 (1F-API.3)
+
+A importação PORBASE (`PorbaseImportService.import`) persiste agora, numa
+única transacção, `WorkTitle`, `EditionTitle`, `ResponsibilityStatement`,
+`EditionLanguage`, `Series`, `BibliographicNote` (âmbito Edition),
+`EditionStatement` (205$a/$b/$f), `Classification`, além das relações já existentes
+(`PhysicalDescription`/`PublicationStatement`, contribuições,
+`ExternalIdentifier`, `BibliographicRecord`, `Item`).
+
+Contribuidores corporativos (`710`–`713`) são persistidos através do mesmo
+`ContributionsService.persistPorbase` usado para `700`–`702`; não existe um
+segundo sistema de contribuidores.
+
+`UnmappedSourceField`/`UnmappedSourceSubfield` nunca são aceites do corpo do
+pedido: o serviço volta a fazer parsing do `rawContent` já persistido
+(reutilizando `parsePorbaseResponse`) só para extrair estes campos. Assim, a
+proveniência de "o que ficou por mapear" corresponde sempre ao conteúdo bruto
+efectivamente guardado, nunca a uma estrutura fabricada pelo cliente. Falhas
+de parsing neste passo são absorvidas silenciosamente (lista vazia); nunca
+bloqueiam a importação.
+
+`BibliographicRecord.source`, `.schema` e `.sourceId` deixaram de ser aceites
+no payload de importação (`CatalogueImportBibliographicRecordDto` já não tem
+`source`/`schema`). São sempre atribuídos pelo servidor: `source` e `schema`
+são constantes do provider (`'PORBASE'`/`'UNIMARC'`); `sourceId` é o `id` do
+`CatalogueProvider` que efectivamente processou o pedido (`this.id` em
+`PorbaseCatalogueProvider`), nunca um valor lido do corpo do cliente.
+`remoteId`/`rawContent`/`format` continuam a ser ecoados pelo cliente, porque
+não existe cache de preview no servidor. São dados de importação revistos
+transportados pelo cliente; autenticidade completa da proveniência exige um
+snapshot/token de preview server-side numa iteração futura.
+
+Projecções escalares transitórias (`Work.title`/`subtitle`,
+`Edition.title`/`subtitle`/`language`) são calculadas no
+`PorbaseImportService`, nunca em controllers: usam o título `MAIN` e a língua
+`TEXT` mais antigos por `sortOrder` quando existem, com fallback para os
+campos escalares legados do payload quando as listas estruturadas estão
+vazias. `Edition.publisher`/`publicationDate`/`publicationPlace` mantêm a
+projecção já existente a partir de `PublicationStatement`.
+
+Todos os campos estruturais criados por este fluxo (`WorkTitle`,
+`EditionTitle`, `ResponsibilityStatement`, `EditionLanguage`, `Series`,
+`BibliographicNote`, `Classification`) recebem `source: 'PORBASE'` atribuído
+pelo servidor quando o modelo tem esse campo; nunca é aceite do cliente.
+
+`WorksService`/`EditionsService` (leitura) passam a incluir `titles`,
+`responsibilityStatements`, `languages`, `series`, `notes` e
+`classifications`, ordenados por `sortOrder` e depois `id`. Estes endpoints
+não expõem `bibliographicRecords`/`unmappedSourceFields`; essa proveniência
+bruta só é devolvida pelo próprio fluxo de importação PORBASE
+(`POST /catalogues/import`), que já expunha `bibliographicRecords` antes desta
+sub-iteração.
+
+`EditionStatement` preserva valor, `kind`/`label`, ordem e `sourceTag` de cada
+ocorrência 205 sem reduzir repetições. `Series` preserva título paralelo,
+volume e ISSN quando presentes. `Contribution.authorityId` preserva o `$3` de
+700–713 sem introduzir controlo de autoridades.
+
+A migração `20260911182309_add_phase1_edition_statements_series_parallel_title_contribution_authority`
+é puramente aditiva (`ADD COLUMN`/`CREATE TABLE`, sem `DROP`). `prisma migrate
+status` confirma que já se encontra aplicada no ambiente de desenvolvimento
+partilhado, tal como a migração anterior de `groupIndex`
+(`20260911170440_add_publication_statement_group_index`) — ambas foram
+aplicadas como efeito colateral de invocações anteriores de `prisma migrate
+dev`/`migrate dev --create-only` neste ambiente, não como uma acção deliberada
+desta sub-iteração.
 
 ## Autenticação e segurança
 

@@ -32,9 +32,13 @@ export class CatalogueContributionInputDto {
   @IsOptional()
   @IsString()
   relationshipCodeScheme?: string;
-  @ApiProperty({ enum: ['700', '701', '702'] })
-  @IsIn(['700', '701', '702'])
-  sourceTag!: '700' | '701' | '702';
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  authorityId?: string | null;
+  @ApiProperty({ enum: ['700', '701', '702', '710', '711', '712', '713'] })
+  @IsIn(['700', '701', '702', '710', '711', '712', '713'])
+  sourceTag!: '700' | '701' | '702' | '710' | '711' | '712' | '713';
   @ApiProperty() @IsString() @IsNotEmpty() indicator1!: string;
   @ApiProperty() @IsString() @IsNotEmpty() indicator2!: string;
   @ApiProperty() @IsInt() @Min(0) sortOrder!: number;
@@ -43,6 +47,153 @@ export class CatalogueContributionInputDto {
   @ValidateNested({ each: true })
   @Type(() => CatalogueContributionSourcePartInputDto)
   sourceParts!: CatalogueContributionSourcePartInputDto[];
+}
+
+// Client-editable Phase 1 structures. `source` provenance is never accepted
+// here: the import service always stamps it server-side ('PORBASE' for the
+// only current provider), matching the existing PublicationStatement/
+// PhysicalDescription precedent.
+export class CatalogueTitleInputDto {
+  @ApiProperty({ enum: ['MAIN', 'PARALLEL', 'VARIANT', 'OTHER'] })
+  @IsIn(['MAIN', 'PARALLEL', 'VARIANT', 'OTHER'])
+  type!: 'MAIN' | 'PARALLEL' | 'VARIANT' | 'OTHER';
+
+  @ApiProperty() @IsString() @IsNotEmpty() value!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  subtitle?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  language?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  partNumber?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  partName?: string | null;
+
+  @ApiProperty() @IsInt() @Min(0) sortOrder!: number;
+}
+
+export class CatalogueResponsibilityStatementInputDto {
+  @ApiProperty({ enum: ['STATEMENT', 'SUBSEQUENT_STATEMENT'] })
+  @IsIn(['STATEMENT', 'SUBSEQUENT_STATEMENT'])
+  label!: 'STATEMENT' | 'SUBSEQUENT_STATEMENT';
+
+  @ApiProperty() @IsString() @IsNotEmpty() value!: string;
+
+  @ApiProperty() @IsInt() @Min(0) sortOrder!: number;
+}
+
+export class CatalogueLanguageInputDto {
+  @ApiProperty() @IsString() @IsNotEmpty() code!: string;
+
+  @ApiProperty({
+    enum: ['TEXT', 'ORIGINAL_LANGUAGE', 'PARALLEL_TEXT', 'SUBTITLES'],
+  })
+  @IsIn(['TEXT', 'ORIGINAL_LANGUAGE', 'PARALLEL_TEXT', 'SUBTITLES'])
+  role!: 'TEXT' | 'ORIGINAL_LANGUAGE' | 'PARALLEL_TEXT' | 'SUBTITLES';
+
+  @ApiProperty() @IsInt() @Min(0) sortOrder!: number;
+}
+
+export class CatalogueSeriesInputDto {
+  @ApiProperty() @IsString() @IsNotEmpty() title!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  parallelTitle?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  volumeNumber?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  issn?: string | null;
+
+  @ApiProperty() @IsInt() @Min(0) sortOrder!: number;
+}
+
+export class CatalogueNoteInputDto {
+  @ApiProperty({
+    enum: [
+      'GENERAL',
+      'BIBLIOGRAPHY',
+      'CONTENTS',
+      'SUMMARY',
+      'PROVENANCE',
+      'DISSERTATION',
+      'OTHER',
+    ],
+  })
+  @IsIn([
+    'GENERAL',
+    'BIBLIOGRAPHY',
+    'CONTENTS',
+    'SUMMARY',
+    'PROVENANCE',
+    'DISSERTATION',
+    'OTHER',
+  ])
+  type!:
+    | 'GENERAL'
+    | 'BIBLIOGRAPHY'
+    | 'CONTENTS'
+    | 'SUMMARY'
+    | 'PROVENANCE'
+    | 'DISSERTATION'
+    | 'OTHER';
+
+  @ApiProperty() @IsString() @IsNotEmpty() value!: string;
+
+  @ApiProperty() @IsInt() @Min(0) sortOrder!: number;
+}
+
+export class CatalogueClassificationInputDto {
+  @ApiProperty() @IsString() @IsNotEmpty() notation!: string;
+
+  @ApiProperty() @IsString() @IsNotEmpty() system!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  systemEdition?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  authorityId?: string | null;
+
+  @ApiProperty() @IsInt() @Min(0) sortOrder!: number;
+}
+
+export class CatalogueEditionStatementInputDto {
+  @ApiProperty({ enum: ['EDITION', 'OTHER', 'RESPONSIBILITY'] })
+  @IsIn(['EDITION', 'OTHER', 'RESPONSIBILITY'])
+  kind!: 'EDITION' | 'OTHER' | 'RESPONSIBILITY';
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  label?: string | null;
+
+  @ApiProperty() @IsString() @IsNotEmpty() value!: string;
+
+  @ApiProperty() @IsInt() @Min(0) sortOrder!: number;
+
+  @ApiProperty() @IsString() @IsNotEmpty() sourceTag!: string;
 }
 
 export class CatalogueImportWorkDto {
@@ -60,6 +211,13 @@ export class CatalogueImportWorkDto {
   @IsOptional()
   @IsString()
   organizationId?: string | null;
+
+  @ApiPropertyOptional({ type: [CatalogueTitleInputDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CatalogueTitleInputDto)
+  titles?: CatalogueTitleInputDto[];
 }
 
 export class CatalogueImportEditionDto {
@@ -122,6 +280,55 @@ export class CatalogueImportEditionDto {
   @Type(() => PublicationStatementDto)
   publicationStatements?: PublicationStatementDto[];
   @ApiPropertyOptional({ nullable: true }) publicationPlace?: string | null;
+
+  @ApiPropertyOptional({ type: [CatalogueTitleInputDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CatalogueTitleInputDto)
+  titles?: CatalogueTitleInputDto[];
+
+  @ApiPropertyOptional({ type: [CatalogueResponsibilityStatementInputDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CatalogueResponsibilityStatementInputDto)
+  responsibilityStatements?: CatalogueResponsibilityStatementInputDto[];
+
+  @ApiPropertyOptional({ type: [CatalogueLanguageInputDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CatalogueLanguageInputDto)
+  languages?: CatalogueLanguageInputDto[];
+
+  @ApiPropertyOptional({ type: [CatalogueSeriesInputDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CatalogueSeriesInputDto)
+  series?: CatalogueSeriesInputDto[];
+
+  @ApiPropertyOptional({ type: [CatalogueNoteInputDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CatalogueNoteInputDto)
+  notes?: CatalogueNoteInputDto[];
+
+  @ApiPropertyOptional({ type: [CatalogueClassificationInputDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CatalogueClassificationInputDto)
+  classifications?: CatalogueClassificationInputDto[];
+
+  @ApiPropertyOptional({ type: [CatalogueEditionStatementInputDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CatalogueEditionStatementInputDto)
+  editionStatements?: CatalogueEditionStatementInputDto[];
 }
 
 export class CatalogueImportContributorDto {
@@ -164,20 +371,9 @@ export class CatalogueImportExternalIdentifierDto {
 }
 
 export class CatalogueImportBibliographicRecordDto {
-  @ApiProperty({ example: 'MARCXCHANGE' })
-  @IsString()
-  @IsNotEmpty()
-  format!: string;
-
-  @ApiProperty({ example: 'UNIMARC' })
-  @IsString()
-  @IsNotEmpty()
-  schema!: string;
-
-  @ApiProperty({ example: 'PORBASE' })
-  @IsString()
-  @IsNotEmpty()
-  source!: string;
+  @ApiProperty({ enum: ['MARCXCHANGE', 'MARC_TEXT'] })
+  @IsIn(['MARCXCHANGE', 'MARC_TEXT'])
+  format!: 'MARCXCHANGE' | 'MARC_TEXT';
 
   @ApiPropertyOptional({ example: '3664836', nullable: true })
   @IsOptional()
@@ -277,12 +473,33 @@ export class CatalogueImportedExternalIdentifierDto {
   @ApiPropertyOptional({ nullable: true }) source?: string | null;
 }
 
+export class CatalogueImportedUnmappedSubfieldDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() code!: string;
+  @ApiProperty() value!: string;
+  @ApiProperty() sortOrder!: number;
+}
+
+export class CatalogueImportedUnmappedFieldDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() tag!: string;
+  @ApiPropertyOptional({ nullable: true }) indicator1?: string | null;
+  @ApiPropertyOptional({ nullable: true }) indicator2?: string | null;
+  @ApiProperty() occurrence!: number;
+  @ApiPropertyOptional({ nullable: true }) reason?: string | null;
+  @ApiProperty({ type: [CatalogueImportedUnmappedSubfieldDto] })
+  subfields!: CatalogueImportedUnmappedSubfieldDto[];
+}
+
 export class CatalogueImportedBibliographicRecordDto {
   @ApiProperty() id!: string;
   @ApiProperty() format!: string;
   @ApiProperty() rawContent!: string;
   @ApiPropertyOptional({ nullable: true }) source?: string | null;
+  @ApiPropertyOptional({ nullable: true }) sourceId?: string | null;
   @ApiPropertyOptional({ nullable: true }) remoteId?: string | null;
+  @ApiProperty({ type: [CatalogueImportedUnmappedFieldDto] })
+  unmappedSourceFields!: CatalogueImportedUnmappedFieldDto[];
 }
 
 export class CatalogueImportedPhysicalDescriptionPartDto {
@@ -328,6 +545,56 @@ export class CatalogueImportedItemDto {
   @ApiProperty() organizationId!: string;
 }
 
+export class CatalogueImportedTitleDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() type!: string;
+  @ApiProperty() value!: string;
+  @ApiPropertyOptional({ nullable: true }) subtitle?: string | null;
+  @ApiPropertyOptional({ nullable: true }) language?: string | null;
+  @ApiPropertyOptional({ nullable: true }) partNumber?: string | null;
+  @ApiPropertyOptional({ nullable: true }) partName?: string | null;
+  @ApiProperty() sortOrder!: number;
+}
+
+export class CatalogueImportedResponsibilityStatementDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() label!: string;
+  @ApiProperty() value!: string;
+  @ApiProperty() sortOrder!: number;
+}
+
+export class CatalogueImportedLanguageDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() code!: string;
+  @ApiProperty() role!: string;
+  @ApiProperty() sortOrder!: number;
+}
+
+export class CatalogueImportedSeriesDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() title!: string;
+  @ApiPropertyOptional({ nullable: true }) parallelTitle?: string | null;
+  @ApiPropertyOptional({ nullable: true }) volumeNumber?: string | null;
+  @ApiPropertyOptional({ nullable: true }) issn?: string | null;
+  @ApiProperty() sortOrder!: number;
+}
+
+export class CatalogueImportedNoteDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() type!: string;
+  @ApiProperty() value!: string;
+  @ApiProperty() sortOrder!: number;
+}
+
+export class CatalogueImportedClassificationDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() notation!: string;
+  @ApiProperty() system!: string;
+  @ApiPropertyOptional({ nullable: true }) systemEdition?: string | null;
+  @ApiPropertyOptional({ nullable: true }) authorityId?: string | null;
+  @ApiProperty() sortOrder!: number;
+}
+
 export class CatalogueImportedContributorDto {
   @ApiProperty() id!: string;
   @ApiProperty() name!: string;
@@ -351,11 +618,21 @@ export class CatalogueImportedContributionDto {
   @ApiProperty({ enum: ['PORBASE', 'MANUAL'] }) source!: string;
   @ApiPropertyOptional() roleLabel?: string | null;
   @ApiPropertyOptional() relationshipCodeScheme?: string | null;
+  @ApiPropertyOptional({ nullable: true }) authorityId?: string | null;
   @ApiPropertyOptional() sourceTag?: string | null;
   @ApiPropertyOptional() indicator1?: string | null;
   @ApiPropertyOptional() indicator2?: string | null;
   @ApiProperty({ type: [CatalogueImportedContributionSourcePartDto] })
   sourceParts!: CatalogueImportedContributionSourcePartDto[];
+}
+
+export class CatalogueImportedEditionStatementDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() value!: string;
+  @ApiProperty() kind!: string;
+  @ApiPropertyOptional({ nullable: true }) label?: string | null;
+  @ApiProperty() sortOrder!: number;
+  @ApiProperty() sourceTag!: string;
 }
 
 export class CatalogueImportedEditionDto {
@@ -390,6 +667,20 @@ export class CatalogueImportedEditionDto {
   contributions!: CatalogueImportedContributionDto[];
   @ApiProperty({ type: [CatalogueImportedItemDto] })
   items!: CatalogueImportedItemDto[];
+  @ApiProperty({ type: [CatalogueImportedTitleDto] })
+  titles!: CatalogueImportedTitleDto[];
+  @ApiProperty({ type: [CatalogueImportedResponsibilityStatementDto] })
+  responsibilityStatements!: CatalogueImportedResponsibilityStatementDto[];
+  @ApiProperty({ type: [CatalogueImportedLanguageDto] })
+  languages!: CatalogueImportedLanguageDto[];
+  @ApiProperty({ type: [CatalogueImportedSeriesDto] })
+  series!: CatalogueImportedSeriesDto[];
+  @ApiProperty({ type: [CatalogueImportedNoteDto] })
+  notes!: CatalogueImportedNoteDto[];
+  @ApiProperty({ type: [CatalogueImportedClassificationDto] })
+  classifications!: CatalogueImportedClassificationDto[];
+  @ApiProperty({ type: [CatalogueImportedEditionStatementDto] })
+  editionStatements!: CatalogueImportedEditionStatementDto[];
 }
 
 export class CatalogueImportedWorkDto {
@@ -406,6 +697,8 @@ export class CatalogueImportedWorkDto {
   contributions!: CatalogueImportedContributionDto[];
   @ApiProperty({ type: [CatalogueImportedBibliographicRecordDto] })
   bibliographicRecords!: CatalogueImportedBibliographicRecordDto[];
+  @ApiProperty({ type: [CatalogueImportedTitleDto] })
+  titles!: CatalogueImportedTitleDto[];
 }
 
 export class CatalogueImportResponseDto {

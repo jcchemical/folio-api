@@ -24,7 +24,7 @@ describe('PorbaseCatalogueProvider', () => {
     });
 
     expect(previews.createPreview).toHaveBeenCalledWith('9789724426495');
-    expect(imports.import).toHaveBeenCalledWith('user-1', input);
+    expect(imports.import).toHaveBeenCalledWith('user-1', input, 'porbase');
   });
 
   it('supports only ISBN searches and UNIMARC', async () => {

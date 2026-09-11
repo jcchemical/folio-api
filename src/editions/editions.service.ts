@@ -1,9 +1,16 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { EditionInput } from '../works/works.service.js';
-import { paginate, paginationArgs, type PaginationInput } from '../common/pagination.js';
+import {
+  paginate,
+  paginationArgs,
+  type PaginationInput,
+} from '../common/pagination.js';
 import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
-import { derivePublicationProjection, normalizePublicationDateLiteral } from './dto/publication-statement.dto.js';
+import {
+  derivePublicationProjection,
+  normalizePublicationDateLiteral,
+} from './dto/publication-statement.dto.js';
 
 @Injectable()
 export class EditionsService {
@@ -25,23 +32,45 @@ export class EditionsService {
       include: {
         work: {
           include: {
+            titles: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
             contributions: {
               orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-              include: { agent: true, sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+              include: {
+                agent: true,
+                sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+              },
             },
           },
         },
         contributions: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          include: { agent: true, sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+          include: {
+            agent: true,
+            sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+          },
         },
+        titles: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+        responsibilityStatements: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        },
+        languages: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+        series: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+        editionStatements: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        },
+        notes: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+        classifications: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
         physicalDescriptions: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+          include: {
+            parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+          },
         },
         publicationStatements: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+          include: {
+            parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+          },
         },
       },
       ...prisma,
@@ -55,27 +84,51 @@ export class EditionsService {
       include: {
         work: {
           include: {
+            titles: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
             workContributors: { include: { contributor: true } },
             contributions: {
               orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-              include: { agent: true, sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+              include: {
+                agent: true,
+                sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+              },
             },
           },
         },
         contributions: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          include: { agent: true, sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+          include: {
+            agent: true,
+            sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+          },
         },
         editionContributors: { include: { contributor: true } },
+        titles: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+        responsibilityStatements: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        },
+        languages: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+        series: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+        editionStatements: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        },
+        notes: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+        classifications: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
         physicalDescriptions: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+          include: {
+            parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+          },
         },
         publicationStatements: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+          include: {
+            parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+          },
         },
-        items: { where: { organization: { memberships: { some: { userId } } } } },
+        items: {
+          where: { organization: { memberships: { some: { userId } } } },
+        },
       },
     });
     await this.assertEditionAccess(edition, userId);
@@ -83,8 +136,16 @@ export class EditionsService {
     return {
       ...edition,
       contributions: [
-        ...contributionViews(edition.work.contributions, edition.work.workContributors, 'WORK'),
-        ...contributionViews(edition.contributions, edition.editionContributors, 'EDITION'),
+        ...contributionViews(
+          edition.work.contributions,
+          edition.work.workContributors,
+          'WORK',
+        ),
+        ...contributionViews(
+          edition.contributions,
+          edition.editionContributors,
+          'EDITION',
+        ),
       ],
     };
   }
@@ -97,15 +158,18 @@ export class EditionsService {
     const projection = publicationStatements?.length
       ? derivePublicationProjection({ statements: publicationStatements })
       : null;
-    if (projection?.warnings.length) this.logger.warn(JSON.stringify(projection.warnings));
+    if (projection?.warnings.length)
+      this.logger.warn(JSON.stringify(projection.warnings));
     return this.prisma.edition.create({
       data: {
         ...edition,
-        ...(projection ? {
-          publisher: projection.publisher,
-          publicationDate: projection.publicationDate,
-          publicationPlace: projection.publicationPlace,
-        } : {}),
+        ...(projection
+          ? {
+              publisher: projection.publisher,
+              publicationDate: projection.publicationDate,
+              publicationPlace: projection.publicationPlace,
+            }
+          : {}),
         pageCount: derivePageCount(physicalDescriptions),
         workId,
         physicalDescriptions: physicalDescriptions?.length
@@ -118,7 +182,9 @@ export class EditionsService {
       include: {
         physicalDescriptions: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+          include: {
+            parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+          },
         },
       },
     });
@@ -135,7 +201,9 @@ export class EditionsService {
           ...(publicationStatements !== undefined
             ? publicationStatements.length
               ? (() => {
-                  const projection = derivePublicationProjection({ statements: publicationStatements });
+                  const projection = derivePublicationProjection({
+                    statements: publicationStatements,
+                  });
                   this.logger.warn(JSON.stringify(projection.warnings));
                   return {
                     publisher: projection.publisher,
@@ -143,7 +211,11 @@ export class EditionsService {
                     publicationPlace: projection.publicationPlace,
                   };
                 })()
-              : { publisher: null, publicationDate: null, publicationPlace: null }
+              : {
+                  publisher: null,
+                  publicationDate: null,
+                  publicationPlace: null,
+                }
             : {}),
           ...(physicalDescriptions !== undefined
             ? { pageCount: derivePageCount(physicalDescriptions) }
@@ -151,7 +223,9 @@ export class EditionsService {
         },
       });
       if (physicalDescriptions !== undefined) {
-        await transaction.physicalDescription.deleteMany({ where: { editionId: id } });
+        await transaction.physicalDescription.deleteMany({
+          where: { editionId: id },
+        });
         if (physicalDescriptions.length) {
           await transaction.physicalDescription.createMany({
             data: physicalDescriptions.map((description) => ({
@@ -179,7 +253,9 @@ export class EditionsService {
         }
       }
       if (publicationStatements !== undefined) {
-        await transaction.publicationStatement.deleteMany({ where: { editionId: id } });
+        await transaction.publicationStatement.deleteMany({
+          where: { editionId: id },
+        });
         if (publicationStatements.length) {
           await transaction.publicationStatement.createMany({
             data: publicationStatements.map((statement) => ({
@@ -201,6 +277,7 @@ export class EditionsService {
                 subfield: part.subfield.toLowerCase(),
                 value: part.value.trim(),
                 sortOrder: part.sortOrder,
+                groupIndex: part.groupIndex ?? 0,
                 normalizedValue: null,
               })),
             });
@@ -212,11 +289,15 @@ export class EditionsService {
         include: {
           physicalDescriptions: {
             orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-            include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+            include: {
+              parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+            },
           },
           publicationStatements: {
             orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-            include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+            include: {
+              parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+            },
           },
         },
       });
@@ -224,7 +305,10 @@ export class EditionsService {
   }
 
   async remove(id: string, userId: string) {
-    const edition = await this.prisma.edition.findUnique({ where: { id }, include: { work: true } });
+    const edition = await this.prisma.edition.findUnique({
+      where: { id },
+      include: { work: true },
+    });
     await this.assertEditionWriteAccess(edition, userId);
     return this.prisma.edition.delete({ where: { id } });
   }
@@ -250,27 +334,42 @@ export class EditionsService {
     userId: string,
   ): Promise<void> {
     if (!edition) throw new NotFoundException('Edition not found');
-    await this.organizationMemberships.assertWorkWriteAccess(userId, edition.work);
+    await this.organizationMemberships.assertWorkWriteAccess(
+      userId,
+      edition.work,
+    );
   }
 }
 
 function contributionViews(
-  canonical: Array<{ id: string; sortOrder: number; agent: unknown }> ,
-  legacy: Array<{ id: string; role: string; sortOrder: number; contributor: { id: string; name: string } }>,
+  canonical: Array<{ id: string; sortOrder: number; agent: unknown }>,
+  legacy: Array<{
+    id: string;
+    role: string;
+    sortOrder: number;
+    contributor: { id: string; name: string };
+  }>,
   scope: 'WORK' | 'EDITION',
 ) {
-  if (canonical.length) return canonical.map((contribution) => ({ ...contribution, scope }));
+  if (canonical.length)
+    return canonical.map((contribution) => ({ ...contribution, scope }));
   return legacy.map((relation) => ({
     id: relation.id,
     sortOrder: relation.sortOrder,
     scope,
     roleLabel: relation.role,
-    agent: { id: relation.contributor.id, displayName: relation.contributor.name, kind: 'UNKNOWN' as const },
+    agent: {
+      id: relation.contributor.id,
+      displayName: relation.contributor.name,
+      kind: 'UNKNOWN' as const,
+    },
     sourceParts: [],
   }));
 }
 
-function toPhysicalDescriptionCreate(description: NonNullable<EditionInput['physicalDescriptions']>[number]) {
+function toPhysicalDescriptionCreate(
+  description: NonNullable<EditionInput['physicalDescriptions']>[number],
+) {
   return {
     sortOrder: description.sortOrder,
     source: description.source ?? null,
@@ -279,13 +378,18 @@ function toPhysicalDescriptionCreate(description: NonNullable<EditionInput['phys
         subfield: part.subfield.toLowerCase(),
         value: part.value.trim(),
         sortOrder: part.sortOrder,
-        normalizedValue: part.subfield.toLowerCase() === 'd' ? normalizePublicationDateLiteral(part.value.trim()) : null,
+        normalizedValue:
+          part.subfield.toLowerCase() === 'd'
+            ? normalizePublicationDateLiteral(part.value.trim())
+            : null,
       })),
     },
   };
 }
 
-function toPublicationStatementCreate(description: NonNullable<EditionInput['publicationStatements']>[number]) {
+function toPublicationStatementCreate(
+  description: NonNullable<EditionInput['publicationStatements']>[number],
+) {
   return {
     sortOrder: description.sortOrder,
     indicator1: description.indicator1 ?? ' ',
@@ -296,7 +400,11 @@ function toPublicationStatementCreate(description: NonNullable<EditionInput['pub
         subfield: part.subfield.toLowerCase(),
         value: part.value.trim(),
         sortOrder: part.sortOrder,
-                normalizedValue: part.subfield.toLowerCase() === 'd' ? normalizePublicationDateLiteral(part.value.trim()) : null,
+        groupIndex: part.groupIndex ?? 0,
+        normalizedValue:
+          part.subfield.toLowerCase() === 'd'
+            ? normalizePublicationDateLiteral(part.value.trim())
+            : null,
       })),
     },
   };

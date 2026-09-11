@@ -35,6 +35,16 @@ export class PublicationStatementPartDto {
   @IsInt()
   @Min(0)
   sortOrder!: number;
+
+  @ApiPropertyOptional({
+    example: 0,
+    description:
+      'Groups subfields belonging to the same 210 place/name/date occurrence (e.g. publication vs. distribution). Structural, not provenance.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  groupIndex?: number;
 }
 
 export class PublicationStatementDto {
@@ -67,6 +77,7 @@ export type PublicationStatementPartInput = {
   subfield: string;
   value: string;
   sortOrder: number;
+  groupIndex?: number;
 };
 
 export type PublicationStatementInput = {

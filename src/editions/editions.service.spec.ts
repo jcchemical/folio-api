@@ -18,9 +18,13 @@ function createService(role: OrganizationRole | null) {
       delete: vi.fn().mockResolvedValue(edition),
     },
     organizationMembership: {
-      findUnique: vi.fn().mockResolvedValue(
-        role ? { role, organization: { id: edition.work.organizationId } } : null,
-      ),
+      findUnique: vi
+        .fn()
+        .mockResolvedValue(
+          role
+            ? { role, organization: { id: edition.work.organizationId } }
+            : null,
+        ),
     },
   } as unknown as PrismaService;
   const memberships = new OrganizationMembershipService(prisma);
@@ -91,10 +95,13 @@ describe('EditionsService physical descriptions', () => {
     await service.create('user-1', 'work-1', {
       title: 'Edition',
       physicalDescriptions: [
-        { sortOrder: 0, parts: [
-          { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
-          { subfield: 'd', value: '24 cm', sortOrder: 1 },
-        ] },
+        {
+          sortOrder: 0,
+          parts: [
+            { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
+            { subfield: 'd', value: '24 cm', sortOrder: 1 },
+          ],
+        },
       ],
     });
 
@@ -104,10 +111,22 @@ describe('EditionsService physical descriptions', () => {
           create: [
             expect.objectContaining({
               sortOrder: 0,
-              parts: { create: [
-                { subfield: 'a', value: '146, [6] p.', sortOrder: 0, normalizedValue: null },
-                { subfield: 'd', value: '24 cm', sortOrder: 1, normalizedValue: null },
-              ] },
+              parts: {
+                create: [
+                  {
+                    subfield: 'a',
+                    value: '146, [6] p.',
+                    sortOrder: 0,
+                    normalizedValue: null,
+                  },
+                  {
+                    subfield: 'd',
+                    value: '24 cm',
+                    sortOrder: 1,
+                    normalizedValue: null,
+                  },
+                ],
+              },
             }),
           ],
         },
@@ -115,7 +134,9 @@ describe('EditionsService physical descriptions', () => {
       include: {
         physicalDescriptions: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+          include: {
+            parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+          },
         },
       },
     });
@@ -149,8 +170,9 @@ describe('EditionsService physical descriptions', () => {
           organization: { id: 'organization-1' },
         }),
       },
-      $transaction: vi.fn(async (callback: (tx: typeof transaction) => unknown) =>
-        callback(transaction),
+      $transaction: vi.fn(
+        async (callback: (tx: typeof transaction) => unknown) =>
+          callback(transaction),
       ),
     } as unknown as PrismaService;
     const service = new EditionsService(
@@ -160,24 +182,27 @@ describe('EditionsService physical descriptions', () => {
 
     await service.update('edition-1', userId, {
       physicalDescriptions: [
-        { sortOrder: 0, parts: [
-          { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
-        ] },
+        {
+          sortOrder: 0,
+          parts: [{ subfield: 'a', value: '146, [6] p.', sortOrder: 0 }],
+        },
       ],
     });
 
     expect(transaction.physicalDescription.deleteMany).toHaveBeenCalledWith({
       where: { editionId: 'edition-1' },
     });
-    expect(transaction.physicalDescriptionPart.createMany).toHaveBeenCalledWith({
-      data: [
-        expect.objectContaining({
-          subfield: 'a',
-          value: '146, [6] p.',
-          sortOrder: 0,
-        }),
-      ],
-    });
+    expect(transaction.physicalDescriptionPart.createMany).toHaveBeenCalledWith(
+      {
+        data: [
+          expect.objectContaining({
+            subfield: 'a',
+            value: '146, [6] p.',
+            sortOrder: 0,
+          }),
+        ],
+      },
+    );
   });
 });
 
@@ -186,12 +211,16 @@ describe('EditionsService publication statements update semantics', () => {
     const transaction = {
       edition: {
         update: vi.fn().mockResolvedValue({ id: 'edition-1' }),
-        findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 'edition-1', publicationStatements: [] }),
+        findUniqueOrThrow: vi
+          .fn()
+          .mockResolvedValue({ id: 'edition-1', publicationStatements: [] }),
       },
       publicationStatement: {
         deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
         createMany: vi.fn().mockResolvedValue({ count: 1 }),
-        findMany: vi.fn().mockResolvedValue([{ id: 'statement-1', sortOrder: 0 }]),
+        findMany: vi
+          .fn()
+          .mockResolvedValue([{ id: 'statement-1', sortOrder: 0 }]),
       },
       publicationStatementPart: {
         createMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -205,9 +234,18 @@ describe('EditionsService publication statements update semantics', () => {
           organization: { id: 'organization-1' },
         }),
       },
-      $transaction: vi.fn(async (callback: (tx: typeof transaction) => unknown) => callback(transaction)),
+      $transaction: vi.fn(
+        async (callback: (tx: typeof transaction) => unknown) =>
+          callback(transaction),
+      ),
     } as unknown as PrismaService;
-    return { service: new EditionsService(prisma, new OrganizationMembershipService(prisma)), transaction };
+    return {
+      service: new EditionsService(
+        prisma,
+        new OrganizationMembershipService(prisma),
+      ),
+      transaction,
+    };
   }
 
   const statement = {
@@ -232,7 +270,9 @@ describe('EditionsService publication statements update semantics', () => {
 
     await service.update(edition.id, userId, { publicationStatements: [] });
 
-    expect(transaction.publicationStatement.deleteMany).toHaveBeenCalledWith({ where: { editionId: edition.id } });
+    expect(transaction.publicationStatement.deleteMany).toHaveBeenCalledWith({
+      where: { editionId: edition.id },
+    });
     expect(transaction.publicationStatement.createMany).not.toHaveBeenCalled();
     expect(transaction.edition.update).toHaveBeenCalledWith({
       where: { id: edition.id },
@@ -243,18 +283,118 @@ describe('EditionsService publication statements update semantics', () => {
   it('replaces statements and recomputes projections for a non-empty list', async () => {
     const { service, transaction } = createUpdateService();
 
-    await service.update(edition.id, userId, { publicationStatements: [statement] });
-
-    expect(transaction.publicationStatement.deleteMany).toHaveBeenCalledWith({ where: { editionId: edition.id } });
-    expect(transaction.publicationStatement.createMany).toHaveBeenCalledWith({
-      data: [{ editionId: edition.id, sortOrder: 0, indicator1: ' ', indicator2: '9', source: null }],
+    await service.update(edition.id, userId, {
+      publicationStatements: [statement],
     });
-    expect(transaction.publicationStatementPart.createMany).toHaveBeenCalledWith({
-      data: [{ publicationStatementId: 'statement-1', subfield: 'c', value: 'Editora', sortOrder: 0, normalizedValue: null }],
+
+    expect(transaction.publicationStatement.deleteMany).toHaveBeenCalledWith({
+      where: { editionId: edition.id },
+    });
+    expect(transaction.publicationStatement.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          editionId: edition.id,
+          sortOrder: 0,
+          indicator1: ' ',
+          indicator2: '9',
+          source: null,
+        },
+      ],
+    });
+    expect(
+      transaction.publicationStatementPart.createMany,
+    ).toHaveBeenCalledWith({
+      data: [
+        {
+          publicationStatementId: 'statement-1',
+          subfield: 'c',
+          value: 'Editora',
+          sortOrder: 0,
+          groupIndex: 0,
+          normalizedValue: null,
+        },
+      ],
     });
     expect(transaction.edition.update).toHaveBeenCalledWith({
       where: { id: edition.id },
-      data: { publisher: 'Editora', publicationDate: null, publicationPlace: null },
+      data: {
+        publisher: 'Editora',
+        publicationDate: null,
+        publicationPlace: null,
+      },
     });
+  });
+});
+
+describe('EditionsService Phase 1 canonical read model', () => {
+  it('requests titles, responsibility statements, languages, series, notes and classifications ordered deterministically', async () => {
+    const fullEdition = {
+      ...edition,
+      work: { ...edition.work, workContributors: [], contributions: [] },
+      contributions: [],
+      editionContributors: [],
+      titles: [],
+      responsibilityStatements: [],
+      languages: [],
+      series: [],
+      notes: [],
+      classifications: [],
+      physicalDescriptions: [],
+      publicationStatements: [],
+      items: [],
+    };
+    const prisma = {
+      edition: { findUnique: vi.fn().mockResolvedValue(fullEdition) },
+      organizationMembership: {
+        findUnique: vi.fn().mockResolvedValue({
+          role: OrganizationRole.STAFF,
+          organization: { id: edition.work.organizationId },
+        }),
+      },
+    } as unknown as PrismaService;
+    const memberships = new OrganizationMembershipService(prisma);
+    const service = new EditionsService(prisma, memberships);
+
+    await service.findById(edition.id, userId);
+
+    const call = (
+      prisma.edition.findUnique as unknown as {
+        mock: { calls: unknown[][] };
+      }
+    ).mock.calls[0][0] as {
+      include: {
+        titles: { orderBy: unknown[] };
+        responsibilityStatements: { orderBy: unknown[] };
+        languages: { orderBy: unknown[] };
+        series: { orderBy: unknown[] };
+        notes: { orderBy: unknown[] };
+        classifications: { orderBy: unknown[] };
+      };
+    };
+
+    expect(call.include.titles.orderBy).toEqual([
+      { sortOrder: 'asc' },
+      { id: 'asc' },
+    ]);
+    expect(call.include.responsibilityStatements.orderBy).toEqual([
+      { sortOrder: 'asc' },
+      { id: 'asc' },
+    ]);
+    expect(call.include.languages.orderBy).toEqual([
+      { sortOrder: 'asc' },
+      { id: 'asc' },
+    ]);
+    expect(call.include.series.orderBy).toEqual([
+      { sortOrder: 'asc' },
+      { id: 'asc' },
+    ]);
+    expect(call.include.notes.orderBy).toEqual([
+      { sortOrder: 'asc' },
+      { id: 'asc' },
+    ]);
+    expect(call.include.classifications.orderBy).toEqual([
+      { sortOrder: 'asc' },
+      { id: 'asc' },
+    ]);
   });
 });

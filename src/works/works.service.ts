@@ -6,11 +6,18 @@ import {
 } from '@nestjs/common';
 import { OrganizationRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { paginate, paginationArgs, type PaginationInput } from '../common/pagination.js';
+import {
+  paginate,
+  paginationArgs,
+  type PaginationInput,
+} from '../common/pagination.js';
 import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
 import type { PhysicalDescriptionInput } from '../editions/dto/physical-description.dto.js';
 import type { PublicationStatementInput } from '../editions/dto/publication-statement.dto.js';
-import { derivePublicationProjection, normalizePublicationDateLiteral } from '../editions/dto/publication-statement.dto.js';
+import {
+  derivePublicationProjection,
+  normalizePublicationDateLiteral,
+} from '../editions/dto/publication-statement.dto.js';
 
 export interface EditionInput {
   title: string;
@@ -50,22 +57,41 @@ export class WorksService {
 
   async findAllByUser(userId: string, query: PaginationInput = {}) {
     const { limit, prisma } = paginationArgs(query);
-    const organizations = await this.organizationMemberships.getOrganizations(userId);
-    const organizationIds = organizations.map(({ organization }) => organization.id);
+    const organizations =
+      await this.organizationMemberships.getOrganizations(userId);
+    const organizationIds = organizations.map(
+      ({ organization }) => organization.id,
+    );
     const rows = await this.prisma.work.findMany({
       where: { organizationId: { in: organizationIds } },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       include: {
         organization: true,
+        titles: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
         editions: {
           include: {
+            titles: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+            responsibilityStatements: {
+              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+            },
+            languages: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+            series: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+            editionStatements: {
+              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+            },
+            notes: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+            classifications: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
             physicalDescriptions: {
               orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-              include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+              include: {
+                parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+              },
             },
             publicationStatements: {
               orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-              include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+              include: {
+                parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+              },
             },
           },
         },
@@ -80,20 +106,39 @@ export class WorksService {
       where: { id },
       include: {
         organization: true,
+        titles: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
         workContributors: { include: { contributor: true } },
         contributions: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          include: { agent: true, sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+          include: {
+            agent: true,
+            sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+          },
         },
         editions: {
           include: {
+            titles: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+            responsibilityStatements: {
+              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+            },
+            languages: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+            series: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+            editionStatements: {
+              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+            },
+            notes: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+            classifications: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
             physicalDescriptions: {
               orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-              include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+              include: {
+                parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+              },
             },
             publicationStatements: {
               orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-              include: { parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+              include: {
+                parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+              },
             },
           },
         },
@@ -105,13 +150,20 @@ export class WorksService {
     return {
       ...work,
       contributions: (work.contributions ?? []).length
-        ? (work.contributions ?? []).map((contribution) => ({ ...contribution, scope: 'WORK' as const }))
+        ? (work.contributions ?? []).map((contribution) => ({
+            ...contribution,
+            scope: 'WORK' as const,
+          }))
         : (work.workContributors ?? []).map((relation) => ({
             id: relation.id,
             sortOrder: relation.sortOrder,
             scope: 'WORK' as const,
             roleLabel: relation.role,
-            agent: { id: relation.contributor.id, displayName: relation.contributor.name, kind: 'UNKNOWN' as const },
+            agent: {
+              id: relation.contributor.id,
+              displayName: relation.contributor.name,
+              kind: 'UNKNOWN' as const,
+            },
             sourceParts: [],
           })),
     };
@@ -141,21 +193,30 @@ export class WorksService {
 
     if (editions?.length) {
       await Promise.all(
-        editions.map(({ physicalDescriptions, publicationStatements, ...edition }) =>
-          this.prisma.edition.create({
-            data: {
-              ...edition,
-              ...projectionData(publicationStatements),
-              workId: work.id,
-              pageCount: derivePageCount(physicalDescriptions),
-              physicalDescriptions: physicalDescriptions?.length
-                ? { create: physicalDescriptions.map(toPhysicalDescriptionCreate) }
-                : undefined,
-              publicationStatements: publicationStatements?.length
-                ? { create: publicationStatements.map(toPublicationStatementCreate) }
-                : undefined,
-            },
-          }),
+        editions.map(
+          ({ physicalDescriptions, publicationStatements, ...edition }) =>
+            this.prisma.edition.create({
+              data: {
+                ...edition,
+                ...projectionData(publicationStatements),
+                workId: work.id,
+                pageCount: derivePageCount(physicalDescriptions),
+                physicalDescriptions: physicalDescriptions?.length
+                  ? {
+                      create: physicalDescriptions.map(
+                        toPhysicalDescriptionCreate,
+                      ),
+                    }
+                  : undefined,
+                publicationStatements: publicationStatements?.length
+                  ? {
+                      create: publicationStatements.map(
+                        toPublicationStatementCreate,
+                      ),
+                    }
+                  : undefined,
+              },
+            }),
         ),
       );
     }
@@ -171,9 +232,8 @@ export class WorksService {
     const work = await this.prisma.work.findUnique({ where: { id } });
     if (!work) throw new NotFoundException('Work not found');
     await this.organizationMemberships.assertWorkWriteAccess(userId, work);
-    const targetOrganizationId = organizationId === undefined
-      ? work.organizationId
-      : organizationId;
+    const targetOrganizationId =
+      organizationId === undefined ? work.organizationId : organizationId;
     await this.organizationMemberships.assertRole(
       userId,
       targetOrganizationId,
@@ -190,21 +250,30 @@ export class WorksService {
         await transaction.edition.deleteMany({ where: { workId: id } });
         if (editions.length) {
           await Promise.all(
-            editions.map(({ physicalDescriptions, publicationStatements, ...edition }) =>
-              transaction.edition.create({
-                data: {
-                  ...edition,
-                  ...projectionData(publicationStatements),
-                  workId: id,
-                  pageCount: derivePageCount(physicalDescriptions),
-                  physicalDescriptions: physicalDescriptions?.length
-                    ? { create: physicalDescriptions.map(toPhysicalDescriptionCreate) }
-                    : undefined,
-                  publicationStatements: publicationStatements?.length
-                    ? { create: publicationStatements.map(toPublicationStatementCreate) }
-                    : undefined,
-                },
-              }),
+            editions.map(
+              ({ physicalDescriptions, publicationStatements, ...edition }) =>
+                transaction.edition.create({
+                  data: {
+                    ...edition,
+                    ...projectionData(publicationStatements),
+                    workId: id,
+                    pageCount: derivePageCount(physicalDescriptions),
+                    physicalDescriptions: physicalDescriptions?.length
+                      ? {
+                          create: physicalDescriptions.map(
+                            toPhysicalDescriptionCreate,
+                          ),
+                        }
+                      : undefined,
+                    publicationStatements: publicationStatements?.length
+                      ? {
+                          create: publicationStatements.map(
+                            toPublicationStatementCreate,
+                          ),
+                        }
+                      : undefined,
+                  },
+                }),
             ),
           );
         }
@@ -226,7 +295,9 @@ export class WorksService {
   }
 }
 
-function toPhysicalDescriptionCreate(description: NonNullable<EditionInput['physicalDescriptions']>[number]) {
+function toPhysicalDescriptionCreate(
+  description: NonNullable<EditionInput['physicalDescriptions']>[number],
+) {
   return {
     sortOrder: description.sortOrder,
     source: description.source ?? null,
@@ -241,15 +312,26 @@ function toPhysicalDescriptionCreate(description: NonNullable<EditionInput['phys
   };
 }
 
-function toPublicationStatementCreate(statement: NonNullable<EditionInput['publicationStatements']>[number]) {
+function toPublicationStatementCreate(
+  statement: NonNullable<EditionInput['publicationStatements']>[number],
+) {
   return {
     sortOrder: statement.sortOrder,
     indicator1: statement.indicator1 ?? ' ',
     indicator2: statement.indicator2 ?? '9',
     source: null,
-    parts: { create: statement.parts.map((part) => ({
-      subfield: part.subfield.toLowerCase(), value: part.value.trim(), sortOrder: part.sortOrder, normalizedValue: part.subfield.toLowerCase() === 'd' ? normalizePublicationDateLiteral(part.value.trim()) : null,
-    })) },
+    parts: {
+      create: statement.parts.map((part) => ({
+        subfield: part.subfield.toLowerCase(),
+        value: part.value.trim(),
+        sortOrder: part.sortOrder,
+        groupIndex: part.groupIndex ?? 0,
+        normalizedValue:
+          part.subfield.toLowerCase() === 'd'
+            ? normalizePublicationDateLiteral(part.value.trim())
+            : null,
+      })),
+    },
   };
 }
 

@@ -50,7 +50,11 @@ export class PorbaseCatalogueProvider implements CatalogueProvider {
     userId: string,
     input: CatalogueImportDto,
   ): Promise<CatalogueImportResponseDto> {
-    const result = await this.porbaseImportService.import(userId, input);
+    const result = await this.porbaseImportService.import(
+      userId,
+      input,
+      this.id,
+    );
     return { ...result, sourceId: this.id };
   }
 
