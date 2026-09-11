@@ -33,7 +33,7 @@ Compatibilidade só deve existir quando reduz risco real de produto, não por ap
 - Documentação: Swagger UI em `/docs`;
 - CORS configurado para desenvolvimento local.
 
-A configuração do Prisma 7 usa `prisma.config.ts`; o `datasource` do schema não contém `url`. O cliente gerado em `src/generated/prisma/` é output e não deve ser editado manualmente.
+A configuração do Prisma 7 usa `prisma.config.ts`; o `datasource` do schema não contém `url`. O cliente gerado em `node_modules/.prisma/client` é output e não deve ser editado manualmente.
 
 ## Arquitectura
 
@@ -397,6 +397,66 @@ Decisão:
 - o export local emite uma ocorrência `215` por `PhysicalDescription` antes de recorrer ao fallback numérico `pageCount`.
 
 `Edition.publicationDate` é uma string canónica opcional com exactamente uma das formas `YYYY`, `YYYY-MM` ou `YYYY-MM-DD`. A validação inclui calendário real e anos bissextos. A precisão é derivada em runtime da forma da string; não existe enum redundante persistido. Datas parciais nunca são convertidas em datas completas.
+
+### Modelo canónico Phase 1 (fundação de schema)
+
+A Iteration 1F-API.1 introduziu a fundação de schema do modelo canónico Phase
+
+1. Apenas o schema Prisma foi alterado nesta sub-iteração; o parser PORBASE, o
+   mapper de preview e a persistência de importação continuam a escrever apenas
+   nos campos escalares legados e ainda não escrevem nestas relações novas. Isso
+   fica para uma sub-iteração posterior.
+
+Novos modelos, todos ligados por relações Prisma reais (nunca `ownerType`
+
+- `ownerId` polimórfico):
+
+* `WorkTitle` e `EditionTitle`: títulos repetíveis e tipados (`MAIN`,
+  `PARALLEL`, `VARIANT`, `OTHER`), com `subtitle`, `language` e `sortOrder`
+  próprios;
+* `ResponsibilityStatement` (ligado só a `Edition`): transcrição literal de
+  `200$f`/`200$g`, deliberadamente separada do grafo estruturado
+  `Agent`/`Contribution`;
+* `EditionLanguage`: línguas repetíveis por edição, com `role` (`TEXT`,
+  `ORIGINAL_LANGUAGE`, `PARALLEL_TEXT`, `SUBTITLES`);
+* `Series` (ligado a `Edition`): série básica (`title`, `volumeNumber`,
+  `issn`);
+* `BibliographicNote`: nota tipada (`GENERAL`, `BIBLIOGRAPHY`, `CONTENTS`,
+  `SUMMARY`, `PROVENANCE`, `DISSERTATION`, `OTHER`) ligada a exactamente um de
+  `Work` ou `Edition`, com a mesma invariante XOR de `Contribution`, incluindo
+  um `CHECK` a nível de base de dados;
+* `Classification` (ligado a `Edition`): classificação mínima com `notation`,
+  `system`, `systemEdition` opcional e `authorityId` opcional;
+* `UnmappedSourceField` + `UnmappedSourceSubfield` (ligados a
+  `BibliographicRecord`): preservam datafields de origem que um mapper não
+  conseguiu mapear para um conceito Phase 1 (`tag`, `indicator1`,
+  `indicator2`, `occurrence`, `reason`, subcampos ordenados), sem substituir
+  `BibliographicRecord.rawContent`.
+
+`BibliographicRecord` ganhou também `sourceId` opcional, espelhando o
+`sourceId` já devolvido pela API de catálogo (Iteration 1E) para alinhar a
+proveniência persistida com a proveniência da resposta pública.
+
+Contribuidores corporativos (UNIMARC 710–713) não exigiram alteração de
+schema: `Contribution.sourceTag` já era `Char(3)` livre, sem enum na base de
+dados; só o mapper (fase futura) precisa de aceitar estes códigos, reutilizando
+`Agent`/`Contribution` sem um segundo sistema de contribuidores.
+
+Os campos escalares seguintes permanecem, mas são agora **projecções
+transitórias**, não a fonte de verdade: `Work.title`, `Work.subtitle`,
+`Edition.title`, `Edition.subtitle`, `Edition.language`. `Edition.publisher`,
+`Edition.publicationDate` e `Edition.publicationPlace` continuam a projecção
+já existente de `PublicationStatement`. A fonte de verdade passa a ser,
+respectivamente, `WorkTitle`/`EditionTitle` (tipo `MAIN`) e `EditionLanguage`
+(role `TEXT`). Os serviços actuais (`WorksService`, `EditionsService`, o
+parser e o mapper de exportação) ainda só leem/escrevem os escalares; a
+migração destes serviços para as relações estruturadas é trabalho de uma
+sub-iteração posterior.
+
+A migração é aditiva: cria as tabelas/enums novos e faz backfill de
+`WorkTitle`/`EditionTitle`/`EditionLanguage` a partir dos escalares
+existentes (sem inventar valores bibliográficos); não elimina nenhuma tabela
+ou coluna existente.
 
 ## Autenticação e segurança
 
