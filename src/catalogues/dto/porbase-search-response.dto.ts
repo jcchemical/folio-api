@@ -3,6 +3,26 @@ import { PhysicalDescriptionDto } from '../../editions/dto/physical-description.
 import { CataloguePublicationStatementDto } from './catalogue-publication-statement.dto.js';
 import { CatalogueContributionDto } from './catalogue-contribution.dto.js';
 import { CatalogueWarningDto } from './catalogue-warning.dto.js';
+import { CatalogueTitleDto } from './catalogue-title.dto.js';
+import { CatalogueResponsibilityStatementDto } from './catalogue-responsibility-statement.dto.js';
+import { CatalogueLanguageDto } from './catalogue-language.dto.js';
+import { CatalogueSeriesDto } from './catalogue-series.dto.js';
+import { CatalogueNoteDto } from './catalogue-note.dto.js';
+import { CatalogueClassificationDto } from './catalogue-classification.dto.js';
+import { CatalogueUnmappedFieldDto } from './catalogue-unmapped-field.dto.js';
+import { CatalogueEditionStatementDto } from './catalogue-edition-statement.dto.js';
+import { CatalogueSourceIdentifierDto } from './catalogue-source-identifier.dto.js';
+
+export type CatalogueResourceType =
+  | 'TEXT'
+  | 'NOTATED_MUSIC'
+  | 'CARTOGRAPHIC'
+  | 'SOUND'
+  | 'STILL_IMAGE'
+  | 'MOVING_IMAGE'
+  | 'ELECTRONIC'
+  | 'MIXED'
+  | 'UNSPECIFIED';
 
 export class PorbaseBibliographicFieldsDto {
   @ApiPropertyOptional({ example: 'O Principezinho' })
@@ -23,8 +43,44 @@ export class PorbaseBibliographicFieldsDto {
   @ApiPropertyOptional({ example: 'por' })
   language?: string;
 
+  @ApiPropertyOptional({ example: 'PT' })
+  country?: string;
+
   @ApiPropertyOptional({ example: '3664836' })
   recordId?: string;
+
+  @ApiProperty({ type: [CatalogueSourceIdentifierDto] })
+  sourceIdentifiers!: CatalogueSourceIdentifierDto[];
+
+  @ApiProperty({ type: [CatalogueTitleDto] })
+  titles!: CatalogueTitleDto[];
+
+  @ApiProperty({ type: [CatalogueResponsibilityStatementDto] })
+  responsibilityStatements!: CatalogueResponsibilityStatementDto[];
+
+  @ApiProperty({ type: [CatalogueLanguageDto] })
+  languages!: CatalogueLanguageDto[];
+
+  @ApiProperty({ type: [CatalogueEditionStatementDto] })
+  editionStatements!: CatalogueEditionStatementDto[];
+
+  @ApiPropertyOptional({ nullable: true })
+  generalMaterialDesignation?: string | null;
+
+  @ApiProperty({
+    enum: [
+      'TEXT',
+      'NOTATED_MUSIC',
+      'CARTOGRAPHIC',
+      'SOUND',
+      'STILL_IMAGE',
+      'MOVING_IMAGE',
+      'ELECTRONIC',
+      'MIXED',
+      'UNSPECIFIED',
+    ],
+  })
+  resourceType!: CatalogueResourceType;
 
   @ApiPropertyOptional({ example: ['Carlos Leite'] })
   translators?: string[];
@@ -44,13 +100,17 @@ export class PorbaseBibliographicFieldsDto {
   @ApiProperty({ type: [CataloguePublicationStatementDto], required: false })
   publicationStatements?: CataloguePublicationStatementDto[];
 
-  @ApiPropertyOptional({ example: ['4-(1)-40-5-39'] })
-  shelfmarks?: string[];
+  @ApiProperty({ type: [CatalogueSeriesDto] })
+  series!: CatalogueSeriesDto[];
 
-  @ApiPropertyOptional({
-    example: ['http://id.bnportugal.gov.pt/bib/porbase/3664836'],
-  })
-  identifiers?: string[];
+  @ApiProperty({ type: [CatalogueNoteDto] })
+  notes!: CatalogueNoteDto[];
+
+  @ApiProperty({ type: [CatalogueClassificationDto] })
+  classifications!: CatalogueClassificationDto[];
+
+  @ApiProperty({ type: [CatalogueUnmappedFieldDto] })
+  unmappedFields!: CatalogueUnmappedFieldDto[];
 }
 
 export type PorbaseDetectedFormat =

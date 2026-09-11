@@ -13,8 +13,9 @@ export class CatalogueContributionDto {
   @ApiProperty() displayName!: string;
   @ApiPropertyOptional() roleLabel?: string;
   @ApiPropertyOptional() relationshipCodeScheme?: string;
-  @ApiProperty({ enum: ['700', '701', '702'] }) sourceTag!:
-    '700' | '701' | '702';
+  @ApiPropertyOptional({ nullable: true }) authorityId?: string | null;
+  @ApiProperty({ enum: ['700', '701', '702', '710', '711', '712', '713'] })
+  sourceTag!: '700' | '701' | '702' | '710' | '711' | '712' | '713';
   @ApiProperty() indicator1!: string;
   @ApiProperty() indicator2!: string;
   @ApiProperty() sortOrder!: number;

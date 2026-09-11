@@ -10,6 +10,16 @@ import {
   CatalogueWarningType,
 } from './dto/catalogue-warning.dto.js';
 import type { CataloguePublicationStatementDto } from './dto/catalogue-publication-statement.dto.js';
+import type { CatalogueTitleDto } from './dto/catalogue-title.dto.js';
+import type { CatalogueResponsibilityStatementDto } from './dto/catalogue-responsibility-statement.dto.js';
+import type { CatalogueLanguageDto } from './dto/catalogue-language.dto.js';
+import type { CatalogueSeriesDto } from './dto/catalogue-series.dto.js';
+import type { CatalogueNoteDto } from './dto/catalogue-note.dto.js';
+import type { CatalogueClassificationDto } from './dto/catalogue-classification.dto.js';
+import type { CatalogueUnmappedFieldDto } from './dto/catalogue-unmapped-field.dto.js';
+import type { CatalogueEditionStatementDto } from './dto/catalogue-edition-statement.dto.js';
+import type { CatalogueSourceIdentifierDto } from './dto/catalogue-source-identifier.dto.js';
+import type { CatalogueResourceType } from './dto/porbase-search-response.dto.js';
 import { PorbaseXmlError } from './catalogues.types.js';
 import { isValidBibliographicDate } from '../common/bibliographic-date.js';
 
@@ -145,6 +155,8 @@ function parseMarcTextResponse(
 
 interface TextField {
   tag: string;
+  indicator1: string;
+  indicator2: string;
   value: string;
   subfields: Map<string, string[]>;
   orderedSubfields: Array<{ code: string; value: string }>;
@@ -194,7 +206,14 @@ function parseMarcTextFields(
         ),
       );
     }
-    fields.push({ tag, value, subfields, orderedSubfields });
+    fields.push({
+      tag,
+      indicator1: ' ',
+      indicator2: ' ',
+      value,
+      subfields,
+      orderedSubfields,
+    });
   }
   return fields;
 }
@@ -206,14 +225,30 @@ function extractTextMetadata(
   const metadata: PorbaseBibliographicFieldsDto = {
     authors: [],
     translators: [],
-    shelfmarks: [],
-    identifiers: [],
+    sourceIdentifiers: [],
+    titles: [],
+    responsibilityStatements: [],
+    languages: [],
+    editionStatements: [],
+    resourceType: 'UNSPECIFIED',
+    series: [],
+    notes: [],
+    classifications: [],
+    unmappedFields: [],
   };
 
   metadata.recordId = firstValue(fields, '001');
+  metadata.sourceIdentifiers = extractSourceIdentifiersFromText(fields);
   metadata.isbn = firstSubfieldValue(fields, '010', 'a');
   metadata.language = firstSubfieldValue(fields, '101', 'a');
+  metadata.country = firstSubfieldValue(fields, '102', 'a');
   metadata.title = firstSubfieldValue(fields, '200', 'a');
+  metadata.titles = extractTitlesFromText(fields);
+  metadata.responsibilityStatements = extractResponsibilitiesFromText(fields);
+  metadata.languages = extractLanguagesFromText(fields);
+  metadata.editionStatements = extractEditionStatementsFromText(fields);
+  metadata.generalMaterialDesignation = firstSubfieldValue(fields, '200', 'b');
+  metadata.resourceType = resourceTypeFor(metadata.generalMaterialDesignation);
   metadata.placeOfPublication = firstSubfieldValue(fields, '210', 'a');
   metadata.publisher = firstSubfieldValue(fields, '210', 'c');
   metadata.publicationDate = normalizePublicationDate(
@@ -226,6 +261,9 @@ function extractTextMetadata(
     fields,
     warnings,
   );
+  metadata.series = extractSeriesFromText(fields);
+  metadata.notes = extractNotesFromText(fields);
+  metadata.classifications = extractClassificationsFromText(fields);
 
   const authorFields = fields.filter((field) =>
     ['700', '701'].includes(field.tag),
@@ -268,14 +306,7 @@ function extractTextMetadata(
     }
   }
 
-  metadata.shelfmarks = fields
-    .filter((field) => field.tag === '966')
-    .flatMap((field) => field.subfields.get('s') ?? [])
-    .filter(Boolean);
-  metadata.identifiers = fields
-    .filter((field) => ['003', '035', '675'].includes(field.tag))
-    .flatMap((field) => [field.value, ...(field.subfields.get('a') ?? [])])
-    .filter(Boolean);
+  metadata.unmappedFields = collectUnmappedTextFields(fields);
 
   if (!metadata.title) {
     warnings.push(
@@ -307,14 +338,30 @@ function extractXmlMetadata(
   const metadata: PorbaseBibliographicFieldsDto = {
     authors: [],
     translators: [],
-    shelfmarks: [],
-    identifiers: [],
+    sourceIdentifiers: [],
+    titles: [],
+    responsibilityStatements: [],
+    languages: [],
+    editionStatements: [],
+    resourceType: 'UNSPECIFIED',
+    series: [],
+    notes: [],
+    classifications: [],
+    unmappedFields: [],
   };
 
   metadata.recordId = firstControlfield(record, '001');
+  metadata.sourceIdentifiers = extractSourceIdentifiersFromXml(record);
   metadata.isbn = firstSubfield(record, '010', 'a');
   metadata.language = firstSubfield(record, '101', 'a');
+  metadata.country = firstSubfield(record, '102', 'a');
   metadata.title = firstSubfield(record, '200', 'a');
+  metadata.titles = extractTitlesFromXml(record);
+  metadata.responsibilityStatements = extractResponsibilitiesFromXml(record);
+  metadata.languages = extractLanguagesFromXml(record);
+  metadata.editionStatements = extractEditionStatementsFromXml(record);
+  metadata.generalMaterialDesignation = firstSubfield(record, '200', 'b');
+  metadata.resourceType = resourceTypeFor(metadata.generalMaterialDesignation);
   metadata.placeOfPublication = firstSubfield(record, '210', 'a');
   metadata.publisher = firstSubfield(record, '210', 'c');
   metadata.publicationDate = normalizePublicationDate(
@@ -327,6 +374,9 @@ function extractXmlMetadata(
     record,
     warnings,
   );
+  metadata.series = extractSeriesFromXml(record);
+  metadata.notes = extractNotesFromXml(record);
+  metadata.classifications = extractClassificationsFromXml(record);
 
   metadata.authors = ['700', '701']
     .flatMap((tag) => datafields(record, tag).map(contributorNameFromXml))
@@ -343,14 +393,7 @@ function extractXmlMetadata(
     if (translator) metadata.translators = [translator];
   }
 
-  metadata.shelfmarks = datafields(record, '966').flatMap((field) =>
-    subfieldValues(field, 's'),
-  );
-  metadata.identifiers = [
-    ...controlfieldValues(record, '003'),
-    ...datafields(record, '035').flatMap((field) => subfieldValues(field, 'a')),
-    ...datafields(record, '675').flatMap((field) => subfieldValues(field, '3')),
-  ];
+  metadata.unmappedFields = collectUnmappedXmlFields(record);
 
   return metadata;
 }
@@ -443,10 +486,401 @@ function emptyMetadata(): PorbaseBibliographicFieldsDto {
   return {
     authors: [],
     translators: [],
-    shelfmarks: [],
-    identifiers: [],
+    sourceIdentifiers: [],
+    titles: [],
+    responsibilityStatements: [],
+    languages: [],
+    editionStatements: [],
+    resourceType: 'UNSPECIFIED',
+    series: [],
+    notes: [],
+    classifications: [],
+    unmappedFields: [],
     physicalDescriptions: [],
   };
+}
+
+function extractTitlesFromText(fields: TextField[]): CatalogueTitleDto[] {
+  const titles: CatalogueTitleDto[] = [];
+  for (const field of fields) {
+    const values = field.subfields;
+    if (field.tag === '200') {
+      const mainValues = values.get('a') ?? [];
+      mainValues.forEach((value, index) =>
+        titles.push({
+          type: index === 0 ? 'MAIN' : 'OTHER',
+          value,
+          sortOrder: titles.length,
+          sourceTag: '200',
+        }),
+      );
+      pushTitleSubfields(titles, values, 'd', 'PARALLEL', '200');
+      pushTitleSubfields(titles, values, 'e', 'OTHER', '200');
+      pushTitleSubfields(titles, values, 'h', 'OTHER', '200', 'partNumber');
+      pushTitleSubfields(titles, values, 'i', 'OTHER', '200', 'partName');
+    } else if (isVariantTitleTag(field.tag)) {
+      (values.get('a') ?? []).forEach((value) =>
+        titles.push({
+          type: 'VARIANT',
+          value,
+          sortOrder: titles.length,
+          sourceTag: field.tag,
+        }),
+      );
+      (values.get('e') ?? []).forEach((value) =>
+        titles.push({
+          type: 'VARIANT',
+          value,
+          sortOrder: titles.length,
+          sourceTag: field.tag,
+        }),
+      );
+    }
+  }
+  return titles;
+}
+
+function pushTitleSubfields(
+  titles: CatalogueTitleDto[],
+  values: Map<string, string[]>,
+  code: string,
+  type: CatalogueTitleDto['type'],
+  sourceTag: string,
+  property?: 'partNumber' | 'partName',
+): void {
+  (values.get(code) ?? []).forEach((value) => {
+    titles.push({
+      type,
+      value,
+      sortOrder: titles.length,
+      sourceTag,
+      ...(property ? { [property]: value } : {}),
+    } as CatalogueTitleDto);
+  });
+}
+
+function extractTitlesFromXml(record: XmlObject): CatalogueTitleDto[] {
+  return extractTitlesFromText(datafields(record).map(toTextField));
+}
+
+function isVariantTitleTag(tag: string): boolean {
+  const number = Number(tag);
+  return (number >= 510 && number <= 545) || tag === '500' || tag === '560';
+}
+
+function extractResponsibilitiesFromText(
+  fields: TextField[],
+): CatalogueResponsibilityStatementDto[] {
+  return fields
+    .filter(({ tag }) => tag === '200')
+    .flatMap((field) =>
+      ['f', 'g'].flatMap((code) =>
+        (field.subfields.get(code) ?? []).map((value) => ({
+          label:
+            code === 'f'
+              ? ('STATEMENT' as const)
+              : ('SUBSEQUENT_STATEMENT' as const),
+          value,
+          sortOrder: 0,
+          sourceTag: '200',
+        })),
+      ),
+    )
+    .map((statement, sortOrder) => ({ ...statement, sortOrder }));
+}
+
+function extractResponsibilitiesFromXml(
+  record: XmlObject,
+): CatalogueResponsibilityStatementDto[] {
+  return extractResponsibilitiesFromText(datafields(record).map(toTextField));
+}
+
+function extractLanguagesFromText(fields: TextField[]): CatalogueLanguageDto[] {
+  return fields
+    .filter(({ tag }) => tag === '101')
+    .flatMap((field) => [
+      ...(field.subfields.get('a') ?? []).map((code) => ({
+        code,
+        role: 'TEXT' as const,
+        sortOrder: 0,
+      })),
+      ...(field.subfields.get('c') ?? []).map((code) => ({
+        code,
+        role: 'ORIGINAL_LANGUAGE' as const,
+        sortOrder: 0,
+        sourceCode: '101$c',
+      })),
+    ])
+    .map((language, sortOrder) => ({ ...language, sortOrder }));
+}
+
+function extractLanguagesFromXml(record: XmlObject): CatalogueLanguageDto[] {
+  return extractLanguagesFromText(datafields(record, '101').map(toTextField));
+}
+
+function extractEditionStatementsFromText(
+  fields: TextField[],
+): CatalogueEditionStatementDto[] {
+  return fields
+    .filter(({ tag }) => tag === '205')
+    .flatMap((field) =>
+      ['a', 'b', 'f'].flatMap((code) =>
+        (field.subfields.get(code) ?? []).map((value) => ({
+          value,
+          sortOrder: 0,
+          sourceCode: `205$${code}`,
+        })),
+      ),
+    )
+    .map((statement, sortOrder) => ({ ...statement, sortOrder }));
+}
+
+function extractEditionStatementsFromXml(
+  record: XmlObject,
+): CatalogueEditionStatementDto[] {
+  return extractEditionStatementsFromText(
+    datafields(record, '205').map(toTextField),
+  );
+}
+
+function resourceTypeFor(value: string | undefined): CatalogueResourceType {
+  const normalized = value?.toLowerCase() ?? '';
+  if (!normalized) return 'UNSPECIFIED';
+  if (/m[uú]sica|partitura/.test(normalized)) return 'NOTATED_MUSIC';
+  if (/cartogr|mapa/.test(normalized)) return 'CARTOGRAPHIC';
+  if (/som|áudio|audio/.test(normalized)) return 'SOUND';
+  if (/manuscrito/.test(normalized)) return 'UNSPECIFIED';
+  if (/electr|eletr|cd-rom|dvd/.test(normalized)) return 'ELECTRONIC';
+  return 'UNSPECIFIED';
+}
+
+function extractSeriesFromText(fields: TextField[]): CatalogueSeriesDto[] {
+  return fields
+    .filter(({ tag }) => tag === '225')
+    .map((field, sortOrder) => ({
+      title: field.subfields.get('a')?.[0] ?? '',
+      parallelTitle: field.subfields.get('e')?.[0] ?? null,
+      issn: field.subfields.get('x')?.[0] ?? null,
+      volumeNumber: field.subfields.get('v')?.[0] ?? null,
+      sortOrder,
+      sourceTag: '225',
+    }))
+    .filter(({ title }) => Boolean(title));
+}
+
+function extractSeriesFromXml(record: XmlObject): CatalogueSeriesDto[] {
+  return extractSeriesFromText(datafields(record, '225').map(toTextField));
+}
+
+const noteTypes: Record<string, CatalogueNoteDto['type']> = {
+  '300': 'GENERAL',
+  '317': 'PROVENANCE',
+  '320': 'BIBLIOGRAPHY',
+  '327': 'CONTENTS',
+  '328': 'DISSERTATION',
+  '330': 'SUMMARY',
+};
+
+function extractNotesFromText(fields: TextField[]): CatalogueNoteDto[] {
+  return fields
+    .filter(({ tag }) => noteTypes[tag])
+    .flatMap((field) =>
+      (field.subfields.get('a') ?? []).map((value) => ({
+        type: noteTypes[field.tag],
+        value,
+        sortOrder: 0,
+        sourceTag: field.tag,
+      })),
+    )
+    .map((note, sortOrder) => ({ ...note, sortOrder }));
+}
+
+function extractNotesFromXml(record: XmlObject): CatalogueNoteDto[] {
+  return extractNotesFromText(datafields(record).map(toTextField));
+}
+
+const classificationSystems: Record<string, string> = {
+  '675': 'UDC',
+  '676': 'DDC',
+  '680': 'LCC',
+  '686': 'OTHER',
+};
+
+function extractClassificationsFromText(
+  fields: TextField[],
+): CatalogueClassificationDto[] {
+  return fields
+    .filter(({ tag }) => classificationSystems[tag])
+    .flatMap((field) =>
+      (field.subfields.get('a') ?? []).map((notation) => ({
+        notation,
+        system: classificationSystems[field.tag],
+        systemEdition:
+          field.subfields.get('v')?.[0] ??
+          field.subfields.get('2')?.[0] ??
+          null,
+        authorityId: field.subfields.get('3')?.[0] ?? null,
+        sortOrder: 0,
+        sourceTag: field.tag,
+      })),
+    )
+    .map((classification, sortOrder) => ({ ...classification, sortOrder }));
+}
+
+function extractClassificationsFromXml(
+  record: XmlObject,
+): CatalogueClassificationDto[] {
+  return extractClassificationsFromText(datafields(record).map(toTextField));
+}
+
+function extractSourceIdentifiersFromText(
+  fields: TextField[],
+): CatalogueSourceIdentifierDto[] {
+  return fields
+    .flatMap((field) => {
+      if (field.tag === '003') {
+        return field.value
+          ? [
+              {
+                type: 'SOURCE_RECORD',
+                value: field.value,
+                source: 'PORBASE',
+                sortOrder: 0,
+              },
+            ]
+          : [];
+      }
+      if (field.tag === '035') {
+        return (field.subfields.get('a') ?? []).map((value, sortOrder) => ({
+          type: 'BNP',
+          value,
+          source: 'PORBASE',
+          sortOrder,
+        }));
+      }
+      if (field.tag === '021') {
+        return (field.subfields.get('b') ?? []).map((value, sortOrder) => ({
+          type: 'NATIONAL_REGISTRATION',
+          value,
+          source: 'PORBASE',
+          sortOrder,
+        }));
+      }
+      return [];
+    })
+    .map((identifier, sortOrder) => ({ ...identifier, sortOrder }));
+}
+
+function extractSourceIdentifiersFromXml(
+  record: XmlObject,
+): CatalogueSourceIdentifierDto[] {
+  return extractSourceIdentifiersFromText(datafields(record).map(toTextField));
+}
+
+function toTextField(field: XmlObject): TextField {
+  const orderedSubfields = asArray(field.subfield)
+    .map((subfield) => ({
+      code: textValue(subfield['@_code'])?.toLowerCase() ?? '',
+      value: findText(subfield)?.trim() ?? '',
+    }))
+    .filter(({ code, value }) => Boolean(code && value));
+  const subfields = new Map<string, string[]>();
+  for (const { code, value } of orderedSubfields) {
+    subfields.set(code, [...(subfields.get(code) ?? []), value]);
+  }
+  return {
+    tag: textValue(field['@_tag']) ?? '',
+    indicator1: marcIndicator(findText(field['@_ind1'])),
+    indicator2: marcIndicator(findText(field['@_ind2'])),
+    value: '',
+    subfields,
+    orderedSubfields,
+  };
+}
+
+const localFieldTags = new Set(['900', '966', '972', '973', '995', '997']);
+
+const claimedSubfields: Record<string, Set<string> | 'all'> = {
+  '001': 'all',
+  '003': 'all',
+  '010': new Set(['a']),
+  '021': new Set(['a', 'b']),
+  '035': new Set(['a']),
+  '101': new Set(['a', 'c']),
+  '102': new Set(['a']),
+  '200': new Set(['a', 'b', 'd', 'e', 'f', 'g', 'h', 'i']),
+  '205': new Set(['a', 'b', 'f']),
+  '210': new Set(['a', 'b', 'c', 'd', 'e', 'f', 'g']),
+  '215': new Set(['a', 'c', 'd', 'e']),
+  '225': new Set(['a', 'e', 'v', 'x']),
+  '300': new Set(['a']),
+  '317': new Set(['a']),
+  '320': new Set(['a']),
+  '327': new Set(['a']),
+  '328': new Set(['a']),
+  '330': new Set(['a']),
+  '500': new Set(['a', 'e']),
+  '510': new Set(['a', 'e']),
+  '517': new Set(['a', 'e']),
+  '518': new Set(['a', 'e']),
+  '530': new Set(['a', 'e']),
+  '545': new Set(['a', 'e']),
+  '560': new Set(['a', 'e']),
+  '675': new Set(['a', 'v', 'z', '3']),
+  '676': new Set(['a', 'v', 'z', '3']),
+  '680': new Set(['a', 'i', 'v', '3']),
+  '686': new Set(['a', 'b', '2', '3']),
+  '700': 'all',
+  '701': 'all',
+  '702': 'all',
+  '710': 'all',
+  '711': 'all',
+  '712': 'all',
+  '713': 'all',
+};
+
+function collectUnmappedTextFields(
+  fields: TextField[],
+): CatalogueUnmappedFieldDto[] {
+  return fields.flatMap((field, occurrence) => {
+    const claimed = claimedSubfields[field.tag];
+    const subfields = field.orderedSubfields
+      .map((part, sortOrder) => ({ ...part, sortOrder }))
+      .filter(
+        ({ code }) => claimed !== 'all' && (!claimed || !claimed.has(code)),
+      );
+    if (!subfields.length && field.value && !claimed) {
+      subfields.push({ code: '', value: field.value, sortOrder: 0 });
+    }
+    if (!subfields.length) return [];
+    return [
+      {
+        tag: field.tag,
+        indicator1: field.indicator1,
+        indicator2: field.indicator2,
+        occurrence,
+        reason: unmappedReason(field.tag),
+        subfields,
+      },
+    ];
+  });
+}
+
+function collectUnmappedXmlFields(
+  record: XmlObject,
+): CatalogueUnmappedFieldDto[] {
+  return datafields(record).flatMap((field, occurrence) =>
+    collectUnmappedTextFields([toTextField(field)]).map((unmapped) => ({
+      ...unmapped,
+      occurrence,
+    })),
+  );
+}
+
+function unmappedReason(tag: string): CatalogueUnmappedFieldDto['reason'] {
+  if (localFieldTags.has(tag)) return 'LOCAL';
+  if (claimedSubfields[tag]) return 'NOT_YET_MODELED';
+  return 'UNSUPPORTED';
 }
 
 function extractTextPhysicalDescriptions(fields: TextField[]): Array<{
@@ -554,23 +988,22 @@ function extractXmlPublicationStatements(
       indicator2: marcIndicator(findText(field['@_ind2']), '9'),
       source: 'PORBASE',
       parts: asArray(field.subfield)
-        .map((subfield, partOrder) => {
-          const code = textValue(subfield['@_code'])?.toLowerCase() ?? '';
-          const value = findText(subfield)?.trim() ?? '';
-          return {
-            subfield: code,
-            value,
-            sortOrder: partOrder,
-            normalizedValue:
-              code === 'd'
-                ? normalizePublicationDateForPart(value, warnings)
-                : null,
-          };
-        })
+        .map((subfield) => ({
+          code: textValue(subfield['@_code'])?.toLowerCase() ?? '',
+          value: findText(subfield)?.trim() ?? '',
+        }))
         .filter(
-          ({ subfield, value }) =>
-            /^[a-z0-9]$/.test(subfield) && value.length > 0,
-        ),
+          ({ code, value }) => /^[a-z0-9]$/.test(code) && value.length > 0,
+        )
+        .map((subfield, partOrder) => ({
+          subfield: subfield.code,
+          value: subfield.value,
+          sortOrder: partOrder,
+          normalizedValue:
+            subfield.code === 'd'
+              ? normalizePublicationDateForPart(subfield.value, warnings)
+              : null,
+        })),
     }))
     .filter(({ parts }) => parts.length > 0);
 }
@@ -685,7 +1118,9 @@ function extractTextContributions(
   fields: TextField[],
 ): NonNullable<PorbaseBibliographicFieldsDto['contributions']> {
   return fields
-    .filter(({ tag }) => ['700', '701', '702'].includes(tag))
+    .filter(({ tag }) =>
+      ['700', '701', '702', '710', '711', '712', '713'].includes(tag),
+    )
     .flatMap((field) => {
       const sourceParts = field.orderedSubfields
         .filter(
@@ -705,12 +1140,16 @@ function extractTextContributions(
       return [
         {
           targetScope: 'WORK' as const,
-          kind: 'PERSON' as const,
+          kind: ['710', '711', '712', '713'].includes(field.tag)
+            ? ('CORPORATE_BODY' as const)
+            : ('PERSON' as const),
           displayName,
           roleLabel: roleLabel(field.tag, codes),
           relationshipCodeScheme: sourceParts.find(({ code }) => code === '2')
             ?.value,
-          sourceTag: field.tag as '700' | '701' | '702',
+          sourceTag: field.tag as
+            '700' | '701' | '702' | '710' | '711' | '712' | '713',
+          authorityId: sourceParts.find(({ code }) => code === '3')?.value,
           indicator1: ' ',
           indicator2: ' ',
           sourceParts,
@@ -724,7 +1163,7 @@ function extractTextContributions(
 function extractXmlContributions(
   record: XmlObject,
 ): NonNullable<PorbaseBibliographicFieldsDto['contributions']> {
-  return ['700', '701', '702']
+  return ['700', '701', '702', '710', '711', '712', '713']
     .flatMap((tag) =>
       datafields(record, tag).map((field) => {
         const sourceParts = asArray(field.subfield)
@@ -743,12 +1182,16 @@ function extractXmlContributions(
           .map(({ value }) => value);
         return {
           targetScope: 'WORK' as const,
-          kind: 'PERSON' as const,
+          kind: ['710', '711', '712', '713'].includes(tag)
+            ? ('CORPORATE_BODY' as const)
+            : ('PERSON' as const),
           displayName,
           roleLabel: roleLabel(tag, codes),
           relationshipCodeScheme: sourceParts.find(({ code }) => code === '2')
             ?.value,
-          sourceTag: tag as '700' | '701' | '702',
+          sourceTag: tag as
+            '700' | '701' | '702' | '710' | '711' | '712' | '713',
+          authorityId: sourceParts.find(({ code }) => code === '3')?.value,
           indicator1: marcIndicator(findText(field['@_ind1'])),
           indicator2: marcIndicator(findText(field['@_ind2'])),
           sourceParts,
@@ -823,10 +1266,11 @@ function textValue(value: unknown): string | undefined {
   return findText(value)?.trim();
 }
 
-function datafields(record: XmlObject, tag: string): XmlObject[] {
-  return asArray(record.datafield).filter(
-    (field) => textValue(field['@_tag']) === tag,
-  );
+function datafields(record: XmlObject, tag?: string): XmlObject[] {
+  const fields = asArray(record.datafield);
+  return tag === undefined
+    ? fields
+    : fields.filter((field) => textValue(field['@_tag']) === tag);
 }
 
 function controlfieldValues(record: XmlObject, tag: string): string[] {

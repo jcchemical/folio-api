@@ -46,10 +46,18 @@ describe('ImportPreviewService', () => {
       metadata: {
         authors: [],
         translators: [],
-        shelfmarks: [],
-        identifiers: [],
+        sourceIdentifiers: [],
+        titles: [],
+        responsibilityStatements: [],
+        languages: [],
+        editionStatements: [],
+        resourceType: 'UNSPECIFIED',
+        series: [],
+        notes: [],
+        classifications: [],
+        unmappedFields: [],
       },
-      fields: { authors: [], translators: [], shelfmarks: [], identifiers: [] },
+      fields: {},
       warnings: [
         { message: 'No PORBASE record was found.', type: 'provider_error' },
       ],
@@ -70,6 +78,10 @@ describe('ImportPreviewService', () => {
 
     const result = await service.createPreview(isbn);
 
+    expect(result.sourceId).toBeUndefined();
+    expect(result.bibliographicRecord.sourceId).toBe('porbase');
+    expect(result.bibliographicRecord).not.toHaveProperty('unmappedFields');
+    expect(result.unmappedFields).toEqual(expect.any(Array));
     expect(result).toMatchObject({
       work: { title: 'Vida e andanças de Alexis Zorbás' },
       edition: {
@@ -98,6 +110,12 @@ describe('ImportPreviewService', () => {
       externalIdentifiers: [
         { type: 'ISBN-13', value: isbn, source: 'PORBASE' },
         { type: 'PORBASE', value: '3664836', source: 'PORBASE' },
+        {
+          type: 'NATIONAL_REGISTRATION',
+          value: '506773/22',
+          source: 'PORBASE',
+        },
+        { type: 'BNP', value: '(bn)2126882', source: 'PORBASE' },
       ],
       bibliographicRecord: {
         format: 'MARCXCHANGE',

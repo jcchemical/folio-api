@@ -3,6 +3,15 @@ import { PhysicalDescriptionDto } from '../../editions/dto/physical-description.
 import { CataloguePublicationStatementDto } from './catalogue-publication-statement.dto.js';
 import { CatalogueContributionDto } from './catalogue-contribution.dto.js';
 import { CatalogueWarningDto } from './catalogue-warning.dto.js';
+import { CatalogueTitleDto } from './catalogue-title.dto.js';
+import { CatalogueResponsibilityStatementDto } from './catalogue-responsibility-statement.dto.js';
+import { CatalogueLanguageDto } from './catalogue-language.dto.js';
+import { CatalogueSeriesDto } from './catalogue-series.dto.js';
+import { CatalogueNoteDto } from './catalogue-note.dto.js';
+import { CatalogueClassificationDto } from './catalogue-classification.dto.js';
+import { CatalogueUnmappedFieldDto } from './catalogue-unmapped-field.dto.js';
+import { CatalogueEditionStatementDto } from './catalogue-edition-statement.dto.js';
+import type { CatalogueResourceType } from './porbase-search-response.dto.js';
 
 export class ImportPreviewWorkDto {
   @ApiProperty({ example: 'Vida e andanças de Alexis Zorbás' })
@@ -37,6 +46,30 @@ export class ImportPreviewEditionDto {
   @ApiPropertyOptional({ example: 'Paperback' })
   format?: string;
 
+  @ApiProperty({ type: [CatalogueTitleDto] })
+  titles!: CatalogueTitleDto[];
+
+  @ApiProperty({ type: [CatalogueEditionStatementDto] })
+  editionStatements!: CatalogueEditionStatementDto[];
+
+  @ApiPropertyOptional({ nullable: true })
+  generalMaterialDesignation?: string | null;
+
+  @ApiProperty({
+    enum: [
+      'TEXT',
+      'NOTATED_MUSIC',
+      'CARTOGRAPHIC',
+      'SOUND',
+      'STILL_IMAGE',
+      'MOVING_IMAGE',
+      'ELECTRONIC',
+      'MIXED',
+      'UNSPECIFIED',
+    ],
+  })
+  resourceType!: CatalogueResourceType;
+
   @ApiPropertyOptional({ example: 383, nullable: true })
   pageCount?: number | null;
 
@@ -45,6 +78,18 @@ export class ImportPreviewEditionDto {
 
   @ApiProperty({ type: [CataloguePublicationStatementDto], required: false })
   publicationStatements?: CataloguePublicationStatementDto[];
+
+  @ApiProperty({ type: [CatalogueLanguageDto] })
+  languages!: CatalogueLanguageDto[];
+
+  @ApiProperty({ type: [CatalogueSeriesDto] })
+  series!: CatalogueSeriesDto[];
+
+  @ApiProperty({ type: [CatalogueNoteDto] })
+  notes!: CatalogueNoteDto[];
+
+  @ApiProperty({ type: [CatalogueClassificationDto] })
+  classifications!: CatalogueClassificationDto[];
 }
 
 export class ImportPreviewContributorDto {
@@ -76,6 +121,9 @@ export class ImportPreviewBibliographicRecordDto {
   @ApiProperty({ example: 'PORBASE' })
   source!: string;
 
+  @ApiProperty({ example: 'porbase' })
+  sourceId!: string;
+
   @ApiPropertyOptional({ example: '3664836' })
   remoteId?: string;
 
@@ -93,6 +141,9 @@ export class ImportPreviewResponseDto {
   @ApiProperty({ type: ImportPreviewEditionDto })
   edition!: ImportPreviewEditionDto;
 
+  @ApiProperty({ type: [CatalogueResponsibilityStatementDto] })
+  responsibilityStatements!: CatalogueResponsibilityStatementDto[];
+
   @ApiProperty({ type: [ImportPreviewContributorDto] })
   contributors!: ImportPreviewContributorDto[];
 
@@ -107,4 +158,7 @@ export class ImportPreviewResponseDto {
 
   @ApiProperty({ type: [CatalogueWarningDto], example: [] })
   warnings!: CatalogueWarningDto[];
+
+  @ApiProperty({ type: [CatalogueUnmappedFieldDto] })
+  unmappedFields!: CatalogueUnmappedFieldDto[];
 }

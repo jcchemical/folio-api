@@ -53,10 +53,18 @@ export class ImportPreviewService {
       publisher: metadata.publisher,
       publicationDate: metadata.publicationDate,
       language: metadata.language,
+      titles: metadata.titles,
+      editionStatements: metadata.editionStatements,
+      generalMaterialDesignation: metadata.generalMaterialDesignation,
+      resourceType: metadata.resourceType,
       placeOfPublication: metadata.placeOfPublication,
       pageCount: parsePages(metadata.physicalDescriptions, metadata.extent),
       physicalDescriptions: metadata.physicalDescriptions ?? [],
       publicationStatements: metadata.publicationStatements ?? [],
+      languages: metadata.languages,
+      series: metadata.series,
+      notes: metadata.notes,
+      classifications: metadata.classifications,
     };
 
     if (/^\d{13}$/.test(normalizedIsbn)) edition.isbn13 = normalizedIsbn;
@@ -136,9 +144,12 @@ export class ImportPreviewService {
           result.detectedFormat === 'MARC_TEXT' ? 'MARC_TEXT' : 'MARCXCHANGE',
         schema: 'UNIMARC',
         source: 'PORBASE',
+        sourceId: 'porbase',
         remoteId: metadata.recordId,
         rawContent: result.rawContent,
       },
+      responsibilityStatements: metadata.responsibilityStatements,
+      unmappedFields: metadata.unmappedFields,
       warnings: unique(warnings),
     };
   }
@@ -169,6 +180,14 @@ function toExternalIdentifiers(
       type: 'PORBASE',
       value: metadata.recordId,
       source: 'PORBASE',
+    });
+  }
+
+  for (const identifier of metadata.sourceIdentifiers ?? []) {
+    identifiers.push({
+      type: identifier.type,
+      value: identifier.value,
+      source: identifier.source ?? 'PORBASE',
     });
   }
 

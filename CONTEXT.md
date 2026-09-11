@@ -458,6 +458,26 @@ A migração é aditiva: cria as tabelas/enums novos e faz backfill de
 existentes (sem inventar valores bibliográficos); não elimina nenhuma tabela
 ou coluna existente.
 
+### Proveniência no preview e agrupamento 210
+
+No preview de catálogo, `sourceId` no resultado (`ImportPreviewResponseDto`)
+identifica o `CatalogueProvider` que respondeu à pesquisa. O `sourceId` dentro
+de `bibliographicRecord` identifica o sistema de origem do record bruto
+preservado. Para o provider PORBASE ambos têm actualmente o valor `porbase`,
+mas representam conceitos diferentes e não devem ser inferidos um do outro.
+
+`unmappedFields` existe uma única vez no nível do preview. O
+`bibliographicRecord` mantém raw content e proveniência, mas não duplica a
+lista de campos não mapeados.
+
+O agrupamento semântico de subcampos `210` (publicação, distribuição e
+produção) ainda não faz parte do contrato persistível da Phase 1: a migração
+1F-API.1 aplicada não tem `groupIndex` em `PublicationStatementPart`. O
+preview preserva todas as ocorrências, subcampos e ordem, mas não expõe um
+`groupIndex` transitório. A modelação e persistência lossless desse agrupamento
+ficam explicitamente para 1F-API.3, com migração própria se continuar a ser
+necessário.
+
 ## Autenticação e segurança
 
 ### Estado actual
