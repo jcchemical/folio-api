@@ -27,9 +27,14 @@ export type BibliographicExportWarning = {
     | 'missing_required_data'
     | 'normalization'
     | 'unmapped_data'
-    | 'unsupported_value';
+    | 'unsupported_value'
+    | 'lossy_mapping';
   message: string;
   sourceValue?: string;
+  source?: string;
+  target?: string | null;
+  severity?: 'info' | 'warning' | 'error';
+  lossy?: boolean;
 };
 
 export type MarcMappingResult = {

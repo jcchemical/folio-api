@@ -102,6 +102,21 @@ potencialmente lossy, sem inventar dados para preencher diferenças entre
 perfis. A exportação local usa dados persistidos do Folio, não reconstrói
 `rawContent`, e MARCXchange/MARCXML permanecem serializers distintos.
 
+### Separação entre dados de exportação e diagnóstico
+
+A exportação bibliográfica separa os dados bibliográficos do diagnóstico:
+
+- a resposta actual contém apenas XML MARCXchange;
+- warnings estruturados são produzidos pelo mapper, mas não são incorporados no
+        XML, persistidos ou expostos pelo endpoint;
+- qualquer exposição futura de diagnóstico requer um contrato separado ainda
+        por decidir.
+
+Esta fronteira mantém o XML compatível e semanticamente dedicado aos dados
+bibliográficos, enquanto permite que diagnósticos evoluam independentemente.
+Não está aprovado nem implementado um endpoint, parâmetro de query ou header
+para os expor.
+
 No PORBASE actual, `resposta UNIMARC → parser PORBASE → preview estruturado →
 confirmação explícita → persistência canónica`. Uma futura selecção de perfil
 ao nível da organização, conversão automática ou mapper MARC 21 é uma decisão

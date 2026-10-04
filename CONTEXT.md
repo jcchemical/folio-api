@@ -680,6 +680,24 @@ O endpoint:
 
 O endpoint do registo original ainda não existe. MARCXML da Library of Congress será um serializer e endpoint separados.
 
+### Exportação de warnings
+
+O mapper UNIMARC devolve warnings estruturados com código, origem, destino,
+severidade e indicação de perda potencial (`lossy`); `sourceValue` é opcional.
+O resultado existe apenas durante o mapeamento: os warnings não são persistidos
+nem expostos pelo endpoint actual.
+
+Decisão actual:
+
+- `GET /exports/marcxchange/edition/:editionId` devolve apenas XML MARCXchange;
+- warnings não são inseridos no XML nem alteram o serializer;
+- a exposição de diagnósticos exige um contrato separado, ainda não definido.
+
+Esta separação mantém o formato bibliográfico limpo e compatível e permite que
+um eventual contrato de diagnóstico evolua independentemente. A forma de
+exposição futura permanece por decidir; não existe actualmente endpoint,
+parâmetro ou header de diagnóstico.
+
 ## Integração PORBASE
 
 `CataloguesModule` é uma camada de adapters HTTP e não deve persistir resultados durante pesquisas ou previews.

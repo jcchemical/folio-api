@@ -9,6 +9,7 @@ import type { Response } from 'express';
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
+import * as unimarcLocalMapper from '../bibliography/mappers/unimarc-local.mapper.js';
 import {
   EditionIdValidationPipe,
   ExportsController,
@@ -120,20 +121,173 @@ describe('ExportsService', () => {
     const xml = await service.exportMarcXchange(editionId, ownerId);
     const query = vi.mocked(prisma.edition.findUnique).mock.calls[0][0];
 
-    expect(query).toEqual(expect.objectContaining({
-      where: { id: editionId },
-      include: expect.objectContaining({
-        work: expect.objectContaining({
-          include: expect.objectContaining({
-            workContributors: { include: { contributor: true } },
-            contributions: expect.any(Object),
+    expect(query).toEqual(
+      expect.objectContaining({
+        where: { id: editionId },
+        include: expect.objectContaining({
+          work: expect.objectContaining({
+            include: expect.objectContaining({
+              workContributors: expect.objectContaining({
+                orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+                include: { contributor: true },
+              }),
+              contributions: expect.any(Object),
+            }),
           }),
+          editionContributors: expect.objectContaining({
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+            include: { contributor: true },
+          }),
+          contributions: expect.any(Object),
         }),
-        editionContributors: { include: { contributor: true } },
-        contributions: expect.any(Object),
       }),
-    }));
+    );
     expect(xml).not.toContain('original');
+  });
+
+  it('loads canonical export relations with deterministic ordering', async () => {
+    const { prisma, service } = createService(createEdition());
+
+    await service.exportMarcXchange(editionId, ownerId);
+
+    const query = vi.mocked(prisma.edition.findUnique).mock.calls[0][0];
+    const ordered = [{ sortOrder: 'asc' }, { id: 'asc' }];
+    const include = query?.include as Record<string, unknown>;
+    const work = include.work as { include: Record<string, unknown> };
+    const workInclude = work.include;
+
+    expect(query).toEqual(
+      expect.objectContaining({ where: { id: editionId } }),
+    );
+    for (const relation of [
+      'titles',
+      'responsibilityStatements',
+      'languages',
+      'editionStatements',
+      'series',
+      'notes',
+      'classifications',
+    ]) {
+      expect(include[relation]).toEqual({ orderBy: ordered });
+    }
+    expect(workInclude.titles).toEqual({ orderBy: ordered });
+    expect(workInclude.notes).toEqual({ orderBy: ordered });
+    expect(include.editionContributors).toEqual({
+      orderBy: ordered,
+      include: { contributor: true },
+    });
+    expect(workInclude.workContributors).toEqual({
+      orderBy: ordered,
+      include: { contributor: true },
+    });
+    expect(include.contributions).toEqual({
+      orderBy: ordered,
+      include: {
+        agent: true,
+        sourceParts: { orderBy: ordered },
+      },
+    });
+    expect(workInclude.contributions).toEqual({
+      orderBy: ordered,
+      include: {
+        agent: true,
+        sourceParts: { orderBy: ordered },
+      },
+    });
+    expect(include.externalIdentifiers).toEqual({ orderBy: [{ id: 'asc' }] });
+    expect(include.physicalDescriptions).toEqual({
+      orderBy: ordered,
+      include: { parts: { orderBy: ordered } },
+    });
+    expect(include.publicationStatements).toEqual({
+      orderBy: ordered,
+      include: { parts: { orderBy: ordered } },
+    });
+  });
+
+  it('passes canonical relations and segregated legacy projections to the mapper while producing XML', async () => {
+    const canonical = {
+      titles: [{ type: 'MAIN', value: 'Canonical title', sortOrder: 0 }],
+      responsibilityStatements: [{ label: 'STATEMENT', value: 'Statement' }],
+      languages: [{ code: 'por', role: 'TEXT', sortOrder: 0 }],
+      editionStatements: [
+        { value: '2.ª ed.', kind: 'EDITION', sourceTag: '205' },
+      ],
+      series: [{ title: 'Série', volumeNumber: '1' }],
+      notes: [{ type: 'GENERAL', value: 'Nota' }],
+      classifications: [{ notation: '821.134.3', system: 'UDC' }],
+      contributions: [
+        {
+          sortOrder: 0,
+          sourceTag: '700',
+          indicator1: '1',
+          indicator2: ' ',
+          sourceParts: [{ code: 'a', value: 'Canonical author', sortOrder: 0 }],
+        },
+      ],
+      physicalDescriptions: [
+        {
+          sortOrder: 0,
+          parts: [{ subfield: 'a', value: '100 p.', sortOrder: 0 }],
+        },
+      ],
+      publicationStatements: [
+        {
+          sortOrder: 0,
+          indicator1: ' ',
+          indicator2: '9',
+          parts: [
+            { subfield: 'a', value: 'Lisboa', sortOrder: 0, groupIndex: 0 },
+          ],
+        },
+      ],
+      externalIdentifiers: [{ type: 'ISBN-13', value: '9789724426495' }],
+    };
+    const edition = createEdition({
+      ...canonical,
+      work: {
+        ...createEdition().work,
+        titles: [{ type: 'MAIN', value: 'Canonical work title', sortOrder: 0 }],
+        notes: [{ type: 'GENERAL', value: 'Work note' }],
+        contributions: [],
+      },
+    });
+    const mapperSpy = vi.spyOn(unimarcLocalMapper, 'mapLocalEditionToUnimarc');
+    const { service } = createService(edition);
+
+    const xml = await service.exportMarcXchange(editionId, ownerId);
+    const mapperInput = mapperSpy.mock.calls[0][0] as Record<string, unknown>;
+
+    expect(xml).toContain('<collection');
+    expect(mapperInput).toEqual(
+      expect.objectContaining({
+        id: editionId,
+        ...canonical,
+        legacyProjection: {
+          edition: {
+            title: 'Título local corrigido',
+            subtitle: 'Subtítulo local',
+            isbn10: null,
+            isbn13: '9789724426495',
+            publisher: 'Editora Folio',
+            publicationDate: '2024-01-02',
+            publicationPlace: undefined,
+            language: 'por',
+            pageCount: 320,
+          },
+          work: { title: 'Título da obra' },
+        },
+        work: expect.objectContaining({
+          titles: [
+            { type: 'MAIN', value: 'Canonical work title', sortOrder: 0 },
+          ],
+          notes: [{ type: 'GENERAL', value: 'Work note' }],
+          contributions: [],
+        }),
+      }),
+    );
+
+    mapperSpy.mockRestore();
   });
 
   it('exports persisted physical descriptions and does not synthesize pages beside them', async () => {
@@ -141,10 +295,13 @@ describe('ExportsService', () => {
       createEdition({
         pageCount: 999,
         physicalDescriptions: [
-          { sortOrder: 0, parts: [
-            { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
-            { subfield: 'd', value: '24 cm', sortOrder: 1 },
-          ] },
+          {
+            sortOrder: 0,
+            parts: [
+              { subfield: 'a', value: '146, [6] p.', sortOrder: 0 },
+              { subfield: 'd', value: '24 cm', sortOrder: 1 },
+            ],
+          },
         ],
       }),
     );
@@ -159,9 +316,7 @@ describe('ExportsService', () => {
 
 describe('ExportsController', () => {
   it('returns XML with download headers', async () => {
-    const exportMarcXchange = vi
-      .fn()
-      .mockResolvedValue('<collection />');
+    const exportMarcXchange = vi.fn().mockResolvedValue('<collection />');
     const controller = new ExportsController({ exportMarcXchange } as never);
     const response = { setHeader: vi.fn() } as unknown as Response;
     const request = {
