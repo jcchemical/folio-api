@@ -1,10 +1,11 @@
 import {
   BadRequestException,
-  ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { API_ERROR_CODES, ApiException } from '../common/api-errors.js';
 import {
   paginate,
   paginationArgs,
@@ -146,7 +147,12 @@ export class ContributorsService {
     userId: string,
   ): Promise<void> {
     const work = await this.prisma.work.findUnique({ where: { id: workId } });
-    if (!work) throw new NotFoundException('Work not found');
+    if (!work)
+      throw new ApiException(
+        HttpStatus.NOT_FOUND,
+        API_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'Work not found.',
+      );
     await this.organizationMemberships.assertWorkWriteAccess(userId, work);
   }
 
@@ -158,7 +164,12 @@ export class ContributorsService {
       where: { id: editionId },
       include: { work: true },
     });
-    if (!edition) throw new NotFoundException('Edition not found');
+    if (!edition)
+      throw new ApiException(
+        HttpStatus.NOT_FOUND,
+        API_ERROR_CODES.EDITION_NOT_FOUND,
+        'Edition not found.',
+      );
     await this.organizationMemberships.assertWorkWriteAccess(
       userId,
       edition.work,
@@ -187,7 +198,12 @@ export class ContributorsService {
     } | null,
     userId: string,
   ): Promise<void> {
-    if (!contributor) throw new NotFoundException('Contributor not found');
+    if (!contributor)
+      throw new ApiException(
+        HttpStatus.NOT_FOUND,
+        API_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'Contributor not found.',
+      );
     await this.assertAllRelatedWorkAccess(
       userId,
       [
@@ -207,7 +223,12 @@ export class ContributorsService {
     } | null,
     userId: string,
   ): Promise<void> {
-    if (!contributor) throw new NotFoundException('Contributor not found');
+    if (!contributor)
+      throw new ApiException(
+        HttpStatus.NOT_FOUND,
+        API_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'Contributor not found.',
+      );
     await this.assertAllRelatedWorkAccess(
       userId,
       [
@@ -223,14 +244,34 @@ export class ContributorsService {
     works: Array<{ organizationId: string }>,
     writable: boolean,
   ): Promise<void> {
-    if (!works.length)
-      throw new ForbiddenException('Contributor has no organization work');
+    if (!works.length) throw allMembershipsRequired();
     for (const work of works) {
-      if (writable) {
-        await this.organizationMemberships.assertWorkWriteAccess(userId, work);
-      } else {
-        await this.organizationMemberships.assertWorkAccess(userId, work);
+      try {
+        if (writable) {
+          await this.organizationMemberships.assertWorkWriteAccess(
+            userId,
+            work,
+          );
+        } else {
+          await this.organizationMemberships.assertWorkAccess(userId, work);
+        }
+      } catch (error: unknown) {
+        if (
+          error instanceof HttpException &&
+          error.getStatus() === HttpStatus.FORBIDDEN
+        ) {
+          throw allMembershipsRequired();
+        }
+        throw error;
       }
     }
   }
+}
+
+function allMembershipsRequired(): ApiException {
+  return new ApiException(
+    HttpStatus.FORBIDDEN,
+    API_ERROR_CODES.UNAUTHORIZED_ALL_MEMBERSHIPS,
+    'Access to every organization linked to this legacy Contributor is required.',
+  );
 }

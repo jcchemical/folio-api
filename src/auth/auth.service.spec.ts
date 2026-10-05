@@ -1,5 +1,4 @@
 import argon2 from 'argon2';
-import { UnauthorizedException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { JwtService } from '@nestjs/jwt';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -54,13 +53,17 @@ function createService(
 
 describe('AuthService password verification', () => {
   it('logs in with the correct password', async () => {
-    const { service, state } = createService(await hashPassword('correct-password'));
+    const { service, state } = createService(
+      await hashPassword('correct-password'),
+    );
 
     const result = await service.login('user@example.com', 'correct-password');
 
     expect(result.accessToken).toBe('access-token');
     expect(result.refreshToken).toMatch(/^user-1\.[0-9a-f-]{36}$/);
-    expect(await argon2.verify(state.user.refreshToken!, result.refreshToken)).toBe(true);
+    expect(
+      await argon2.verify(state.user.refreshToken!, result.refreshToken),
+    ).toBe(true);
     expect(result.user).toEqual({
       id: 'user-1',
       email: 'user@example.com',
@@ -87,16 +90,22 @@ describe('AuthService password verification', () => {
       new Date(Date.now() - 1_000),
     );
 
-    await expect(service.refresh(token)).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    await expect(service.refresh(token)).rejects.toMatchObject({
+      status: 401,
+      response: expect.objectContaining({ code: 'AUTH_EXPIRED_REFRESH_TOKEN' }),
+    });
   });
 
   it('rejects an invalid refresh token with 401', async () => {
     const { service } = createService(await hashPassword('password'));
 
-    await expect(service.refresh('user-1.invalid-token')).rejects.toBeInstanceOf(
-      UnauthorizedException,
+    await expect(service.refresh('user-1.invalid-token')).rejects.toMatchObject(
+      {
+        status: 401,
+        response: expect.objectContaining({
+          code: 'AUTH_INVALID_REFRESH_TOKEN',
+        }),
+      },
     );
   });
 
@@ -108,9 +117,10 @@ describe('AuthService password verification', () => {
 
     expect(state.user.refreshToken).toBeNull();
     expect(state.user.refreshTokenExpires).toBeNull();
-    await expect(service.refresh(login.refreshToken)).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    await expect(service.refresh(login.refreshToken)).rejects.toMatchObject({
+      status: 401,
+      response: expect.objectContaining({ code: 'AUTH_INVALID_REFRESH_TOKEN' }),
+    });
   });
 
   it('returns the current user without a password hash', async () => {
@@ -130,9 +140,10 @@ describe('AuthService password verification', () => {
     } as unknown as PrismaService;
     const service = new AuthService(prisma, {} as JwtService);
 
-    await expect(service.getCurrentUser('missing-user')).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    await expect(service.getCurrentUser('missing-user')).rejects.toMatchObject({
+      status: 401,
+      response: expect.objectContaining({ code: 'AUTH_INVALID_ACCESS_TOKEN' }),
+    });
   });
 
   it('rejects an incorrect password with the existing 401 error', async () => {
@@ -140,7 +151,9 @@ describe('AuthService password verification', () => {
 
     await expect(
       service.login('user@example.com', 'wrong-password'),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
+    ).rejects.toMatchObject({
+      status: 401,
+      response: expect.objectContaining({ code: 'AUTH_INVALID_CREDENTIALS' }),
+    });
   });
-
 });

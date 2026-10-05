@@ -1,9 +1,5 @@
-import {
-  BadGatewayException,
-  BadRequestException,
-  Injectable,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { API_ERROR_CODES, ApiException } from '../common/api-errors.js';
 import { PorbaseAdapter } from './adapters/porbase.adapter.js';
 import { isValidIsbn, normalizeIsbn } from './isbn.utils.js';
 import { PorbaseSearchResponseDto } from './dto/porbase-search-response.dto.js';
@@ -21,7 +17,11 @@ export class CataloguesService {
   async searchPorbase(isbnInput: string): Promise<PorbaseSearchResponseDto> {
     const query = normalizeIsbn(isbnInput);
     if (!isValidIsbn(query)) {
-      throw new BadRequestException('Invalid ISBN-10 or ISBN-13');
+      throw new ApiException(
+        HttpStatus.BAD_REQUEST,
+        API_ERROR_CODES.INVALID_ISBN,
+        'Invalid ISBN-10 or ISBN-13.',
+      );
     }
 
     let response;
@@ -30,9 +30,13 @@ export class CataloguesService {
     } catch (error: unknown) {
       if (error instanceof PorbaseUpstreamError) {
         if (error.kind === 'timeout') {
-          throw new ServiceUnavailableException('PORBASE request timed out');
+          throw new ApiException(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            API_ERROR_CODES.PORBASE_TIMEOUT,
+            'PORBASE request timed out.',
+          );
         }
-        throw new BadGatewayException('PORBASE request failed');
+        throw porbaseUnavailable();
       }
       throw error;
     }
@@ -42,20 +46,32 @@ export class CataloguesService {
     }
 
     if (response.status >= 500) {
-      throw new BadGatewayException('PORBASE service is unavailable');
+      throw porbaseUnavailable();
     }
 
     if (response.status < 200 || response.status >= 300) {
-      throw new BadGatewayException('PORBASE request failed');
+      throw porbaseUnavailable();
     }
 
     try {
       return parsePorbaseResponse(query, response.body, response.contentType);
     } catch (error: unknown) {
       if (error instanceof PorbaseXmlError) {
-        throw new BadGatewayException('PORBASE returned invalid XML');
+        throw new ApiException(
+          HttpStatus.BAD_GATEWAY,
+          API_ERROR_CODES.PORBASE_INVALID_RESPONSE,
+          'PORBASE returned an invalid response.',
+        );
       }
       throw error;
     }
   }
+}
+
+function porbaseUnavailable(): ApiException {
+  return new ApiException(
+    HttpStatus.BAD_GATEWAY,
+    API_ERROR_CODES.PORBASE_UNAVAILABLE,
+    'PORBASE is unavailable.',
+  );
 }

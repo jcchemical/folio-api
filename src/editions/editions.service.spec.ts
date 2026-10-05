@@ -1,4 +1,3 @@
-import { ForbiddenException } from '@nestjs/common';
 import { OrganizationRole } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -36,9 +35,12 @@ describe('EditionsService.remove', () => {
   it('rejects a READER with 403 Forbidden', async () => {
     const { prisma, service } = createService(OrganizationRole.READER);
 
-    await expect(service.remove(edition.id, userId)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await expect(service.remove(edition.id, userId)).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({
+        code: 'AUTHORIZATION_WRITE_ROLE_REQUIRED',
+      }),
+    });
     expect(prisma.edition.delete).not.toHaveBeenCalled();
   });
 
@@ -58,9 +60,12 @@ describe('EditionsService.remove', () => {
   it('rejects a non-member with 403 Forbidden', async () => {
     const { prisma, service } = createService(null);
 
-    await expect(service.remove(edition.id, userId)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await expect(service.remove(edition.id, userId)).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({
+        code: 'AUTHORIZATION_MEMBERSHIP_REQUIRED',
+      }),
+    });
     expect(prisma.edition.delete).not.toHaveBeenCalled();
   });
 });

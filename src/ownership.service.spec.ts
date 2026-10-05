@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, HttpException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from './prisma/prisma.service.js';
 import { WorksService } from './works/works.service.js';
@@ -26,7 +26,12 @@ function membershipPolicy(allowed: boolean) {
 
 describe('organization resource access', () => {
   it('allows a member to access a work in their organization', async () => {
-    const work = { id: 'work-1', organizationId, organization: {}, editions: [] };
+    const work = {
+      id: 'work-1',
+      organizationId,
+      organization: {},
+      editions: [],
+    };
     const service = new WorksService(
       prismaWith({ work: { findUnique: vi.fn().mockResolvedValue(work) } }),
       membershipPolicy(true) as never,
@@ -51,7 +56,9 @@ describe('organization resource access', () => {
       'edition',
       () =>
         new EditionsService(
-          prismaWith({ edition: { findUnique: vi.fn().mockResolvedValue(null) } }),
+          prismaWith({
+            edition: { findUnique: vi.fn().mockResolvedValue(null) },
+          }),
           membershipPolicy(true) as never,
         ).findById('edition-1', userId),
     ],
@@ -64,7 +71,13 @@ describe('organization resource access', () => {
         ).findById('item-1', userId),
     ],
   ])('missing %s returns 404', async (_resource, action) => {
-    await expect(action()).rejects.toBeInstanceOf(NotFoundException);
+    try {
+      await action();
+      throw new Error('Expected missing resource to fail');
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(HttpException);
+      expect((error as HttpException).getStatus()).toBe(404);
+    }
   });
 
   it('rejects an external user from works, editions, and items', async () => {
@@ -90,7 +103,9 @@ describe('organization resource access', () => {
       new ItemsService(
         prismaWith({
           item: {
-            findUnique: vi.fn().mockResolvedValue({ id: 'item-1', organizationId }),
+            findUnique: vi
+              .fn()
+              .mockResolvedValue({ id: 'item-1', organizationId }),
           },
         }),
         membershipPolicy(false) as never,

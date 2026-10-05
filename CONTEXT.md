@@ -197,6 +197,23 @@ The initial taxonomy includes `AUTH_INVALID_CREDENTIALS`, refresh-token codes, `
 
 The current taxonomy covers authentication (`AUTH_*`), validation (`VALIDATION_*`), authorization (`AUTHORIZATION_*`), resources (`RESOURCE_*`, `*_NOT_FOUND`), conflicts (`CONFLICT_*`), pagination (`PAGINATION_*`), PORBASE upstream failures (`PORBASE_*`) and unexpected failures (`INTERNAL_ERROR`).
 
+Known domain failures are raised as `ApiException` with an explicit stable
+`code`; the global filter does not infer codes from human-readable message text.
+Uncoded HTTP exceptions receive generic status-based codes, while unknown
+non-HTTP failures use `INTERNAL_ERROR`. Access-token failures use
+`AUTH_INVALID_ACCESS_TOKEN`, distinct from refresh-token codes. Legacy
+Contributor operations spanning multiple organizations use
+`AUTHORIZATION_ALL_MEMBERSHIPS_REQUIRED` unless the actor can access all linked
+organizations.
+
+Services must throw `ApiException` with an explicit stable `code` for known
+domain failures. `ApiExceptionFilter` preserves that code, retains the explicit
+Prisma mappings (`P2002`, `P2025`, `P2003`), and does not derive domain meaning
+from exception-message text. Uncoded HTTP exceptions receive only a generic
+status-based code; unknown non-HTTP errors return `INTERNAL_ERROR`. Access-token
+guard failures use `AUTH_INVALID_ACCESS_TOKEN`, distinct from refresh-token
+failures.
+
 PORBASE warnings preserve `type`, `field`, `original`, `normalized` and `message`, and add a stable `code` such as `PORBASE_NORMALIZATION`, `PORBASE_PARSE_ERROR`, `PORBASE_RECORD_NOT_FOUND` or `PORBASE_PROVIDER_ERROR`.
 
 ## Modelo actual

@@ -7,6 +7,11 @@ import {
 import { Prisma } from '@prisma/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiExceptionFilter } from './api-exception.filter.js';
+import {
+  API_ERROR_CODES,
+  ApiException,
+  conflictDuplicateEdition,
+} from './api-errors.js';
 
 function response() {
   return {
@@ -48,10 +53,14 @@ describe('ApiExceptionFilter', () => {
     errorSpy.mockRestore();
   });
 
-  it('maps invalid credentials to a stable code', () => {
+  it('preserves an explicit invalid-credentials code', () => {
     const output = response();
     new ApiExceptionFilter().catch(
-      new UnauthorizedException('Invalid email or password'),
+      new ApiException(
+        401,
+        API_ERROR_CODES.INVALID_CREDENTIALS,
+        'Invalid email or password.',
+      ),
       host(output),
     );
     expect(output.statusCode).toBe(401);
@@ -73,15 +82,57 @@ describe('ApiExceptionFilter', () => {
     });
   });
 
-  it('maps duplicate editions without coupling clients to the message', () => {
+  it('preserves an explicitly coded duplicate edition', () => {
+    const output = response();
+    new ApiExceptionFilter().catch(conflictDuplicateEdition(), host(output));
+    expect(output.body).toMatchObject({ code: 'CONFLICT_DUPLICATE_EDITION' });
+  });
+
+  it('does not guess duplicate-edition semantics from a generic 409 message', () => {
     const output = response();
     new ApiExceptionFilter().catch(
-      new ConflictException(
-        'An edition with this ISBN already exists for this organization',
-      ),
+      new ConflictException('An edition duplicate may have happened'),
       host(output),
     );
-    expect(output.body).toMatchObject({ code: 'CONFLICT_DUPLICATE_EDITION' });
+    expect(output.body).toMatchObject({ code: 'CONFLICT_DUPLICATE_RESOURCE' });
+    expect(output.body).not.toHaveProperty(
+      'code',
+      'CONFLICT_DUPLICATE_EDITION',
+    );
+  });
+
+  it('uses the explicit access-token code for an uncoded 401 guard failure', () => {
+    const output = response();
+    new ApiExceptionFilter().catch(new UnauthorizedException(), host(output));
+    expect(output.body).toMatchObject({ code: 'AUTH_INVALID_ACCESS_TOKEN' });
+  });
+
+  it('preserves distinct explicit codes for role and membership authorization failures', () => {
+    const membershipOutput = response();
+    new ApiExceptionFilter().catch(
+      new ApiException(
+        403,
+        API_ERROR_CODES.UNAUTHORIZED_MEMBERSHIP,
+        'Organization membership is required.',
+      ),
+      host(membershipOutput),
+    );
+    expect(membershipOutput.body).toMatchObject({
+      code: 'AUTHORIZATION_MEMBERSHIP_REQUIRED',
+    });
+
+    const roleOutput = response();
+    new ApiExceptionFilter().catch(
+      new ApiException(
+        403,
+        API_ERROR_CODES.UNAUTHORIZED_WRITE_ROLE,
+        'A write role is required.',
+      ),
+      host(roleOutput),
+    );
+    expect(roleOutput.body).toMatchObject({
+      code: 'AUTHORIZATION_WRITE_ROLE_REQUIRED',
+    });
   });
 
   it('returns the sanitized 500 envelope in production for an unknown error, with no debug field', () => {

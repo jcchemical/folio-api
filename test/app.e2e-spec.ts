@@ -15,7 +15,9 @@ describe('AppController (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true }),
+    );
     app.useGlobalFilters(new ApiExceptionFilter());
     await app.init();
   });
@@ -35,6 +37,15 @@ describe('AppController (e2e)', () => {
       .expect(({ body }) => {
         expect(body.code).toBe('AUTH_INVALID_CREDENTIALS');
         expect(body.message).toBeDefined();
+      });
+  });
+
+  it('returns AUTH_INVALID_ACCESS_TOKEN for an unauthenticated JWT-protected route', async () => {
+    await request(app.getHttpServer())
+      .get('/auth/me')
+      .expect(401)
+      .expect(({ body }) => {
+        expect(body.code).toBe('AUTH_INVALID_ACCESS_TOKEN');
       });
   });
 

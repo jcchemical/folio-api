@@ -1,6 +1,11 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { v4 as uuid } from 'uuid';
+import {
+  API_ERROR_CODES,
+  ApiException,
+  invalidAccessToken,
+} from '../common/api-errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthenticatedUser, JwtPayload } from './auth.types.js';
 import { hashPassword, verifyPassword } from './password.utils.js';
@@ -23,7 +28,11 @@ export class AuthService {
       : false;
 
     if (!user || !passwordMatches) {
-      throw new UnauthorizedException('Invalid email or password');
+      throw new ApiException(
+        HttpStatus.UNAUTHORIZED,
+        API_ERROR_CODES.INVALID_CREDENTIALS,
+        'Invalid email or password.',
+      );
     }
 
     const tokens = await this.createTokens(user);
@@ -44,21 +53,20 @@ export class AuthService {
 
   async refresh(refreshToken: string) {
     const userId = this.getRefreshTokenUserId(refreshToken);
-    if (!userId) throw new UnauthorizedException('Invalid refresh token');
+    if (!userId) throw invalidRefreshToken();
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (
-      !user?.refreshToken ||
-      !user.refreshTokenExpires ||
-      user.refreshTokenExpires <= new Date()
-    ) {
-      throw new UnauthorizedException('Invalid or expired refresh token');
+    if (!user?.refreshToken || !user.refreshTokenExpires) {
+      throw invalidRefreshToken();
+    }
+    if (user.refreshTokenExpires <= new Date()) {
+      throw expiredRefreshToken();
     }
 
     const matches = await verifyPassword(user.refreshToken, refreshToken).catch(
       () => false,
     );
-    if (!matches) throw new UnauthorizedException('Invalid refresh token');
+    if (!matches) throw invalidRefreshToken();
 
     const tokens = await this.createTokens(user);
     const rotated = await this.prisma.user.updateMany({
@@ -74,7 +82,7 @@ export class AuthService {
     });
 
     if (rotated.count !== 1) {
-      throw new UnauthorizedException('Refresh token has already been rotated');
+      throw reusedRefreshToken();
     }
 
     return {
@@ -86,17 +94,17 @@ export class AuthService {
 
   async logout(refreshToken: string): Promise<void> {
     const userId = this.getRefreshTokenUserId(refreshToken);
-    if (!userId) throw new UnauthorizedException('Invalid refresh token');
+    if (!userId) throw invalidRefreshToken();
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user?.refreshToken) {
-      throw new UnauthorizedException('Invalid refresh token');
+      throw invalidRefreshToken();
     }
 
     const matches = await verifyPassword(user.refreshToken, refreshToken).catch(
       () => false,
     );
-    if (!matches) throw new UnauthorizedException('Invalid refresh token');
+    if (!matches) throw invalidRefreshToken();
 
     await this.prisma.user.updateMany({
       where: { id: user.id, refreshToken: user.refreshToken },
@@ -108,7 +116,7 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
 
     if (!user) {
-      throw new UnauthorizedException('User no longer exists');
+      throw invalidAccessToken();
     }
 
     return this.toAuthenticatedUser(user);
@@ -154,4 +162,28 @@ export class AuthService {
   }): AuthenticatedUser {
     return { id: user.id, email: user.email, name: user.name, roles: [] };
   }
+}
+
+function invalidRefreshToken(): ApiException {
+  return new ApiException(
+    HttpStatus.UNAUTHORIZED,
+    API_ERROR_CODES.INVALID_REFRESH_TOKEN,
+    'The refresh token is invalid.',
+  );
+}
+
+function expiredRefreshToken(): ApiException {
+  return new ApiException(
+    HttpStatus.UNAUTHORIZED,
+    API_ERROR_CODES.EXPIRED_REFRESH_TOKEN,
+    'The refresh token has expired.',
+  );
+}
+
+function reusedRefreshToken(): ApiException {
+  return new ApiException(
+    HttpStatus.UNAUTHORIZED,
+    API_ERROR_CODES.REUSED_REFRESH_TOKEN,
+    'The refresh token has already been rotated.',
+  );
 }

@@ -1,9 +1,6 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { OrganizationRole } from '@prisma/client';
+import { API_ERROR_CODES, ApiException } from '../common/api-errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   paginate,
@@ -43,7 +40,12 @@ export class ItemsService {
       where: { id },
       include: { edition: true, organization: true },
     });
-    if (!item) throw new NotFoundException('Item not found');
+    if (!item)
+      throw new ApiException(
+        HttpStatus.NOT_FOUND,
+        API_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'Item not found.',
+      );
     await this.organizationMemberships.assertOrganizationAccess(
       userId,
       item.organizationId,
@@ -100,7 +102,12 @@ export class ItemsService {
       where: { id: editionId },
       include: { work: true },
     });
-    if (!edition) throw new NotFoundException('Edition not found');
+    if (!edition)
+      throw new ApiException(
+        HttpStatus.NOT_FOUND,
+        API_ERROR_CODES.EDITION_NOT_FOUND,
+        'Edition not found.',
+      );
     await this.organizationMemberships.assertWorkWriteAccess(
       userId,
       edition.work,
@@ -111,6 +118,10 @@ export class ItemsService {
 
 function validateStatus(status: string | null | undefined): void {
   if (status !== undefined && status !== null && !status.trim()) {
-    throw new BadRequestException('Item status must be a non-empty string');
+    throw new ApiException(
+      HttpStatus.BAD_REQUEST,
+      API_ERROR_CODES.INVALID_REQUEST_DATA,
+      'Item status must be a non-empty string.',
+    );
   }
 }

@@ -1,4 +1,3 @@
-import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ContributionsService } from '../contributions/contributions.service.js';
 import { PorbaseImportService } from './porbase-import.service.js';
@@ -249,9 +248,14 @@ describe('PorbaseImportService', () => {
       } as never,
     );
 
-    await expect(
-      service.import('jwt-user-1', baseInput),
-    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.import('jwt-user-1', baseInput)).rejects.toMatchObject(
+      {
+        status: 409,
+        response: expect.objectContaining({
+          code: 'CONFLICT_DUPLICATE_EDITION',
+        }),
+      },
+    );
     expect(tx.work.create).not.toHaveBeenCalled();
   });
 

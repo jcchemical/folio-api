@@ -1,4 +1,3 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { readFileSync } from 'node:fs';
@@ -27,9 +26,10 @@ describe('ImportPreviewService', () => {
   });
 
   it('rejects an invalid ISBN before producing a preview', async () => {
-    await expect(service.createPreview('9789724426496')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(service.createPreview('9789724426496')).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({ code: 'CATALOGUE_INVALID_ISBN' }),
+    });
     expect(cataloguesService.searchPorbaseByIsbn).not.toHaveBeenCalled();
   });
 
@@ -63,9 +63,10 @@ describe('ImportPreviewService', () => {
       ],
     } satisfies PorbaseSearchResponseDto);
 
-    await expect(service.createPreview(isbn)).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(service.createPreview(isbn)).rejects.toMatchObject({
+      status: 404,
+      response: expect.objectContaining({ code: 'PORBASE_RECORD_NOT_FOUND' }),
+    });
   });
 
   it('builds an import preview from the real PORBASE fixture', async () => {

@@ -1,5 +1,4 @@
 import { OrganizationRole } from '@prisma/client';
-import { ForbiddenException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -34,7 +33,11 @@ function createService(overrides: Record<string, unknown> = {}) {
     ...overrides,
   } as unknown as PrismaService;
 
-  return { prisma, transaction, service: new OrganizationMembershipService(prisma) };
+  return {
+    prisma,
+    transaction,
+    service: new OrganizationMembershipService(prisma),
+  };
 }
 
 describe('OrganizationMembershipService', () => {
@@ -102,7 +105,12 @@ describe('OrganizationMembershipService', () => {
       service.assertWorkAccess(userId, {
         organizationId,
       }),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({
+        code: 'AUTHORIZATION_MEMBERSHIP_REQUIRED',
+      }),
+    });
 
     const readerService = createService({
       organizationMembership: {
@@ -116,7 +124,41 @@ describe('OrganizationMembershipService', () => {
       readerService.assertWorkWriteAccess(userId, {
         organizationId,
       }),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({
+        code: 'AUTHORIZATION_WRITE_ROLE_REQUIRED',
+      }),
+    });
+  });
+
+  it('uses distinct stable codes for missing membership and insufficient role', async () => {
+    const nonMember = createService({
+      organizationMembership: { findUnique: vi.fn().mockResolvedValue(null) },
+    }).service;
+    const reader = createService({
+      organizationMembership: {
+        findUnique: vi.fn().mockResolvedValue({
+          role: OrganizationRole.READER,
+          organization: { id: organizationId },
+        }),
+      },
+    }).service;
+
+    await expect(
+      nonMember.assertWorkAccess(userId, { organizationId }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'AUTHORIZATION_MEMBERSHIP_REQUIRED',
+      }),
+    });
+    await expect(
+      reader.assertWorkWriteAccess(userId, { organizationId }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'AUTHORIZATION_WRITE_ROLE_REQUIRED',
+      }),
+    });
   });
 
   it('allows STAFF and OWNER to write organization works', async () => {
@@ -147,7 +189,12 @@ describe('OrganizationMembershipService', () => {
 
     await expect(
       service.assertWorkAccess('external-user', { organizationId }),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({
+        code: 'AUTHORIZATION_MEMBERSHIP_REQUIRED',
+      }),
+    });
   });
 
   it('keeps the migration deterministic and free of sensitive field updates', () => {
@@ -156,7 +203,7 @@ describe('OrganizationMembershipService', () => {
       'utf8',
     );
 
-    expect(migration).toContain("'org_personal_' || md5(u.\"id\")");
+    expect(migration).toContain('\'org_personal_\' || md5(u."id")');
     expect(migration).toContain('ON CONFLICT ("id") DO NOTHING');
     expect(migration).not.toContain('passwordHash');
     expect(migration).not.toContain('refreshToken');

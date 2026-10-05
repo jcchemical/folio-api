@@ -1,8 +1,3 @@
-import {
-  BadGatewayException,
-  BadRequestException,
-  ServiceUnavailableException,
-} from '@nestjs/common';
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PorbaseAdapter } from './adapters/porbase.adapter.js';
@@ -109,9 +104,10 @@ describe('CataloguesService', () => {
   });
 
   it('rejects invalid ISBNs without making an external request', async () => {
-    await expect(service.searchPorbase('9789724426496')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(service.searchPorbase('9789724426496')).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({ code: 'CATALOGUE_INVALID_ISBN' }),
+    });
     expect(adapter.searchByIsbn).not.toHaveBeenCalled();
   });
 
@@ -153,16 +149,18 @@ describe('CataloguesService', () => {
     adapter.searchByIsbn.mockRejectedValueOnce(
       new PorbaseUpstreamError('timeout', 'timeout'),
     );
-    await expect(service.searchPorbase(validIsbn)).rejects.toBeInstanceOf(
-      ServiceUnavailableException,
-    );
+    await expect(service.searchPorbase(validIsbn)).rejects.toMatchObject({
+      status: 503,
+      response: expect.objectContaining({ code: 'PORBASE_TIMEOUT' }),
+    });
 
     adapter.searchByIsbn.mockRejectedValueOnce(
       new PorbaseUpstreamError('server-error', 'server error'),
     );
-    await expect(service.searchPorbase(validIsbn)).rejects.toBeInstanceOf(
-      BadGatewayException,
-    );
+    await expect(service.searchPorbase(validIsbn)).rejects.toMatchObject({
+      status: 502,
+      response: expect.objectContaining({ code: 'PORBASE_UNAVAILABLE' }),
+    });
   });
 
   it('maps invalid XML and HTTP 5xx responses to a bad gateway', async () => {
@@ -171,18 +169,20 @@ describe('CataloguesService', () => {
       body: '<collection><record>',
       contentType: 'text/xml',
     });
-    await expect(service.searchPorbase(validIsbn)).rejects.toBeInstanceOf(
-      BadGatewayException,
-    );
+    await expect(service.searchPorbase(validIsbn)).rejects.toMatchObject({
+      status: 502,
+      response: expect.objectContaining({ code: 'PORBASE_INVALID_RESPONSE' }),
+    });
 
     adapter.searchByIsbn.mockResolvedValueOnce({
       status: 503,
       body: '',
       contentType: 'text/plain',
     });
-    await expect(service.searchPorbase(validIsbn)).rejects.toBeInstanceOf(
-      BadGatewayException,
-    );
+    await expect(service.searchPorbase(validIsbn)).rejects.toMatchObject({
+      status: 502,
+      response: expect.objectContaining({ code: 'PORBASE_UNAVAILABLE' }),
+    });
   });
 
   it('returns unknown for content that is neither XML nor MARC text', async () => {

@@ -1,11 +1,12 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { isValidIsbn, normalizeIsbn } from './isbn.utils.js';
+import {
+  API_ERROR_CODES,
+  ApiException,
+  conflictDuplicateEdition,
+  conflictDuplicateExternalIdentifier,
+} from '../common/api-errors.js';
 import type {
   CatalogueImportDto,
   CatalogueImportResponseDto,
@@ -55,7 +56,11 @@ export class PorbaseImportService {
           .then((membership) => membership.organization)
       : await this.organizationMemberships.getDefaultOrganization(userId);
     if (!organization)
-      throw new NotFoundException('Personal organization not found');
+      throw new ApiException(
+        HttpStatus.NOT_FOUND,
+        API_ERROR_CODES.ORGANIZATION_NOT_FOUND,
+        'Personal organization not found.',
+      );
 
     return this.prisma.$transaction(async (transaction) => {
       await this.assertNoDuplicateEdition(
@@ -494,9 +499,7 @@ export class PorbaseImportService {
         : null;
 
     if (existing) {
-      throw new ConflictException(
-        'An edition with this ISBN already exists for this organization',
-      );
+      throw conflictDuplicateEdition();
     }
   }
 
@@ -519,8 +522,8 @@ export class PorbaseImportService {
         });
       } catch (error: unknown) {
         if (isPrismaUniqueViolation(error)) {
-          throw new ConflictException(
-            `External identifier ${input.type}:${input.value} already exists`,
+          throw conflictDuplicateExternalIdentifier(
+            'An external identifier with this type and value already exists.',
           );
         }
         throw error;
@@ -530,7 +533,11 @@ export class PorbaseImportService {
 
   private validateIsbn(value: string | null, field: string): void {
     if (value && !isValidIsbn(value)) {
-      throw new BadRequestException(`${field} is not a valid ISBN`);
+      throw new ApiException(
+        HttpStatus.BAD_REQUEST,
+        API_ERROR_CODES.INVALID_ISBN,
+        `${field} is not a valid ISBN.`,
+      );
     }
   }
 }

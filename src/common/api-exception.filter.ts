@@ -177,11 +177,9 @@ function mapHttpException(exception: HttpException): {
   const status = exception.getStatus();
   const body = exception.getResponse();
   const rawMessage =
-    typeof body === 'string'
-      ? body
-      : typeof body === 'object' && body !== null && 'message' in body
-        ? (body as { message?: unknown }).message
-        : undefined;
+    typeof body === 'object' && body !== null && 'message' in body
+      ? (body as { message?: unknown }).message
+      : undefined;
 
   if (status === HttpStatus.BAD_REQUEST && Array.isArray(rawMessage)) {
     return {
@@ -195,57 +193,46 @@ function mapHttpException(exception: HttpException): {
     };
   }
 
-  const message =
-    typeof rawMessage === 'string' ? rawMessage : 'Request failed.';
-  return { code: codeFor(status, message), message };
+  return fallbackForHttpStatus(status);
 }
 
-function codeFor(status: number, message: string): ApiErrorCode {
-  const normalized = message.toLowerCase();
-  if (status === HttpStatus.UNAUTHORIZED) {
-    if (normalized.includes('expired'))
-      return API_ERROR_CODES.EXPIRED_REFRESH_TOKEN;
-    if (normalized.includes('already been rotated'))
-      return API_ERROR_CODES.REUSED_REFRESH_TOKEN;
-    if (normalized.includes('email or password'))
-      return API_ERROR_CODES.INVALID_CREDENTIALS;
-    return API_ERROR_CODES.INVALID_REFRESH_TOKEN;
+function fallbackForHttpStatus(status: number): {
+  code: ApiErrorCode;
+  message: string;
+} {
+  switch (status) {
+    case HttpStatus.BAD_REQUEST:
+      return {
+        code: API_ERROR_CODES.VALIDATION_INVALID_BODY,
+        message: 'The request is invalid.',
+      };
+    case HttpStatus.UNAUTHORIZED:
+      return {
+        code: API_ERROR_CODES.INVALID_ACCESS_TOKEN,
+        message: 'A valid access token is required.',
+      };
+    case HttpStatus.FORBIDDEN:
+      return {
+        code: API_ERROR_CODES.UNAUTHORIZED_MEMBERSHIP,
+        message: 'Access to this resource is not permitted.',
+      };
+    case HttpStatus.NOT_FOUND:
+      return {
+        code: API_ERROR_CODES.RESOURCE_NOT_FOUND,
+        message: 'The requested resource was not found.',
+      };
+    case HttpStatus.CONFLICT:
+      return {
+        code: API_ERROR_CODES.DUPLICATE_RESOURCE,
+        message: 'The request conflicts with an existing resource.',
+      };
+    default:
+      return {
+        code: API_ERROR_CODES.INTERNAL_ERROR,
+        message:
+          status >= HttpStatus.INTERNAL_SERVER_ERROR
+            ? 'An unexpected error occurred.'
+            : 'The request could not be completed.',
+      };
   }
-  if (status === HttpStatus.FORBIDDEN) {
-    if (normalized.includes('role'))
-      return API_ERROR_CODES.UNAUTHORIZED_WRITE_ROLE;
-    return API_ERROR_CODES.UNAUTHORIZED_MEMBERSHIP;
-  }
-  if (status === HttpStatus.NOT_FOUND) {
-    if (normalized.includes('porbase') || normalized.includes('record found')) {
-      return API_ERROR_CODES.PORBASE_RECORD_NOT_FOUND;
-    }
-    if (normalized.includes('organization'))
-      return API_ERROR_CODES.ORGANIZATION_NOT_FOUND;
-    if (normalized.includes('edition'))
-      return API_ERROR_CODES.EDITION_NOT_FOUND;
-    return API_ERROR_CODES.RESOURCE_NOT_FOUND;
-  }
-  if (status === HttpStatus.CONFLICT) {
-    if (normalized.includes('organization') && normalized.includes('delet'))
-      return API_ERROR_CODES.ORGANIZATION_DELETE_CONFLICT;
-    if (normalized.includes('external identifier'))
-      return API_ERROR_CODES.DUPLICATE_EXTERNAL_IDENTIFIER;
-    return API_ERROR_CODES.DUPLICATE_EDITION;
-  }
-  if (status === HttpStatus.BAD_REQUEST) {
-    if (normalized.includes('isbn')) return API_ERROR_CODES.INVALID_ISBN;
-    if (normalized.includes('cursor') || normalized.includes('limit'))
-      return API_ERROR_CODES.INVALID_CURSOR_OR_LIMIT;
-    if (normalized.includes('date'))
-      return API_ERROR_CODES.INVALID_BIBLIOGRAPHIC_DATE;
-  }
-  if (status === HttpStatus.SERVICE_UNAVAILABLE)
-    return API_ERROR_CODES.PORBASE_TIMEOUT;
-  if (status === HttpStatus.BAD_GATEWAY) {
-    if (normalized.includes('invalid xml') || normalized.includes('invalid'))
-      return API_ERROR_CODES.PORBASE_INVALID_RESPONSE;
-    return API_ERROR_CODES.PORBASE_UNAVAILABLE;
-  }
-  return API_ERROR_CODES.INTERNAL_ERROR;
 }

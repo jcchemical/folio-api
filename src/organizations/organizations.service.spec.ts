@@ -1,8 +1,4 @@
-import {
-  ConflictException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { OrganizationRole } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -172,7 +168,12 @@ describe('OrganizationsService', () => {
     vi.mocked(memberships.assertRole).mockResolvedValue(undefined);
     await expect(
       service.remove('owner-user', organization.id),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({
+        code: 'CONFLICT_ORGANIZATION_DELETE',
+      }),
+    });
     expect(memberships.assertRole).toHaveBeenLastCalledWith(
       'owner-user',
       organization.id,
@@ -186,6 +187,9 @@ describe('OrganizationsService', () => {
 
     await expect(
       service.findOneByUser('user-1', 'missing'),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toMatchObject({
+      status: 404,
+      response: expect.objectContaining({ code: 'ORGANIZATION_NOT_FOUND' }),
+    });
   });
 });

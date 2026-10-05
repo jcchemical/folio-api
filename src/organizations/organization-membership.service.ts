@@ -1,9 +1,6 @@
-import {
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { OrganizationRole } from '@prisma/client';
+import { API_ERROR_CODES, ApiException } from '../common/api-errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const ROLE_WEIGHT: Record<OrganizationRole, number> = {
@@ -27,7 +24,10 @@ export class OrganizationMembershipService {
 
   async getOrganizations(userId: string) {
     const memberships = await this.getMemberships(userId);
-    return memberships.map(({ organization, role }) => ({ organization, role }));
+    return memberships.map(({ organization, role }) => ({
+      organization,
+      role,
+    }));
   }
 
   async getDefaultOrganization(userId: string) {
@@ -44,22 +44,27 @@ export class OrganizationMembershipService {
     organizationId: string,
     minimumRole: OrganizationRole = OrganizationRole.READER,
   ) {
-    const membership =
-      await this.prisma.organizationMembership.findUnique({
-        where: {
-          userId_organizationId: { userId, organizationId },
-        },
-        include: { organization: true },
-      });
+    const membership = await this.prisma.organizationMembership.findUnique({
+      where: {
+        userId_organizationId: { userId, organizationId },
+      },
+      include: { organization: true },
+    });
 
     if (!membership) {
-      throw new ForbiddenException(
-        'User is not a member of this organization',
+      throw new ApiException(
+        HttpStatus.FORBIDDEN,
+        API_ERROR_CODES.UNAUTHORIZED_MEMBERSHIP,
+        'User is not a member of this organization.',
       );
     }
     if (ROLE_WEIGHT[membership.role] < ROLE_WEIGHT[minimumRole]) {
-      throw new ForbiddenException(
-        `Organization role ${minimumRole} is required`,
+      throw new ApiException(
+        HttpStatus.FORBIDDEN,
+        minimumRole === OrganizationRole.READER
+          ? API_ERROR_CODES.UNAUTHORIZED_MEMBERSHIP
+          : API_ERROR_CODES.UNAUTHORIZED_WRITE_ROLE,
+        `Organization role ${minimumRole} is required.`,
       );
     }
 
@@ -116,7 +121,12 @@ export class OrganizationMembershipService {
     const organization = await this.prisma.organization.findUnique({
       where: { id: organizationId },
     });
-    if (!organization) throw new NotFoundException('Organization not found');
+    if (!organization)
+      throw new ApiException(
+        HttpStatus.NOT_FOUND,
+        API_ERROR_CODES.ORGANIZATION_NOT_FOUND,
+        'Organization not found.',
+      );
     return organization;
   }
 }

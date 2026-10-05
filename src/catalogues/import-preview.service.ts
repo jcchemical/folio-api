@@ -1,8 +1,5 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { API_ERROR_CODES, ApiException } from '../common/api-errors.js';
 import { isValidIsbn, normalizeIsbn } from './isbn.utils.js';
 import { CataloguesService } from './catalogues.service.js';
 import type { PorbaseBibliographicFieldsDto } from './dto/porbase-search-response.dto.js';
@@ -23,14 +20,22 @@ export class ImportPreviewService {
   ): Promise<Omit<ImportPreviewResponseDto, 'sourceId'>> {
     const normalizedIsbn = normalizeIsbn(isbn);
     if (!isValidIsbn(normalizedIsbn)) {
-      throw new BadRequestException('Invalid ISBN-10 or ISBN-13');
+      throw new ApiException(
+        HttpStatus.BAD_REQUEST,
+        API_ERROR_CODES.INVALID_ISBN,
+        'Invalid ISBN-10 or ISBN-13.',
+      );
     }
 
     const result =
       await this.cataloguesService.searchPorbaseByIsbn(normalizedIsbn);
 
     if (!result.found) {
-      throw new NotFoundException('No PORBASE record found for this ISBN');
+      throw new ApiException(
+        HttpStatus.NOT_FOUND,
+        API_ERROR_CODES.PORBASE_RECORD_NOT_FOUND,
+        'No PORBASE record was found for this ISBN.',
+      );
     }
 
     return this.mapResult(result.query, result.metadata, result);

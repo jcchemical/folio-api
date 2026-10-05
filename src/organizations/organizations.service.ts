@@ -1,10 +1,6 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, HttpStatus, Injectable } from '@nestjs/common';
 import { OrganizationRole } from '@prisma/client';
+import { API_ERROR_CODES, ApiException } from '../common/api-errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { OrganizationMembershipService } from './organization-membership.service.js';
 import type { CreateOrganizationDto } from './dto/create-organization.dto.js';
@@ -40,7 +36,7 @@ export class OrganizationsService {
     const organization = await this.prisma.organization.findUnique({
       where: { id: organizationId },
     });
-    if (!organization) throw new NotFoundException('Organization not found');
+    if (!organization) throw organizationNotFound();
 
     const membership = await this.memberships.requireMembership(
       userId,
@@ -119,8 +115,10 @@ export class OrganizationsService {
       OrganizationRole.OWNER,
     );
 
-    throw new ConflictException(
-      'Organization deletion is disabled until Works and Items have a safe reassignment policy',
+    throw new ApiException(
+      HttpStatus.CONFLICT,
+      API_ERROR_CODES.ORGANIZATION_DELETE_CONFLICT,
+      'Organization deletion is disabled until Works and Items have a safe reassignment policy.',
     );
   }
 
@@ -128,7 +126,7 @@ export class OrganizationsService {
     const organization = await this.prisma.organization.findUnique({
       where: { id: organizationId },
     });
-    if (!organization) throw new NotFoundException('Organization not found');
+    if (!organization) throw organizationNotFound();
     return organization;
   }
 
@@ -151,6 +149,14 @@ export class OrganizationsService {
       createdAt: organization.createdAt,
     };
   }
+}
+
+function organizationNotFound(): ApiException {
+  return new ApiException(
+    HttpStatus.NOT_FOUND,
+    API_ERROR_CODES.ORGANIZATION_NOT_FOUND,
+    'Organization not found.',
+  );
 }
 
 export function normalizeOrganizationName(value: string): string {

@@ -1,4 +1,3 @@
-import { ForbiddenException } from '@nestjs/common';
 import { OrganizationRole } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -69,7 +68,12 @@ describe('ContributorsService legacy cross-organization isolation', () => {
 
     await expect(
       service.findById(sharedContributor.id, user.id),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({
+        code: 'AUTHORIZATION_ALL_MEMBERSHIPS_REQUIRED',
+      }),
+    });
   });
 
   it('does not allow a member of only one linked organization to update a shared legacy Contributor', async () => {
@@ -77,7 +81,12 @@ describe('ContributorsService legacy cross-organization isolation', () => {
 
     await expect(
       service.update(sharedContributor.id, user.id, { name: 'Changed name' }),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({
+        code: 'AUTHORIZATION_ALL_MEMBERSHIPS_REQUIRED',
+      }),
+    });
     expect(prisma.contributor.update).not.toHaveBeenCalled();
   });
 
@@ -86,7 +95,12 @@ describe('ContributorsService legacy cross-organization isolation', () => {
 
     await expect(
       service.remove(sharedContributor.id, user.id),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({
+        code: 'AUTHORIZATION_ALL_MEMBERSHIPS_REQUIRED',
+      }),
+    });
     expect(prisma.contributor.delete).not.toHaveBeenCalled();
   });
 });

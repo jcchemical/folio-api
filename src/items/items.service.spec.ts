@@ -1,8 +1,3 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
 import { OrganizationRole } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -178,7 +173,12 @@ describe('ItemsService authorization and write boundaries', () => {
 
     await expect(
       fixture.service.create(user.id, { editionId: edition.id }),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({
+        code: 'AUTHORIZATION_WRITE_ROLE_REQUIRED',
+      }),
+    });
     expect(fixture.prisma.item.create).not.toHaveBeenCalled();
   });
 
@@ -203,7 +203,12 @@ describe('ItemsService authorization and write boundaries', () => {
 
     await expect(
       fixture.service.update(item.id, user.id, { label: 'forbidden update' }),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({
+        code: 'AUTHORIZATION_WRITE_ROLE_REQUIRED',
+      }),
+    });
     expect(fixture.prisma.item.update).not.toHaveBeenCalled();
   });
 
@@ -233,7 +238,12 @@ describe('ItemsService authorization and write boundaries', () => {
 
     await expect(
       fixture.service.update(item.id, user.id, { status: '   ' }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({
+        code: 'VALIDATION_INVALID_REQUEST_DATA',
+      }),
+    });
     expect(fixture.prisma.item.update).not.toHaveBeenCalled();
   });
 
@@ -283,7 +293,12 @@ describe('ItemsService authorization and write boundaries', () => {
 
     await expect(
       fixture.service.remove(item.id, user.id),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({
+        code: 'AUTHORIZATION_WRITE_ROLE_REQUIRED',
+      }),
+    });
     expect(fixture.prisma.item.delete).not.toHaveBeenCalled();
   });
 
@@ -292,7 +307,10 @@ describe('ItemsService authorization and write boundaries', () => {
 
     await expect(
       fixture.service.remove('missing-item', user.id),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toMatchObject({
+      status: 404,
+      response: expect.objectContaining({ code: 'RESOURCE_NOT_FOUND' }),
+    });
     expect(fixture.prisma.item.delete).not.toHaveBeenCalled();
   });
 
@@ -301,7 +319,12 @@ describe('ItemsService authorization and write boundaries', () => {
 
     await expect(
       fixture.service.remove(item.id, user.id),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({
+        code: 'AUTHORIZATION_MEMBERSHIP_REQUIRED',
+      }),
+    });
     expect(fixture.prisma.item.delete).not.toHaveBeenCalled();
   });
 });
