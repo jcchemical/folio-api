@@ -576,3 +576,163 @@ CoverAcquisitionService (application service)
 - Localização: teste de paridade de chaves entre `app_en`, `app_pt` e `app_pt_PT`; o status do Item é localizado.
 
 Created 6 todos
+
+
+# Após correr correcções
+
+Updated todo list
+
+Vou verificar o estado real do código antes de opinar. Na API confirmo os pontos P0/P1 e os P2 em aberto; no app faço apenas leitura dos ficheiros relevantes para validar os APP-P1.   
+
+Ran terminal command:  cd /home/folio/projects/folio/folio-app && git status --short --branch | head -5; grep -n "onUnauthorized\|generation\|Generation\|catch" lib/core/network/api_client.dart | head -40; echo ---; grep -n "deleteAccessToken\|deleteRefreshToken\|_api.logout\|clear" lib/features/auth/data/auth_repository.dart | head; echo ---; ls lib/features/library/data | head -20; grep -rn "dart:html\|readAccessToken" lib/features/library/data | head
+
+   
+
+No matches found. Your search pattern might be excluded completely by either the search.exclude settings or .*ignore files.
+If you believe that it should have results, you can check into the .*ignore files and the exclude setting (here are some excluded patterns for reference:[**/node_modules,**/bower_components,**/*.code-search]).
+Then if you want to include those files you can call the tool again by setting "includeIgnoredFiles" to true.
+
+Searched for regex `@Body\(\) body: (Partial<)?(ContributorInput|BibliographicRecordInput|ExternalIdentifierInput|EditionInput)|isDevelopment|JWT_SECRET|Promise\.all` (`**/src/**/*.ts`), 25 results
+
+Searched for regex `856|maxContentLength|maxRedirects|timeout|HttpModule` (`**/src/catalogues/**/*.ts`), 12 results
+
+Read 
+
+Read , lines 1 to 70
+
+Ran terminal command:  cd /home/folio/projects/folio/folio-app && sed -n 1,60p lib/features/library/data/marcxchange_downloader_web.dart; grep -n "exportMarcXchange\|ResponseType.bytes\|responseType" -r lib/features/library | head; sed -n 90,125p lib/features/auth/data/auth_repository.dart
+
+Searched for regex `throw new (BadRequestException|ForbiddenException|NotFoundException|ConflictException|UnauthorizedException)` (`**/src/**/*.ts`), 34 results
+
+Ran terminal command:  cd /home/folio/projects/folio/folio-app && grep -rn "ResponseType\|fetchMarcXchange\|marcxchange" lib --include=*.dart -i | grep -v "l10n/\|generated" | head -15; sed -n 100,135p lib/features/library/controller/library_detail_controller.dart
+
+Ran terminal command:  cd /home/folio/projects/folio/folio-app && sed -n 66,175p lib/core/network/api_client.dart
+
+# Revisão curta pré-1J (capas)
+
+Li o código da API e, só em leitura, os ficheiros relevantes do app. Não voltei a correr testes; os números de build e testes são os que indicou.
+
+## 1. P0/P1
+
+| Finding | Estado | Evidência e ressalva |
+|---|---|---|
+| API-P0-1 JWT_SECRET | **Resolvido** | `jwt.configuration.ts` falha sem segredo ou com menos de 32 bytes. Só `NODE_ENV=test` tem segredo de teste. |
+| API-P1-1 Items | **Resolvido** | DTOs de classe, whitelist no service e `organizationId` derivado da Edition. Os controllers de **Contributors e BibliographicRecords continuam com `interface`**. |
+| API-P1-2 Contributors | **Resolvido no import** | O import só escreve Contributions/Agents. As linhas legadas partilhadas ficam como dados históricos, e as operações HTTP exigem acesso a todas as organizações ligadas. |
+| API-P1-3 PUT /works | **Resolvido** | O DTO é scalar-only (`title`, `subtitle`) e o service já não apaga Editions. |
+| API-P1-4 Códigos por texto | **Parcial** | O filtro já não infere códigos de texto, e Auth, Items, membership, Organizations e catálogo usam `ApiException`. Mas **34 pontos de `throw` em 11 ficheiros** ainda usam exceções Nest simples (Editions, Works, BibliographicRecords, Contributions, ExternalIdentifiers, Exports, Users). Dão agora códigos genéricos. Por exemplo, "Edition not found" passou de `EDITION_NOT_FOUND` para `RESOURCE_NOT_FOUND`. |
+| APP-P1-1 Export | **Resolvido** | O downloader usa o cliente partilhado; a classe de plataforma só grava o ficheiro. Existe `getBytes` para reutilizar nas capas. |
+| APP-P1-2 Retry | **Resolvido** | O retry só termina a sessão se falhar com 401. Qualquer outro erro do retry propaga-se, e o refresh só termina a sessão com 401/403. |
+| APP-P1-3 Refresh pós-logout | **Resolvido** | O logout apaga os tokens locais antes de chamar o servidor. O refresh descarta o resultado se a geração mudou e limpa os tokens se o logout ocorreu durante a escrita. |
+
+Duas correcções ao seu sumário:
+- B4 não cobre "todos os services".
+- Verifique se o Flutter ramifica sobre `EDITION_NOT_FOUND`. Não verifiquei, e pode ter regredido silenciosamente.
+
+## 2. Arquitectura de capas
+
+**Separação domínio/infra: correcta, com quatro ajustes.**
+- O domínio fica livre de storage, e `CoverAsset` guarda `storageKey` e backend.
+- `CoverCandidate` deve ligar ao `BibliographicRecord`, porque é proveniência. Com restrição única `(bibliographicRecordId, hash da URL)`, a re-extracção é idempotente.
+- Acrescentar o estado `ACQUIRING`. A reclamação de uma candidata faz-se com UPDATE condicional (`PENDING→ACQUIRING`), para não haver downloads duplicados com várias instâncias.
+- As chaves de storage são geradas pelo servidor, nunca derivadas de input, e o `StorageService` valida-as contra path traversal.
+- A deduplicação por `(organizationId, contentHash)` está bem. Deduplicar entre organizações revelaria a existência da imagem.
+
+**Extractor a ler o `rawContent` persistido: sim, mas essa fonte não é uma fronteira de confiança.**
+- O `rawContent` vem **do cliente** no import (limitação documentada).
+- Hoje o `PUT /bibliographic-records/:id` ainda o permite alterar e reatribuir a outra Edition (API-P2-4).
+- Um STAFF controla, portanto, os URLs que o servidor irá descarregar.
+- A defesa real é o `SafeHttpFetcher` com **allowlist obrigatória**.
+- O `856` deve passar a ser parseado como "localização electrónica" estruturada (`$u`, `$q` MIME, `$y` texto). Assim sai dos "não mapeados" e as candidatas criam-se na transacção do import.
+- Regra de classificação: só se descarrega quando o MIME indica imagem ou o URL corresponde a um padrão registado para o host (por exemplo `/service/media/cover/`). Caso contrário a candidata fica `REJECTED(NOT_IMAGE_LINK)` sem pedido de rede. Um `purl.pt/37597` é um objecto digital, não uma imagem.
+
+**Download assíncrono: sim.**
+- A candidata grava-se no commit do import e o download corre depois.
+- Um fire-and-forget em processo perde-se num restart, por isso precisa de um varrimento de `PENDING` com `nextAttemptAt` no arranque. Não precisa de fila.
+- Com retry limitado e backoff, uma falha nunca bloqueia o import.
+
+**SSRF: a descrição actual não é suficiente. Falta:**
+- **Ligar ao IP validado.** Validar o IP no `lookup` do agente HTTP, no momento da ligação. Resolver antes e pedir depois por hostname deixa um TOCTOU (DNS rebinding).
+- **Allowlist de hosts obrigatória** (BNP e purl), mais esquema https. `http` apenas por host explicitamente listado, e como o conteúdo pode ser adulterado em trânsito, a validação por magic bytes e o `nosniff` passam a ser obrigatórios.
+- **Redirects manuais** (máx. 3), revalidando host e IP em cada salto. O comportamento de redirect de `purl.pt` deve ser testado, porque determina a allowlist final.
+- **Proxy desligado** (`proxy: false`), para variáveis `HTTP(S)_PROXY` não contornarem a validação.
+- **Intervalos bloqueados:** loopback, link-local (169.254/16), privados, CGNAT (100.64/10), `::ffff:` mapeado, `fc00::/7`, `fe80::/10`, `0.0.0.0`, URLs com userinfo, e portas fora de 80/443.
+- **Limites:** tamanho do corpo cortado em stream e depois de descompressão, limite de dimensão/pixels antes de descodificar (bomba de descompressão), timeout total e de ligação, concorrência global e por host.
+- **Testes com servidor local:** só aceita hosts de teste via configuração de teste, nunca por flag em produção.
+
+**Endpoint de imagem e tenancy: sim, se copiar o padrão do export.**
+- Pipe de ID cuid + `assertWorkAccess` **antes** de ler o storage.
+- `Content-Type` vem do `mimeType` validado, nunca da origem. Mais `nosniff` e `Cache-Control: private`.
+- O `ETag` só é comparado depois da autorização.
+- Nunca se expõe `storageKey` nem o URL de origem.
+- Sem capa devolve 404 com código próprio (`COVER_NOT_FOUND`).
+- O `coverUrl` no DTO de leitura deve ser `null` quando não há `EditionCover`, para a grelha não gerar tempestades de 404.
+
+**CORS vs ETag: o que falta.** O CORS actual só permite os headers `Content-Type` e `Authorization`.
+- Pedidos condicionais da Web (`If-None-Match`) falham no preflight.
+- É preciso `allowedHeaders` com `If-None-Match` e `exposedHeaders: ['ETag']`.
+
+**O que falta antes de implementar:**
+1. **Decisão de licenciamento.** Guardar capas da BNP implica termos de reutilização. É uma decisão de produto, não técnica, e deve estar tomada antes de `.3`.
+2. **Configuração:** `COVER_ALLOWED_HOSTS`, limites e raiz de storage, em `.env.example`.
+3. **Códigos de erro `COVER_*` explícitos** (nenhum erro de capa deve usar texto).
+4. **Limpeza de órfãos.** O delete em cascata de uma Edition remove as linhas, mas não os ficheiros, e `CoverAsset` não tem FK para a Edition.
+5. **Fixtures de `856` copiadas** para o repositório da API. O dump actual está no repositório do app.
+6. **A migration é aditiva, mas precisa de aprovação explícita.** A BD de desenvolvimento é partilhada, e não se deve aplicar sem instrução.
+
+## 3. Riscos residuais
+
+**Subir antes de `1J-API.2`:**
+- **API-P2-4 (BibliographicRecord editável): passa a bloqueante.** Tornar `rawContent` e relações imutáveis por HTTP, ou o record read-only. É a entrada do extractor.
+
+**Antes de `1J-API.5` (endpoint):**
+- Conversão dos 34 `throw` para `ApiException`, pelo menos nos caminhos de Editions e Exports, para o endpoint de capa não ficar inconsistente com o export.
+- **Throttling/concorrência (B10).** Não bloqueia `.0–.3`, mas **deve existir antes de activar `.4` fora de desenvolvimento**, porque cada import passa a gerar pedidos de saída.
+- CORS: `If-None-Match` e `ETag`, como acima.
+
+**Durante a 1J, sem bloquear:**
+- **API-P2-1 CORS em produção:** inverter o default (produção por omissão e origens por ambiente). Esforço S. Fazer já, porque o JWT já falha sem segredo, mas o CORS ainda abre redes privadas se `NODE_ENV` faltar.
+- **APP-P2-3 (rollback por `load()`) e APP-P2-1/2:** fazer **antes** de `1J-FLUTTER.1`. A apresentação de capas acrescenta pedidos assíncronos no mesmo ecrã e agrava a corrida existente.
+- **APP-P1-4 (paginação):** em paralelo. Relevante para a grelha de capas.
+
+**Fora da 1J:**
+- **API-P2-3 (PUT /editions não actualiza o canónico): subir de prioridade.** Desde 1G o export prefere títulos e línguas canónicos, logo uma edição de título por `PUT` deixa de aparecer no MARCXchange. Agendar logo a seguir à 1J. Se o app ainda não chama `PUT /editions`, o impacto actual é baixo.
+- **API-P2-2 (Item.status como String):** exige migration; manter separada da migration das capas.
+- **API-P2-5 (WorksService.create sem transacção):** correcção pequena, independente.
+- Contributors com `interface` no controller (o service já filtra campos).
+
+## 4. Recomendação
+
+**GO condicional.**
+
+- **GO imediato** para `1J-API.0` e `1J-API.1`.
+- **`1J-API.2` só depois** de tornar o `BibliographicRecord` imutável por HTTP.
+- **`1J-API.3` depende** da decisão de licenciamento e da lista de hosts.
+- **`1J-API.4` só se activa fora de desenvolvimento** com throttling e limite de concorrência.
+
+Nenhum destes requisitos é grande. O único realmente bloqueante é a imutabilidade do `BibliographicRecord`.
+
+## 5. Ordem da 1J (ajustada)
+
+```text
+Gate    BibliographicRecord read-only por HTTP (rawContent e relações);
+        códigos COVER_* definidos; CORS (If-None-Match/ETag + default prod)
+1J-API.0  Migration: CoverCandidate (ligada a BibliographicRecord, ACQUIRING,
+          única por URL), CoverAsset, EditionCover        [aprovação explícita]
+1J-API.1  StorageService + InMemoryStorage + LocalFsStorage (chaves do servidor)
+1J-API.2  Parser 856 estruturado + extractor + classificação (REJECTED sem fetch)
+          + candidatas criadas na transacção do import
+1J-API.3  SafeHttpFetcher (allowlist, IP pinning, redirects, proxy off, limites)
+          + ImageValidator (magic bytes, dimensões)        [após decisão de licenças]
+1J-API.4  CoverAcquisitionService (claim atómico, backoff, varrimento de PENDING)
+          [activar fora de dev só com throttling/concorrência]
+1J-API.5  GET /editions/:id/cover (tenancy, ETag, nosniff, 404 COVER_NOT_FOUND)
+1J-API.6  coverUrl no DTO de leitura (null sem EditionCover)
+APP-P2-1/2/3  Feedback de delete e corrida do load() (antes do FLUTTER.1)
+1J-FLUTTER.0  getBytes + cache por ETag (o getBytes já existe)
+1J-FLUTTER.1  Apresentação com placeholder
+```
+
+Em relação à sua ordem, o `ImageValidator` fica explícito em `.3`, e o gate inicial e os APP-P2 são novos.
+
+Created 5 todos

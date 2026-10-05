@@ -16,6 +16,13 @@ function createService(authorized: boolean, result: typeof record | null = recor
   const prisma = {
     bibliographicRecord: {
       findUnique: vi.fn().mockResolvedValue(result),
+      findMany: vi.fn().mockResolvedValue([record]),
+    },
+    edition: {
+      findUnique: vi.fn().mockResolvedValue({
+        id: 'edition-1',
+        work: record.work,
+      }),
     },
   } as unknown as PrismaService;
   const memberships = {
@@ -95,5 +102,42 @@ describe('BibliographicRecordsService.findOne', () => {
     await expect(service.findOne(userId, record.id)).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+});
+
+describe('BibliographicRecordsService.findByEdition', () => {
+  it('returns records only after authorizing access to the Edition work', async () => {
+    const { memberships, service } = createService(true);
+
+    await expect(service.findByEdition(userId, 'edition-1')).resolves.toEqual([
+      record,
+    ]);
+    expect(memberships.assertWorkAccess).toHaveBeenCalledWith(userId, record.work);
+  });
+
+  it('rejects users without access to the Edition work', async () => {
+    const { service } = createService(false);
+
+    await expect(
+      service.findByEdition('external-user', 'edition-1'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('returns 404 when the Edition does not exist', async () => {
+    const prisma = {
+      bibliographicRecord: { findMany: vi.fn() },
+      edition: { findUnique: vi.fn().mockResolvedValue(null) },
+    } as unknown as PrismaService;
+    const memberships = {
+      assertWorkAccess: vi.fn(),
+    } as unknown as OrganizationMembershipService;
+    const serviceWithMissingEdition = new BibliographicRecordsService(
+      prisma,
+      memberships,
+    );
+
+    await expect(
+      serviceWithMissingEdition.findByEdition(userId, 'missing-edition'),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

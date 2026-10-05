@@ -49,6 +49,29 @@ describe('AppController (e2e)', () => {
       });
   });
 
+  it('exposes BibliographicRecord only as a read-only resource by id', async () => {
+    await request(app.getHttpServer())
+      .get('/bibliographic-records/record-1')
+      .expect(401);
+
+    await request(app.getHttpServer()).get('/bibliographic-records').expect(404);
+    await request(app.getHttpServer())
+      .post('/bibliographic-records')
+      .send({ format: 'MARC_TEXT', rawContent: '<record />' })
+      .expect(404);
+    await request(app.getHttpServer())
+      .put('/bibliographic-records/record-1')
+      .send({ rawContent: '<modified />' })
+      .expect(404);
+    await request(app.getHttpServer())
+      .patch('/bibliographic-records/record-1')
+      .send({ editionId: 'another-edition' })
+      .expect(404);
+    await request(app.getHttpServer())
+      .delete('/bibliographic-records/record-1')
+      .expect(404);
+  });
+
   it('returns a stable validation code without exposing internals', async () => {
     await request(app.getHttpServer())
       .post('/users')

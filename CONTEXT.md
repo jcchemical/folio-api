@@ -32,6 +32,9 @@ Compatibilidade só deve existir quando reduz risco real de produto, não por ap
 - Driver: `@prisma/adapter-pg` + `pg`;
 - Documentação: Swagger UI em `/docs`;
 - CORS configurado para desenvolvimento local.
+- Storage de capas: `StorageModule` abstrai `in_memory` (apenas testes) e
+  `local_fs` (padrão fora de testes); `COVER_STORAGE_ROOT` define a raiz local.
+  S3 permanece planeado e ainda não tem adaptador.
 
 A configuração do Prisma 7 usa `prisma.config.ts`; o `datasource` do schema não contém `url`. O cliente gerado em `node_modules/.prisma/client` é output e não deve ser editado manualmente.
 
@@ -347,6 +350,8 @@ ExternalIdentifier.organizationId
 A unicidade é `(organizationId, type, value)`: o mesmo ISBN pode existir em organizações diferentes, mas identificadores do mesmo tipo e valor são únicos dentro da mesma organização.
 
 - `BibliographicRecord` guarda a proveniência original recebida de fontes externas.
+  É imutável por HTTP: a API expõe apenas `GET /bibliographic-records/:id`;
+  a criação ocorre exclusivamente no fluxo de importação de catálogo.
 
 ### Agents e Contributions (Phase 1 implementada)
 

@@ -6,6 +6,7 @@ import { WorksModule } from './works/works.module.js';
 import { CataloguesModule } from './catalogues/catalogues.module.js';
 import { ExportsModule } from './exports/exports.module.js';
 import { OrganizationsModule } from './organizations/organizations.module.js';
+import { StorageModule } from './storage/storage.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 
@@ -18,6 +19,7 @@ import { AppService } from './app.service.js';
     CataloguesModule,
     ExportsModule,
     OrganizationsModule,
+    StorageModule,
   ],
   controllers: [AppController],
   providers: [AppService],

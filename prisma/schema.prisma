@@ -41,6 +41,7 @@ model Organization {
   items               Item[]
   externalIdentifiers ExternalIdentifier[]
   agents              Agent[]
+  coverAssets         CoverAsset[]
 }
 
 model User {
@@ -137,6 +138,7 @@ model Edition {
   editionStatements        EditionStatement[]
   classifications          Classification[]
   notes                    BibliographicNote[]
+  editionCovers            EditionCover[]
 
   @@index([workId, createdAt, id])
 }
@@ -551,9 +553,68 @@ model BibliographicRecord {
   edition   Edition? @relation(fields: [editionId], references: [id], onDelete: SetNull)
 
   unmappedSourceFields UnmappedSourceField[]
+  coverCandidates      CoverCandidate[]
 
   @@index([workId, createdAt, id])
   @@index([editionId, createdAt, id])
+}
+
+model CoverCandidate {
+  id                    String    @id @default(cuid())
+  bibliographicRecordId String
+  url                   String
+  urlHash               String
+  sourceType            String    @default("PORBASE")
+  mimeType              String?
+  status                String    @default("PENDING")
+  rejectReason          String?
+  coverAssetId          String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  nextAttemptAt         DateTime?
+  retryCount            Int       @default(0)
+
+  bibliographicRecord BibliographicRecord @relation(fields: [bibliographicRecordId], references: [id], onDelete: Cascade)
+  coverAsset          CoverAsset?         @relation(fields: [coverAssetId], references: [id], onDelete: SetNull)
+
+  @@unique([bibliographicRecordId, urlHash])
+  @@index([status])
+  @@index([nextAttemptAt])
+  @@index([sourceType])
+}
+
+model CoverAsset {
+  id             String   @id @default(cuid())
+  organizationId String
+  storageBackend String
+  storageKey     String
+  contentHash    String
+  mimeType       String
+  sizeBytes      Int
+  width          Int?
+  height         Int?
+  createdAt      DateTime @default(now())
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  coverCandidates CoverCandidate[]
+  editionCovers   EditionCover[]
+
+  @@unique([organizationId, contentHash])
+  @@index([storageBackend])
+}
+
+model EditionCover {
+  id           String   @id @default(cuid())
+  editionId    String
+  coverAssetId String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  edition    Edition    @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  coverAsset CoverAsset @relation(fields: [coverAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([editionId, coverAssetId])
+  @@index([isActive])
 }
 
 model Item {
