@@ -5,7 +5,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { paginate, paginationArgs, type PaginationInput } from '../common/pagination.js';
+import {
+  paginate,
+  paginationArgs,
+  type PaginationInput,
+} from '../common/pagination.js';
 import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
 
 export interface ContributorInput {
@@ -29,14 +33,28 @@ export class ContributorsService {
     const rows = await this.prisma.contributor.findMany({
       where: {
         OR: [
-          { workContributors: { some: { work: { organization: { memberships: { some: { userId } } } } } } },
-          { editionContributors: { some: { edition: { work: { organization: { memberships: { some: { userId } } } } } } } },
+          {
+            workContributors: {
+              some: {
+                work: { organization: { memberships: { some: { userId } } } },
+              },
+            },
+          },
+          {
+            editionContributors: {
+              some: {
+                edition: {
+                  work: { organization: { memberships: { some: { userId } } } },
+                },
+              },
+            },
+          },
         ],
       },
-        orderBy: [{ name: 'asc' }, { id: 'asc' }],
-        ...prisma,
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      ...prisma,
     });
-      return paginate(rows, limit);
+    return paginate(rows, limit);
   }
 
   findById(id: string, userId: string) {
@@ -48,7 +66,9 @@ export class ContributorsService {
       where: { id },
       include: {
         workContributors: { include: { work: true } },
-        editionContributors: { include: { edition: { include: { work: true } } } },
+        editionContributors: {
+          include: { edition: { include: { work: true } } },
+        },
       },
     });
     await this.assertContributorAccess(contributor, userId);
@@ -121,7 +141,10 @@ export class ContributorsService {
     if (editionId) await this.assertRelatedEdition(editionId, userId);
   }
 
-  private async assertRelatedWork(workId: string, userId: string): Promise<void> {
+  private async assertRelatedWork(
+    workId: string,
+    userId: string,
+  ): Promise<void> {
     const work = await this.prisma.work.findUnique({ where: { id: workId } });
     if (!work) throw new NotFoundException('Work not found');
     await this.organizationMemberships.assertWorkWriteAccess(userId, work);
@@ -136,7 +159,10 @@ export class ContributorsService {
       include: { work: true },
     });
     if (!edition) throw new NotFoundException('Edition not found');
-    await this.organizationMemberships.assertWorkWriteAccess(userId, edition.work);
+    await this.organizationMemberships.assertWorkWriteAccess(
+      userId,
+      edition.work,
+    );
   }
 
   private async assertContributorOwnership(id: string, userId: string) {
@@ -144,7 +170,9 @@ export class ContributorsService {
       where: { id },
       include: {
         workContributors: { include: { work: true } },
-        editionContributors: { include: { edition: { include: { work: true } } } },
+        editionContributors: {
+          include: { edition: { include: { work: true } } },
+        },
       },
     });
     await this.assertContributorWriteAccess(contributor, userId);
@@ -153,12 +181,14 @@ export class ContributorsService {
   private async assertContributorAccess(
     contributor: {
       workContributors: Array<{ work: { organizationId: string } }>;
-      editionContributors: Array<{ edition: { work: { organizationId: string } } }>;
+      editionContributors: Array<{
+        edition: { work: { organizationId: string } };
+      }>;
     } | null,
     userId: string,
   ): Promise<void> {
     if (!contributor) throw new NotFoundException('Contributor not found');
-    await this.assertAnyWorkAccess(
+    await this.assertAllRelatedWorkAccess(
       userId,
       [
         ...contributor.workContributors.map(({ work }) => work),
@@ -171,12 +201,14 @@ export class ContributorsService {
   private async assertContributorWriteAccess(
     contributor: {
       workContributors: Array<{ work: { organizationId: string } }>;
-      editionContributors: Array<{ edition: { work: { organizationId: string } } }>;
+      editionContributors: Array<{
+        edition: { work: { organizationId: string } };
+      }>;
     } | null,
     userId: string,
   ): Promise<void> {
     if (!contributor) throw new NotFoundException('Contributor not found');
-    await this.assertAnyWorkAccess(
+    await this.assertAllRelatedWorkAccess(
       userId,
       [
         ...contributor.workContributors.map(({ work }) => work),
@@ -186,26 +218,19 @@ export class ContributorsService {
     );
   }
 
-  private async assertAnyWorkAccess(
+  private async assertAllRelatedWorkAccess(
     userId: string,
     works: Array<{ organizationId: string }>,
     writable: boolean,
   ): Promise<void> {
-    if (!works.length) throw new ForbiddenException('Contributor has no organization work');
-    let failure: ForbiddenException | undefined;
+    if (!works.length)
+      throw new ForbiddenException('Contributor has no organization work');
     for (const work of works) {
-      try {
-        if (writable) {
-          await this.organizationMemberships.assertWorkWriteAccess(userId, work);
-        } else {
-          await this.organizationMemberships.assertWorkAccess(userId, work);
-        }
-        return;
-      } catch (error) {
-        if (error instanceof ForbiddenException) failure = error;
-        else throw error;
+      if (writable) {
+        await this.organizationMemberships.assertWorkWriteAccess(userId, work);
+      } else {
+        await this.organizationMemberships.assertWorkAccess(userId, work);
       }
     }
-    throw failure ?? new ForbiddenException('Contributor is not accessible');
   }
 }

@@ -354,7 +354,8 @@ transaccional. `ContributionSource` é controlado (`PORBASE` ou `MANUAL`).
 Para cada alvo, se existir pelo menos uma Contribution canónica, leituras e
 exportação usam apenas essas Contributions. Se não existir nenhuma, usam apenas
 o fallback legado `WorkContributor` ou `EditionContributor` daquele alvo. Os
-conjuntos nunca são misturados nesta fase.
+conjuntos nunca são misturados. Este fallback é apenas de leitura para dados
+históricos; o import PORBASE escreve exclusivamente Contributions canónicas.
 
 O perfil PORBASE suporta 700, 701 e 702 como Contributions de Work por defeito.
 Preserva tag, indicadores, partes ordenadas, repetições e literais, incluindo
@@ -500,6 +501,14 @@ efectivamente guardado, nunca a uma estrutura fabricada pelo cliente. Falhas
 de parsing neste passo são absorvidas silenciosamente (lista vazia); nunca
 bloqueiam a importação.
 
+O import PORBASE usa apenas `ContributionsService.persistPorbase` para
+responsabilidades estruturadas. O campo legado `contributors` do payload não
+cria `Contributor`, `WorkContributor` nem `EditionContributor`; o import não
+consulta globalmente a tabela `Contributor` nem reutiliza nomes entre
+organizações. `Contributor` e as relações legadas permanecem para compatibilidade
+com registos históricos e APIs legadas; `WorksService`/`EditionsService` mantêm
+fallback de leitura por alvo quando não existem Contributions canónicas.
+
 `BibliographicRecord.source`, `.schema` e `.sourceId` deixaram de ser aceites
 no payload de importação (`CatalogueImportBibliographicRecordDto` já não tem
 `source`/`schema`). São sempre atribuídos pelo servidor: `source` e `schema`
@@ -540,8 +549,7 @@ volume e ISSN quando presentes. `Contribution.authorityId` preserva o `$3` de
 Nos DTOs de confirmação de importação canónica, `sortOrder` explícito é
 preservado; quando omitido numa lista, o servidor usa a posição original do
 elemento como ordem. Para `CatalogueEditionStatementInputDto`, `sourceTag`
-omitido assume `205`, pois este DTO representa declarações do campo UNIMARC
-205. Valores explicitamente inválidos continuam sujeitos a validação.
+omitido assume `205`, pois este DTO representa declarações do campo UNIMARC 205. Valores explicitamente inválidos continuam sujeitos a validação.
 
 A migração `20260911182309_add_phase1_edition_statements_series_parallel_title_contribution_authority`
 é puramente aditiva (`ADD COLUMN`/`CREATE TABLE`, sem `DROP`). `prisma migrate
@@ -764,7 +772,7 @@ selecção na app, mas não há selector nesta fase.
 - ISBNs devem ser normalizados e checksum-validados;
 - duplicados de edições dentro da mesma organização devem devolver `409 Conflict`;
 - falhas internas devem provocar rollback;
-- reuso de contributors continua conservador: correspondência exacta case-insensitive após normalização de espaços;
+- o import PORBASE persiste responsabilidades apenas como Contributions canónicas, com Agents pesquisados por Organization;
 - não existe ainda authority control completo.
 
 ### Proveniência e parsing

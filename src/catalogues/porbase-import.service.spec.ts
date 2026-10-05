@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
+import { ContributionsService } from '../contributions/contributions.service.js';
 import { PorbaseImportService } from './porbase-import.service.js';
 import type { CatalogueImportDto } from './dto/catalogue-import.dto.js';
 
@@ -47,7 +48,7 @@ const baseInput: CatalogueImportDto = {
   },
 };
 
-function createTransactionMock() {
+function createTransactionMock(organizationId = 'organization-1') {
   const work = { id: 'work-1' };
   const edition = { id: 'edition-1' };
   const contributor = { id: 'contributor-1', name: 'Jane Doe' };
@@ -58,6 +59,7 @@ function createTransactionMock() {
     },
     work: {
       create: vi.fn().mockResolvedValue(work),
+      findUnique: vi.fn().mockResolvedValue({ ...work, organizationId }),
       findUniqueOrThrow: vi.fn().mockResolvedValue({
         id: work.id,
         organization: { id: 'organization-1' },
@@ -99,6 +101,23 @@ function createTransactionMock() {
     },
     workContributor: { create: vi.fn().mockResolvedValue({}) },
     editionContributor: { create: vi.fn().mockResolvedValue({}) },
+    agent: {
+      findMany: vi.fn().mockResolvedValue([]),
+      create: vi
+        .fn()
+        .mockImplementation(({ data }: { data: Record<string, unknown> }) => ({
+          id: `agent-${organizationId}`,
+          ...data,
+        })),
+    },
+    contribution: {
+      create: vi
+        .fn()
+        .mockImplementation(({ data }: { data: Record<string, unknown> }) => ({
+          id: `contribution-${organizationId}`,
+          ...data,
+        })),
+    },
     externalIdentifier: {
       create: vi.fn().mockResolvedValue({}),
       findMany: vi.fn().mockResolvedValue([]),
@@ -332,7 +351,7 @@ describe('PorbaseImportService', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
-  it('reuses an exact normalized contributor name and creates unmatched names', async () => {
+  it('does not persist legacy contributor payloads when canonical contributions are absent', async () => {
     const { tx } = createTransactionMock();
     const prisma = {
       $transaction: vi.fn(
@@ -350,13 +369,102 @@ describe('PorbaseImportService', () => {
 
     await service.import('jwt-user-1', baseInput);
 
-    expect(tx.contributor.create).toHaveBeenCalledTimes(1);
-    expect(tx.workContributor.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ contributorId: 'contributor-1' }),
-    });
-    expect(tx.editionContributor.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ contributorId: 'contributor-2' }),
-    });
+    expect(tx.contributor.findMany).not.toHaveBeenCalled();
+    expect(tx.contributor.create).not.toHaveBeenCalled();
+    expect(tx.workContributor.create).not.toHaveBeenCalled();
+    expect(tx.editionContributor.create).not.toHaveBeenCalled();
+    expect(tx.contribution.create).not.toHaveBeenCalled();
+  });
+
+  it('persists same-name PORBASE contributions as organization-scoped Agents in separate organizations', async () => {
+    const input: CatalogueImportDto = {
+      ...baseInput,
+      contributions: [
+        {
+          targetScope: 'WORK',
+          kind: 'PERSON',
+          displayName: 'Jane Doe',
+          sourceTag: '700',
+          indicator1: '1',
+          indicator2: ' ',
+          sortOrder: 0,
+          sourceParts: [
+            { code: 'a', value: 'Doe, Jane', sortOrder: 0 },
+            { code: '4', value: '070', sortOrder: 1 },
+          ],
+        },
+      ],
+    };
+    const organizationIds = ['organization-a', 'organization-b'];
+    const transactions = organizationIds.map((organizationId) =>
+      createTransactionMock(organizationId),
+    );
+    const persistPolicy = {
+      assertWorkWriteAccess: vi.fn().mockResolvedValue(undefined),
+    };
+    const contributionsService = new ContributionsService(
+      {} as never,
+      persistPolicy as never,
+    );
+
+    for (const [index, organizationId] of organizationIds.entries()) {
+      const tx = transactions[index].tx;
+      const prisma = {
+        $transaction: vi.fn(
+          async (callback: (transaction: typeof tx) => unknown) => callback(tx),
+        ),
+      };
+      const importService = new PorbaseImportService(
+        prisma as never,
+        {
+          getDefaultOrganization: vi
+            .fn()
+            .mockResolvedValue({ id: organizationId }),
+        } as never,
+        contributionsService,
+      );
+
+      await importService.import(`user-${organizationId}`, input);
+
+      expect(tx.agent.findMany).toHaveBeenCalledWith({
+        where: {
+          organizationId,
+          kind: 'PERSON',
+          normalizedDisplayName: 'jane doe',
+        },
+        take: 2,
+        orderBy: { id: 'asc' },
+      });
+      expect(tx.agent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ organizationId }),
+      });
+      expect(tx.contribution.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            agentId: `agent-${organizationId}`,
+            workId: 'work-1',
+            source: 'PORBASE',
+            sourceTag: '700',
+          }),
+        }),
+      );
+      expect(tx.contributor.findMany).not.toHaveBeenCalled();
+      expect(tx.contributor.create).not.toHaveBeenCalled();
+      expect(tx.workContributor.create).not.toHaveBeenCalled();
+      expect(tx.editionContributor.create).not.toHaveBeenCalled();
+    }
+
+    expect(transactions[0].tx.contribution.create).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ agentId: 'agent-organization-b' }),
+      }),
+    );
+    expect(transactions[1].tx.contribution.create).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ agentId: 'agent-organization-a' }),
+      }),
+    );
+    expect(persistPolicy.assertWorkWriteAccess).toHaveBeenCalledTimes(2);
   });
 
   it('projects Work/Edition scalars from MAIN titles instead of the legacy scalar fields', async () => {

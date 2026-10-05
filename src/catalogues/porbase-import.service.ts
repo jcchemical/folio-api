@@ -7,7 +7,6 @@ import {
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { isValidIsbn, normalizeIsbn } from './isbn.utils.js';
 import type {
-  CatalogueImportContributorDto,
   CatalogueImportDto,
   CatalogueImportResponseDto,
   CatalogueTitleInputDto,
@@ -240,13 +239,6 @@ export class PorbaseImportService {
           userId,
           work.id,
           input.contributions,
-        );
-      } else {
-        await this.persistContributors(
-          transaction,
-          work.id,
-          edition.id,
-          input.contributors,
         );
       }
 
@@ -508,64 +500,6 @@ export class PorbaseImportService {
     }
   }
 
-  private async persistContributors(
-    transaction: TransactionClient,
-    workId: string,
-    editionId: string,
-    inputs: CatalogueImportContributorDto[],
-  ) {
-    const persisted: Array<{
-      id: string;
-      name: string;
-      role: string;
-      scope: 'WORK' | 'EDITION';
-      sortOrder: number;
-    }> = [];
-
-    for (const input of inputs) {
-      const name = normalizeContributorName(input.name);
-      const allContributors = await transaction.contributor.findMany();
-      const contributor =
-        allContributors.find(
-          (candidate) => normalizeContributorName(candidate.name) === name,
-        ) ??
-        (await transaction.contributor.create({
-          data: { name: input.name.trim(), variantNames: [] },
-        }));
-      const sortOrder = input.sortOrder ?? 0;
-
-      if (input.scope === 'WORK') {
-        await transaction.workContributor.create({
-          data: {
-            workId,
-            contributorId: contributor.id,
-            role: input.role,
-            sortOrder,
-          },
-        });
-      } else {
-        await transaction.editionContributor.create({
-          data: {
-            editionId,
-            contributorId: contributor.id,
-            role: input.role,
-            sortOrder,
-          },
-        });
-      }
-
-      persisted.push({
-        id: contributor.id,
-        name: contributor.name,
-        role: input.role,
-        scope: input.scope,
-        sortOrder,
-      });
-    }
-
-    return persisted;
-  }
-
   private async persistExternalIdentifiers(
     transaction: TransactionClient,
     editionId: string,
@@ -733,10 +667,6 @@ function normalizeIdentifierValue(type: string, value: string): string {
   return type.toUpperCase().startsWith('ISBN')
     ? normalizeIsbn(value)
     : value.trim();
-}
-
-function normalizeContributorName(value: string): string {
-  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 }
 
 function isPrismaUniqueViolation(error: unknown): boolean {

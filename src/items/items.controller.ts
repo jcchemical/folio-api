@@ -14,7 +14,8 @@ import type { Request } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
-import { ItemsService, type ItemInput } from './items.service.js';
+import { ItemsService } from './items.service.js';
+import { CreateItemDto, UpdateItemDto } from './dto/item.dto.js';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 
 @ApiTags('items')
@@ -35,14 +36,14 @@ export class ItemsController {
   }
 
   @Post()
-  create(@Body() body: ItemInput, @Req() request: Request) {
+  create(@Body() body: CreateItemDto, @Req() request: Request) {
     return this.itemsService.create(this.getUserId(request), body);
   }
 
   @Put(':id')
   update(
     @Param('id') id: string,
-    @Body() body: Partial<ItemInput>,
+    @Body() body: UpdateItemDto,
     @Req() request: Request,
   ) {
     return this.itemsService.update(id, this.getUserId(request), body);

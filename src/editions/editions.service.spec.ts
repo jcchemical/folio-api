@@ -327,6 +327,58 @@ describe('EditionsService publication statements update semantics', () => {
 });
 
 describe('EditionsService Phase 1 canonical read model', () => {
+  it('keeps the read-only fallback for historical EditionContributor records', async () => {
+    const historicalEdition = {
+      ...edition,
+      work: {
+        ...edition.work,
+        workContributors: [],
+        contributions: [],
+      },
+      contributions: [],
+      editionContributors: [
+        {
+          id: 'legacy-edition-link',
+          role: 'translator',
+          sortOrder: 1,
+          contributor: {
+            id: 'legacy-contributor',
+            name: 'Historical Translator',
+          },
+        },
+      ],
+      items: [],
+    };
+    const prisma = {
+      edition: { findUnique: vi.fn().mockResolvedValue(historicalEdition) },
+      organizationMembership: {
+        findUnique: vi.fn().mockResolvedValue({
+          role: OrganizationRole.READER,
+          organization: { id: edition.work.organizationId },
+        }),
+      },
+    } as unknown as PrismaService;
+    const service = new EditionsService(
+      prisma,
+      new OrganizationMembershipService(prisma),
+    );
+
+    await expect(service.findById(edition.id, userId)).resolves.toMatchObject({
+      contributions: [
+        {
+          id: 'legacy-edition-link',
+          scope: 'EDITION',
+          roleLabel: 'translator',
+          agent: {
+            id: 'legacy-contributor',
+            displayName: 'Historical Translator',
+          },
+          sourceParts: [],
+        },
+      ],
+    });
+  });
+
   it('requests titles, responsibility statements, languages, series, notes and classifications ordered deterministically', async () => {
     const fullEdition = {
       ...edition,

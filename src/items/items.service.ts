@@ -1,13 +1,21 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { OrganizationRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { paginate, paginationArgs, type PaginationInput } from '../common/pagination.js';
+import {
+  paginate,
+  paginationArgs,
+  type PaginationInput,
+} from '../common/pagination.js';
 import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
 
 export interface ItemInput {
   label?: string | null;
   location?: string | null;
-  status?: string;
+  status?: string | null;
   notes?: string | null;
   editionId: string;
 }
@@ -36,14 +44,25 @@ export class ItemsService {
       include: { edition: true, organization: true },
     });
     if (!item) throw new NotFoundException('Item not found');
-    await this.organizationMemberships.assertOrganizationAccess(userId, item.organizationId);
+    await this.organizationMemberships.assertOrganizationAccess(
+      userId,
+      item.organizationId,
+    );
     return item;
   }
 
   async create(userId: string, data: ItemInput) {
+    validateStatus(data.status);
     const edition = await this.requireWritableEdition(data.editionId, userId);
     return this.prisma.item.create({
-      data: { ...data, organizationId: edition.work.organizationId },
+      data: {
+        label: data.label,
+        location: data.location,
+        status: data.status ?? undefined,
+        notes: data.notes,
+        editionId: edition.id,
+        organizationId: edition.work.organizationId,
+      },
     });
   }
 
@@ -54,14 +73,14 @@ export class ItemsService {
       item.organizationId,
       OrganizationRole.STAFF,
     );
-    const edition = data.editionId
-      ? await this.requireWritableEdition(data.editionId, userId)
-      : null;
+    validateStatus(data.status);
     return this.prisma.item.update({
       where: { id },
       data: {
-        ...data,
-        ...(edition ? { organizationId: edition.work.organizationId } : {}),
+        label: data.label,
+        location: data.location,
+        status: data.status ?? undefined,
+        notes: data.notes,
       },
     });
   }
@@ -82,7 +101,16 @@ export class ItemsService {
       include: { work: true },
     });
     if (!edition) throw new NotFoundException('Edition not found');
-    await this.organizationMemberships.assertWorkWriteAccess(userId, edition.work);
+    await this.organizationMemberships.assertWorkWriteAccess(
+      userId,
+      edition.work,
+    );
     return edition;
+  }
+}
+
+function validateStatus(status: string | null | undefined): void {
+  if (status !== undefined && status !== null && !status.trim()) {
+    throw new BadRequestException('Item status must be a non-empty string');
   }
 }
