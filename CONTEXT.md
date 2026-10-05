@@ -564,6 +564,8 @@ desta sub-iteração.
 - `AuthService` verifica passwords com `argon2.verify`, nunca por comparação directa;
 - respostas públicas de utilizadores não incluem `passwordHash`;
 - access tokens JWT têm validade de 15 minutos;
+- `JWT_SECRET` é validado centralmente e partilhado entre assinatura e validação JWT; fora de `NODE_ENV=test` é obrigatório e tem mínimo de 32 bytes;
+- testes sem `JWT_SECRET` usam apenas um segredo fixo explicitamente limitado a `NODE_ENV=test`; development e production falham sem configuração explícita;
 - refresh tokens são hashes Argon2id guardados no utilizador, com validade de 7 dias, rotação e revogação.
 
 ### Dívida técnica prioritária
