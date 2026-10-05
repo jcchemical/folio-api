@@ -145,4 +145,74 @@ describe('CatalogueImportDto client-editable Phase 1 fields', () => {
     const errors = await validate(instance);
     expect(errors).not.toEqual([]);
   });
+
+  it('defaults omitted canonical ordering from array position and edition statements to source 205', async () => {
+    const instance = plainToInstance(CatalogueImportDto, {
+      work: baseWork,
+      edition: {
+        ...baseEdition,
+        titles: [
+          { type: 'MAIN', value: 'Main title', sortOrder: 4 },
+          { type: 'PARALLEL', value: 'Parallel title' },
+        ],
+        languages: [
+          { code: 'por', role: 'TEXT' },
+          { code: 'eng', role: 'PARALLEL_TEXT' },
+        ],
+        series: [
+          { title: 'First series' },
+          { title: 'Second series', sortOrder: 7 },
+        ],
+        classifications: [{ notation: '821.134.3', system: 'UDC' }],
+        editionStatements: [
+          { kind: 'EDITION', value: '2.ª edição' },
+          { kind: 'OTHER', value: 'revista', sortOrder: 6 },
+        ],
+      },
+      contributors: [],
+      externalIdentifiers: [],
+      bibliographicRecord: baseBibliographicRecord,
+      item: baseItem,
+    });
+
+    expect(await validate(instance, { whitelist: true })).toEqual([]);
+    expect(instance.edition.titles?.map(({ sortOrder }) => sortOrder)).toEqual([
+      4, 1,
+    ]);
+    expect(
+      instance.edition.languages?.map(({ sortOrder }) => sortOrder),
+    ).toEqual([0, 1]);
+    expect(instance.edition.series?.map(({ sortOrder }) => sortOrder)).toEqual([
+      0, 7,
+    ]);
+    expect(
+      instance.edition.classifications?.map(({ sortOrder }) => sortOrder),
+    ).toEqual([0]);
+    expect(
+      instance.edition.editionStatements?.map(({ sortOrder }) => sortOrder),
+    ).toEqual([0, 6]);
+    expect(
+      instance.edition.editionStatements?.map(({ sourceTag }) => sourceTag),
+    ).toEqual(['205', '205']);
+  });
+
+  it('continues rejecting explicitly invalid sortOrder and empty sourceTag values', async () => {
+    const instance = plainToInstance(CatalogueImportDto, {
+      work: baseWork,
+      edition: {
+        ...baseEdition,
+        titles: [{ type: 'MAIN', value: 'Title', sortOrder: -1 }],
+        editionStatements: [
+          { kind: 'EDITION', value: '2.ª edição', sourceTag: '' },
+        ],
+      },
+      contributors: [],
+      externalIdentifiers: [],
+      bibliographicRecord: baseBibliographicRecord,
+      item: baseItem,
+    });
+
+    const errors = await validate(instance);
+    expect(errors).not.toEqual([]);
+  });
 });

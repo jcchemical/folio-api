@@ -537,6 +537,12 @@ ocorrência 205 sem reduzir repetições. `Series` preserva título paralelo,
 volume e ISSN quando presentes. `Contribution.authorityId` preserva o `$3` de
 700–713 sem introduzir controlo de autoridades.
 
+Nos DTOs de confirmação de importação canónica, `sortOrder` explícito é
+preservado; quando omitido numa lista, o servidor usa a posição original do
+elemento como ordem. Para `CatalogueEditionStatementInputDto`, `sourceTag`
+omitido assume `205`, pois este DTO representa declarações do campo UNIMARC
+205. Valores explicitamente inválidos continuam sujeitos a validação.
+
 A migração `20260911182309_add_phase1_edition_statements_series_parallel_title_contribution_authority`
 é puramente aditiva (`ADD COLUMN`/`CREATE TABLE`, sem `DROP`). `prisma migrate
 status` confirma que já se encontra aplicada no ambiente de desenvolvimento

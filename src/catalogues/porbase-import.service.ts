@@ -264,11 +264,10 @@ export class PorbaseImportService {
         data: {
           format: input.bibliographicRecord.format,
           rawContent: input.bibliographicRecord.rawContent,
-          // source/schema/sourceId are never client-controlled: only one
-          // provider format exists today, and the provider identity is
+          // source/sourceId are never client-controlled: only one provider
+          // format exists today, and the provider identity is
           // supplied by the CatalogueProvider that authenticated the request.
           source: PORBASE_SOURCE,
-          schema: 'UNIMARC',
           sourceId: providerId,
           remoteId: input.bibliographicRecord.remoteId ?? null,
           workId: work.id,

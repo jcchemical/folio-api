@@ -802,7 +802,7 @@ describe('PorbaseImportService', () => {
     );
   });
 
-  it('never trusts client-supplied source/schema/sourceId provenance', async () => {
+  it('never trusts client-supplied source/sourceId provenance or writes a removed schema field', async () => {
     const { tx } = createTransactionMock();
     const prisma = {
       $transaction: vi.fn(
@@ -834,11 +834,12 @@ describe('PorbaseImportService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           source: 'PORBASE',
-          schema: 'UNIMARC',
           sourceId: 'porbase',
         }),
       }),
     );
+    const createData = tx.bibliographicRecord.create.mock.calls[0][0].data;
+    expect(createData).not.toHaveProperty('schema');
   });
 
   it('attributes the persisted record to the provider id supplied by the caller, not the client', async () => {

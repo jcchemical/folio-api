@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsDefined,
@@ -14,6 +14,23 @@ import {
 import { PhysicalDescriptionDto } from '../../editions/dto/physical-description.dto.js';
 import { IsBibliographicDate } from '../../common/bibliographic-date.js';
 import { PublicationStatementDto } from '../../editions/dto/publication-statement.dto.js';
+
+function assignMissingSortOrderByPosition<T extends object>(
+  value: unknown,
+  itemType: new () => T,
+): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((entry, index) => {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+      return entry;
+    }
+    const record = entry as Record<string, unknown>;
+    return plainToInstance(itemType, {
+      ...record,
+      sortOrder: record.sortOrder ?? index,
+    });
+  });
+}
 
 export class CatalogueContributionSourcePartInputDto {
   @ApiProperty() @IsString() @IsNotEmpty() code!: string;
@@ -193,7 +210,11 @@ export class CatalogueEditionStatementInputDto {
 
   @ApiProperty() @IsInt() @Min(0) sortOrder!: number;
 
-  @ApiProperty() @IsString() @IsNotEmpty() sourceTag!: string;
+  @ApiProperty({ default: '205' })
+  @Transform(({ value }) => value ?? '205', { toClassOnly: true })
+  @IsString()
+  @IsNotEmpty()
+  sourceTag!: string;
 }
 
 export class CatalogueImportWorkDto {
@@ -216,6 +237,13 @@ export class CatalogueImportWorkDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
+  @Transform(
+    ({ value }) =>
+      assignMissingSortOrderByPosition(value, CatalogueTitleInputDto),
+    {
+      toClassOnly: true,
+    },
+  )
   @Type(() => CatalogueTitleInputDto)
   titles?: CatalogueTitleInputDto[];
 }
@@ -285,6 +313,13 @@ export class CatalogueImportEditionDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
+  @Transform(
+    ({ value }) =>
+      assignMissingSortOrderByPosition(value, CatalogueTitleInputDto),
+    {
+      toClassOnly: true,
+    },
+  )
   @Type(() => CatalogueTitleInputDto)
   titles?: CatalogueTitleInputDto[];
 
@@ -292,6 +327,16 @@ export class CatalogueImportEditionDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
+  @Transform(
+    ({ value }) =>
+      assignMissingSortOrderByPosition(
+        value,
+        CatalogueResponsibilityStatementInputDto,
+      ),
+    {
+      toClassOnly: true,
+    },
+  )
   @Type(() => CatalogueResponsibilityStatementInputDto)
   responsibilityStatements?: CatalogueResponsibilityStatementInputDto[];
 
@@ -299,6 +344,13 @@ export class CatalogueImportEditionDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
+  @Transform(
+    ({ value }) =>
+      assignMissingSortOrderByPosition(value, CatalogueLanguageInputDto),
+    {
+      toClassOnly: true,
+    },
+  )
   @Type(() => CatalogueLanguageInputDto)
   languages?: CatalogueLanguageInputDto[];
 
@@ -306,6 +358,13 @@ export class CatalogueImportEditionDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
+  @Transform(
+    ({ value }) =>
+      assignMissingSortOrderByPosition(value, CatalogueSeriesInputDto),
+    {
+      toClassOnly: true,
+    },
+  )
   @Type(() => CatalogueSeriesInputDto)
   series?: CatalogueSeriesInputDto[];
 
@@ -313,6 +372,13 @@ export class CatalogueImportEditionDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
+  @Transform(
+    ({ value }) =>
+      assignMissingSortOrderByPosition(value, CatalogueNoteInputDto),
+    {
+      toClassOnly: true,
+    },
+  )
   @Type(() => CatalogueNoteInputDto)
   notes?: CatalogueNoteInputDto[];
 
@@ -320,6 +386,13 @@ export class CatalogueImportEditionDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
+  @Transform(
+    ({ value }) =>
+      assignMissingSortOrderByPosition(value, CatalogueClassificationInputDto),
+    {
+      toClassOnly: true,
+    },
+  )
   @Type(() => CatalogueClassificationInputDto)
   classifications?: CatalogueClassificationInputDto[];
 
@@ -327,6 +400,16 @@ export class CatalogueImportEditionDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
+  @Transform(
+    ({ value }) =>
+      assignMissingSortOrderByPosition(
+        value,
+        CatalogueEditionStatementInputDto,
+      ),
+    {
+      toClassOnly: true,
+    },
+  )
   @Type(() => CatalogueEditionStatementInputDto)
   editionStatements?: CatalogueEditionStatementInputDto[];
 }
