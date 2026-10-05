@@ -44,8 +44,6 @@ export interface WorkInput {
 export interface WorkUpdateInput {
   title?: string;
   subtitle?: string | null;
-  organizationId?: string;
-  editions?: EditionInput[];
 }
 
 @Injectable()
@@ -225,59 +223,15 @@ export class WorksService {
   }
 
   async update(id: string, userId: string, data: WorkUpdateInput) {
-    const { editions, organizationId, ...workData } = data;
-    if (organizationId === null) {
-      throw new BadRequestException('organizationId cannot be null');
-    }
     const work = await this.prisma.work.findUnique({ where: { id } });
     if (!work) throw new NotFoundException('Work not found');
     await this.organizationMemberships.assertWorkWriteAccess(userId, work);
-    const targetOrganizationId =
-      organizationId === undefined ? work.organizationId : organizationId;
-    await this.organizationMemberships.assertRole(
-      userId,
-      targetOrganizationId,
-      OrganizationRole.STAFF,
-    );
-
-    await this.prisma.$transaction(async (transaction) => {
-      await transaction.work.update({
-        where: { id },
-        data: { ...workData, organizationId: targetOrganizationId },
-      });
-
-      if (editions) {
-        await transaction.edition.deleteMany({ where: { workId: id } });
-        if (editions.length) {
-          await Promise.all(
-            editions.map(
-              ({ physicalDescriptions, publicationStatements, ...edition }) =>
-                transaction.edition.create({
-                  data: {
-                    ...edition,
-                    ...projectionData(publicationStatements),
-                    workId: id,
-                    pageCount: derivePageCount(physicalDescriptions),
-                    physicalDescriptions: physicalDescriptions?.length
-                      ? {
-                          create: physicalDescriptions.map(
-                            toPhysicalDescriptionCreate,
-                          ),
-                        }
-                      : undefined,
-                    publicationStatements: publicationStatements?.length
-                      ? {
-                          create: publicationStatements.map(
-                            toPublicationStatementCreate,
-                          ),
-                        }
-                      : undefined,
-                  },
-                }),
-            ),
-          );
-        }
-      }
+    await this.prisma.work.update({
+      where: { id },
+      data: {
+        title: data.title,
+        subtitle: data.subtitle,
+      },
     });
 
     return this.findById(id, userId);

@@ -1,6 +1,17 @@
-import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional,
+  OmitType,
+  PartialType,
+} from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
 import { CreateEditionDto } from '../../editions/dto/edition.dto.js';
 
 export class CreateWorkDto {
@@ -27,4 +38,6 @@ export class CreateWorkDto {
   editions?: CreateEditionDto[];
 }
 
-export class UpdateWorkDto extends PartialType(CreateWorkDto) {}
+export class UpdateWorkDto extends PartialType(
+  OmitType(CreateWorkDto, ['organizationId', 'editions'] as const),
+) {}

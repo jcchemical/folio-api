@@ -5,10 +5,20 @@ import { WorksService } from './works.service.js';
 
 function createWorkService(work: Record<string, unknown>) {
   const prisma = {
-    work: { findUnique: vi.fn().mockResolvedValue(work) },
+    work: {
+      findUnique: vi.fn().mockResolvedValue(work),
+      update: vi.fn().mockResolvedValue(work),
+    },
+    edition: {
+      deleteMany: vi.fn(),
+      create: vi.fn(),
+    },
+    item: { deleteMany: vi.fn() },
+    bibliographicRecord: { deleteMany: vi.fn() },
   } as unknown as PrismaService;
   const memberships = {
     assertWorkAccess: vi.fn().mockResolvedValue(undefined),
+    assertWorkWriteAccess: vi.fn().mockResolvedValue(undefined),
     getOrganizations: vi.fn().mockResolvedValue([]),
   } as unknown as OrganizationMembershipService;
 
@@ -35,6 +45,34 @@ describe('WorksService organization access', () => {
       contributions: [],
     });
     expect(memberships.assertWorkAccess).toHaveBeenCalledWith('member', work);
+  });
+
+  it('updates Work scalar fields without deleting or recreating Editions or their dependent data', async () => {
+    const work = {
+      id: 'work-1',
+      organizationId: 'organization-1',
+      title: 'Existing title',
+      subtitle: null,
+      organization: { id: 'organization-1' },
+      editions: [],
+    };
+    const { service, prisma } = createWorkService(work);
+
+    await service.update('work-1', 'staff-user', {
+      title: 'Updated title',
+      subtitle: 'Updated subtitle',
+      editions: [{ title: 'Must not be processed' }],
+      organizationId: 'another-organization',
+    } as never);
+
+    expect(prisma.work.update).toHaveBeenCalledWith({
+      where: { id: 'work-1' },
+      data: { title: 'Updated title', subtitle: 'Updated subtitle' },
+    });
+    expect(prisma.edition.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.edition.create).not.toHaveBeenCalled();
+    expect(prisma.item.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.bibliographicRecord.deleteMany).not.toHaveBeenCalled();
   });
 });
 

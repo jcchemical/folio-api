@@ -684,7 +684,12 @@ A autorização de Works e Editions já consulta a fundação de tenancy atravé
 
 `GET /works` é paginado por cursor e devolve `{ items, nextCursor, hasMore }`. Os clientes devem ler as obras em `items`; não devem tratar a resposta como um array directo.
 
-O payload de criação/actualização pode conter `editions`. A substituição de edições durante update deve continuar a ser transaccional e scoped à organização do utilizador autenticado.
+`POST /works` pode criar Editions iniciais como parte da criação do Work.
+`PUT /works/:id` actualiza apenas os campos escalares seguros do Work (`title`
+e `subtitle`); não aceita `editions` nem altera `organizationId`. As Editions
+são geridas pelos endpoints próprios de Editions, evitando que uma actualização
+de Work apague Items, identificadores, Contributions ou registos bibliográficos
+associados às Editions existentes.
 
 ### Catálogo
 
