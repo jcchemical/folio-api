@@ -5,6 +5,7 @@ import {
   LocalFsStorage,
 } from './local-fs.storage.js';
 import { STORAGE_SERVICE, type StorageService } from './storage.service.js';
+import { SafeHttpFetcherService } from './safe-http-fetcher.js';
 
 export type CoverStorageBackend = 'in_memory' | 'local_fs' | 's3';
 
@@ -44,10 +45,14 @@ export function createStorageService(
 @Module({
   providers: [
     {
+      provide: SafeHttpFetcherService,
+      useFactory: () => new SafeHttpFetcherService(),
+    },
+    {
       provide: STORAGE_SERVICE,
       useFactory: () => createStorageService(),
     },
   ],
-  exports: [STORAGE_SERVICE],
+  exports: [STORAGE_SERVICE, SafeHttpFetcherService],
 })
 export class StorageModule {}

@@ -35,6 +35,9 @@ Compatibilidade só deve existir quando reduz risco real de produto, não por ap
 - Storage de capas: `StorageModule` abstrai `in_memory` (apenas testes) e
   `local_fs` (padrão fora de testes); `COVER_STORAGE_ROOT` define a raiz local.
   S3 permanece planeado e ainda não tem adaptador.
+- `SafeHttpFetcherService` valida allowlist, DNS/IP fixado, redirects, limites
+  de stream e conteúdo de imagem; está exposto pelo `StorageModule`, mas ainda
+  não está ligado a um fluxo de aquisição/persistência de capas.
 
 A configuração do Prisma 7 usa `prisma.config.ts`; o `datasource` do schema não contém `url`. O cliente gerado em `node_modules/.prisma/client` é output e não deve ser editado manualmente.
 
