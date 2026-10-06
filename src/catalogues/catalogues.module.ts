@@ -11,6 +11,7 @@ import { PorbaseImportService } from './porbase-import.service.js';
 import { PorbaseCatalogueProvider } from './porbase/porbase.provider.js';
 import { OrganizationsModule } from '../organizations/organizations.module.js';
 import { WorksModule } from '../works/works.module.js';
+import { PorbaseCoverCandidateExtractor } from './cover-candidate-extractor.js';
 
 const timeout = readPositiveEnvironmentNumber('PORBASE_URN_TIMEOUT_MS', 5_000);
 
@@ -31,6 +32,7 @@ const timeout = readPositiveEnvironmentNumber('PORBASE_URN_TIMEOUT_MS', 5_000);
     CataloguesService,
     PorbaseAdapter,
     ImportPreviewService,
+    PorbaseCoverCandidateExtractor,
     PorbaseImportService,
     PorbaseCatalogueProvider,
   ],

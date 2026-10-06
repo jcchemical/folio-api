@@ -122,13 +122,20 @@ function createTransactionMock(organizationId = 'organization-1') {
       findMany: vi.fn().mockResolvedValue([]),
     },
     bibliographicRecord: {
-      create: vi.fn().mockResolvedValue({
-        id: 'record-1',
-        source: 'PORBASE',
-        sourceId: 'porbase',
-        unmappedSourceFields: [],
-      }),
+      create: vi
+        .fn()
+        .mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+          Promise.resolve({
+            ...data,
+            id: 'record-1',
+            source: 'PORBASE',
+            sourceId: 'porbase',
+            unmappedSourceFields: [],
+          }),
+        ),
     },
+    coverCandidate: { upsert: vi.fn().mockResolvedValue({}) },
+    $executeRawUnsafe: vi.fn().mockResolvedValue(0),
     item: { create: vi.fn().mockResolvedValue({ id: 'item-1' }) },
   };
 
@@ -952,6 +959,124 @@ describe('PorbaseImportService', () => {
     );
     const createData = tx.bibliographicRecord.create.mock.calls[0][0].data;
     expect(createData).not.toHaveProperty('schema');
+  });
+
+  it('extracts and upserts 856 cover candidates inside the import transaction', async () => {
+    const { tx } = createTransactionMock();
+    const prisma = {
+      $transaction: vi.fn(
+        async (callback: (transaction: typeof tx) => unknown) => callback(tx),
+      ),
+    };
+    const service = new PorbaseImportService(
+      prisma as never,
+      {
+        getDefaultOrganization: vi
+          .fn()
+          .mockResolvedValue({ id: 'organization-1' }),
+      } as never,
+    );
+    const rawContent = [
+      '200 $a Edition title',
+      '856 40 $uhttps://covers.example.org/cover.jpg $qimage/jpeg $yCover $zFront cover',
+      '856 40 $uhttps://covers.example.org/cover.jpg $qimage/jpeg',
+      '856 40 $uhttps://example.org/catalogue/record-1 $qtext/html',
+    ].join('\n');
+
+    await service.import('jwt-user-1', {
+      ...baseInput,
+      bibliographicRecord: { ...baseInput.bibliographicRecord, rawContent },
+    });
+
+    expect(tx.bibliographicRecord.create).toHaveBeenCalled();
+    expect(tx.$executeRawUnsafe).toHaveBeenNthCalledWith(
+      1,
+      'SAVEPOINT cover_candidate_extraction',
+    );
+    expect(tx.coverCandidate.upsert).toHaveBeenCalledTimes(3);
+    expect(tx.coverCandidate.upsert).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: {
+          bibliographicRecordId_urlHash: expect.objectContaining({
+            bibliographicRecordId: 'record-1',
+            urlHash: expect.any(String),
+          }),
+        },
+        create: expect.objectContaining({
+          bibliographicRecordId: 'record-1',
+          url: 'https://covers.example.org/cover.jpg',
+          sourceType: 'PORBASE',
+          mimeType: 'image/jpeg',
+          status: 'PENDING',
+          rejectReason: null,
+        }),
+        update: {},
+      }),
+    );
+    expect(tx.coverCandidate.upsert).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        create: expect.objectContaining({
+          url: 'https://covers.example.org/cover.jpg',
+          status: 'PENDING',
+        }),
+      }),
+    );
+    const firstUrlHash =
+      tx.coverCandidate.upsert.mock.calls[0][0].where
+        .bibliographicRecordId_urlHash.urlHash;
+    const duplicateUrlHash =
+      tx.coverCandidate.upsert.mock.calls[1][0].where
+        .bibliographicRecordId_urlHash.urlHash;
+    expect(duplicateUrlHash).toBe(firstUrlHash);
+    expect(tx.coverCandidate.upsert).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        create: expect.objectContaining({
+          url: 'https://example.org/catalogue/record-1',
+          status: 'REJECTED',
+          rejectReason: 'NOT_IMAGE_LINK',
+        }),
+      }),
+    );
+    expect(tx.$executeRawUnsafe).toHaveBeenLastCalledWith(
+      'RELEASE SAVEPOINT cover_candidate_extraction',
+    );
+  });
+
+  it('continues import and rolls back candidate upserts when candidate persistence fails', async () => {
+    const { tx } = createTransactionMock();
+    tx.coverCandidate.upsert.mockRejectedValue(new Error('database failure'));
+    const prisma = {
+      $transaction: vi.fn(
+        async (callback: (transaction: typeof tx) => unknown) => callback(tx),
+      ),
+    };
+    const service = new PorbaseImportService(
+      prisma as never,
+      {
+        getDefaultOrganization: vi
+          .fn()
+          .mockResolvedValue({ id: 'organization-1' }),
+      } as never,
+    );
+
+    await expect(
+      service.import('jwt-user-1', {
+        ...baseInput,
+        bibliographicRecord: {
+          ...baseInput.bibliographicRecord,
+          rawContent:
+            '856 40 $uhttps://covers.example.org/cover.jpg $qimage/jpeg',
+        },
+      }),
+    ).resolves.toBeDefined();
+
+    expect(tx.$executeRawUnsafe).toHaveBeenCalledWith(
+      'ROLLBACK TO SAVEPOINT cover_candidate_extraction',
+    );
+    expect(tx.item.create).toHaveBeenCalled();
   });
 
   it('attributes the persisted record to the provider id supplied by the caller, not the client', async () => {

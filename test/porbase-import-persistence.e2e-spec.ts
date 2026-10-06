@@ -6,6 +6,7 @@ import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { hashPassword } from '../src/auth/password.utils.js';
 import { ApiExceptionFilter } from '../src/common/api-exception.filter.js';
+import { vi } from 'vitest';
 
 // This suite exercises the real CatalogueService -> PorbaseCatalogueProvider
 // -> PorbaseImportService chain end-to-end over HTTP, with only PrismaService
@@ -142,7 +143,11 @@ describe('Catalogue import persistence (e2e)', () => {
           source: 'PORBASE',
           sourceId: 'porbase',
           remoteId: 'record-1',
-          rawContent: '200 $a Canonical edition title\n966 $l BN $s Shelf 1',
+          rawContent: [
+            '200 $a Canonical edition title',
+            '856 40 $uhttps://covers.example.org/cover.jpg $qimage/jpeg $yCover $zFront cover',
+            '966 $l BN $s Shelf 1',
+          ].join('\n'),
           unmappedSourceFields: [
             {
               id: 'unmapped-1',
@@ -159,6 +164,8 @@ describe('Catalogue import persistence (e2e)', () => {
           ],
         }),
       },
+      coverCandidate: { upsert: vi.fn().mockResolvedValue({}) },
+      $executeRawUnsafe: vi.fn().mockResolvedValue(0),
       item: {
         create: async () => ({
           id: 'item-1',
@@ -253,7 +260,11 @@ describe('Catalogue import persistence (e2e)', () => {
         bibliographicRecord: {
           format: 'MARC_TEXT',
           remoteId: 'record-1',
-          rawContent: '200 $a Canonical edition title\n966 $l BN $s Shelf 1',
+          rawContent: [
+            '200 $a Canonical edition title',
+            '856 40 $uhttps://covers.example.org/cover.jpg $qimage/jpeg $yCover $zFront cover',
+            '966 $l BN $s Shelf 1',
+          ].join('\n'),
           // Forged provenance attempt; must never survive to persistence.
           source: 'FORGED',
           schema: 'FORGED',
@@ -292,6 +303,22 @@ describe('Catalogue import persistence (e2e)', () => {
           ]),
         }),
       ]),
+    );
+    expect(tx.coverCandidate.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          bibliographicRecordId_urlHash: expect.objectContaining({
+            bibliographicRecordId: 'record-1',
+            urlHash: expect.any(String),
+          }),
+        },
+        create: expect.objectContaining({
+          url: 'https://covers.example.org/cover.jpg',
+          sourceType: 'PORBASE',
+          mimeType: 'image/jpeg',
+          status: 'PENDING',
+        }),
+      }),
     );
   });
 });

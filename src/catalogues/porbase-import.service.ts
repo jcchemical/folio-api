@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { isValidIsbn, normalizeIsbn } from './isbn.utils.js';
 import {
@@ -21,6 +21,7 @@ import {
   normalizePublicationDateLiteral,
 } from '../editions/dto/publication-statement.dto.js';
 import { parsePorbaseResponse } from './porbase.parser.js';
+import { PorbaseCoverCandidateExtractor } from './cover-candidate-extractor.js';
 
 type TransactionClient = Omit<
   PrismaClient,
@@ -35,10 +36,13 @@ const PORBASE_SOURCE = 'PORBASE';
 
 @Injectable()
 export class PorbaseImportService {
+  private readonly logger = new Logger(PorbaseImportService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly organizationMemberships: OrganizationMembershipService,
     private readonly contributionsService: ContributionsService,
+    private readonly coverCandidateExtractor: PorbaseCoverCandidateExtractor = new PorbaseCoverCandidateExtractor(),
   ) {}
 
   async import(
@@ -298,6 +302,8 @@ export class PorbaseImportService {
         },
       });
 
+      await this.persistCoverCandidatesSafely(transaction, bibliographicRecord);
+
       const item = await transaction.item.create({
         data: {
           label: input.item.label ?? null,
@@ -540,6 +546,68 @@ export class PorbaseImportService {
       );
     }
   }
+
+  private async persistCoverCandidatesSafely(
+    transaction: TransactionClient,
+    bibliographicRecord: { id: string; rawContent: string },
+  ): Promise<void> {
+    let savepointCreated = false;
+    try {
+      const candidates =
+        await this.coverCandidateExtractor.extract(bibliographicRecord);
+      if (!candidates.length) return;
+
+      await transaction.$executeRawUnsafe(
+        'SAVEPOINT cover_candidate_extraction',
+      );
+      savepointCreated = true;
+      for (const candidate of candidates) {
+        await transaction.coverCandidate.upsert({
+          where: {
+            bibliographicRecordId_urlHash: {
+              bibliographicRecordId: bibliographicRecord.id,
+              urlHash: candidate.urlHash,
+            },
+          },
+          create: {
+            bibliographicRecordId: bibliographicRecord.id,
+            url: candidate.url,
+            urlHash: candidate.urlHash,
+            sourceType: candidate.sourceType,
+            mimeType: candidate.mimeType,
+            status: candidate.status,
+            rejectReason: candidate.rejectReason,
+          },
+          update: {},
+        });
+      }
+      await transaction.$executeRawUnsafe(
+        'RELEASE SAVEPOINT cover_candidate_extraction',
+      );
+    } catch (error) {
+      if (savepointCreated) {
+        try {
+          await transaction.$executeRawUnsafe(
+            'ROLLBACK TO SAVEPOINT cover_candidate_extraction',
+          );
+          await transaction.$executeRawUnsafe(
+            'RELEASE SAVEPOINT cover_candidate_extraction',
+          );
+        } catch (rollbackError) {
+          this.logger.warn(
+            `Could not roll back cover candidate savepoint for bibliographic record ${bibliographicRecord.id} (${errorName(rollbackError)}).`,
+          );
+        }
+      }
+      this.logger.warn(
+        `Could not extract or persist cover candidates for bibliographic record ${bibliographicRecord.id} (${errorName(error)}); import continues.`,
+      );
+    }
+  }
+}
+
+function errorName(error: unknown): string {
+  return error instanceof Error ? error.name : 'UnknownError';
 }
 
 function toTitleCreate(title: CatalogueTitleInputDto) {
