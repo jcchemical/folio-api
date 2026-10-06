@@ -1,466 +1,205 @@
-# Reavaliação da Arquitectura Folio
+# Reavaliação arquitectural — Folio API
 
-## Síntese executiva
+> Revisão: 2026-10-06. Este documento avalia a direcção e riscos arquitecturais; `CONTEXT.md` é a referência operacional do estado detalhado das rotas e configuração.
 
-A direcção conceptual está correcta: separar o registo original da PORBASE, o modelo local editável, o mapeamento de perfil e a serialização MARC é a decisão mais importante tomada até agora. O uso de PostgreSQL + Prisma + NestJS + Flutter também é adequado para crescer de uma biblioteca pessoal para uma plataforma multi-instituição.
+## 1. Síntese executiva
 
-A arquitectura evoluiu para usar `Organization` como tenant único, com `OrganizationMembership` para relacionar utilizadores a organizações através de roles controlados (`OWNER`, `ADMIN`, `STAFF`, `READER`). Esta fundação foi implementada, validada e consolidada.
+A arquitectura central continua coerente: monólito modular NestJS, PostgreSQL, tenancy por `Organization`, modelo bibliográfico canónico separado dos perfis MARC e fluxo de importação com confirmação explícita. A base possui autenticação e rotação de refresh token, memberships e roles, estruturas canónicas bibliográficas, export local MARCXchange, throttling, CORS configurável e uma primeira cadeia de aquisição/serving de capas.
 
-A Phase 1 de Agents e Contributions canónicos foi concluída no backend e na integração Flutter, mantendo o fallback legado durante a transição.
+A principal questão imediata não é escolher nova infraestrutura; é fechar coerência de contexto organizacional e integração entre capacidades já criadas. Em particular, a aquisição de capa produz `CoverAsset` mas não cria `EditionCover`, relação necessária para servir a capa e expor `coverUrl`. A escrita bibliográfica geral também não mantém ainda todas as relações canónicas que o import cria.
 
-**Fase 1 (Descrição Física Repetível e Datas Bibliográficas)** foi implementada como uma alteração breaking coordenada:
+## 2. Estado arquitectural actual
 
-- `PhysicalDescription` representa uma ocorrência UNIMARC `215`;
-- `PhysicalDescriptionPart` representa cada subcampo ordenado da ocorrência;
-- ocorrências, subcampos repetidos, ordem e códigos desconhecidos válidos são preservados;
-- `Edition.pageCount` é derivado e nunca é a fonte bibliográfica;
-- `Edition.publicationDate` preserva exactamente `YYYY`, `YYYY-MM` ou `YYYY-MM-DD`;
-- o parser, import, CRUD, Flutter e exportação partilham o contrato agrupado;
-- a migration destina-se a uma base de desenvolvimento recriada.
+### Fundação implementada
 
-O `MarcRecord` é uma boa base para serializadores. UNIMARC foi concebido para intercâmbio internacional e a estrutura MARC é composta por estrutura do registo, designadores de conteúdo e conteúdo; ISO 2709 e MARCXchange são representações relacionadas mas distintas. O `MarcRecord` deve evoluir para preservar encoding, leader actualizado, campos de controlo, indicadores, subcampos, ordem, proveniência e warnings de perda.[^1][^2]
+- **Runtime e persistência:** NestJS 12, TypeScript ESM, Prisma 7, PostgreSQL e `pg.Pool` com valores configuráveis.
+- **Identity & Access:** Argon2id, JWT curto, refresh hashado/rotativo/revogável, filtro global de erros e guards.
+- **Tenancy:** Organization como fronteira de Work, Edition e Item; membership N:N com `OWNER`, `ADMIN`, `STAFF`, `READER`.
+- **Catálogo externo:** contrato `CatalogueProvider`, provider PORBASE único, preview separado de persistência.
+- **Modelo bibliográfico:** tabelas canónicas para títulos, responsabilidades, línguas, declarações, séries, notas, classificações, publicação, descrição física e contribuições.
+- **Intercâmbio:** mapeamento de dados locais para UNIMARC e serialização MARCXchange separada.
+- **Ficheiros:** storage interface com filesystem e memória de teste; fetcher com validação SSRF; aquisição/retries in-process; endpoint de capa protegido.
+- **Protecção transversal:** throttling in-memory e CORS com suporte a `If-None-Match`/`ETag`.
 
-## Escopo e estado actual
-
-O contexto fornecido descreve uma API NestJS 12 com TypeScript ESM, Prisma 7, PostgreSQL, JWT e Swagger, e uma app Flutter multiplataforma com Riverpod, Dio, `go_router` e armazenamento seguro do token. O fluxo implementado já cobre login, pesquisa ISBN server-side na PORBASE, preview, confirmação transaccional, edição do preview, warnings estruturados, biblioteca, detalhe de edição e exportação local MARCXchange.[^3][^4][^5]
-
-A importação distingue correctamente preview de confirmação: o preview não persiste dados; a confirmação usa o utilizador autenticado, uma transacção e não volta a contactar a PORBASE. Esta separação é importante e deve ser mantida quando forem acrescentados importação de ficheiros, jobs assíncronos e revisão humana.[^5]
-
-A exportação local já não copia `rawContent`: usa `Edition`, `Work`, contributors e identificadores através de um mapper UNIMARC e de um serializer MARCXchange. A comparação com o XML original demonstra que a exportação local é deliberadamente mais pequena; isso é aceitável como primeira versão, desde que as perdas sejam explícitas e o modelo futuro consiga absorver os campos em falta.[^4][^6]
-
-## Decisões implementadas
-
-### Publication statements UNIMARC 210 (Phase 1)
-
-O modelo local agora preserva ocorrências repetíveis de 210 através de
-`PublicationStatement` e partes ordenadas. A exportação local usa essas partes
-como fonte autoritativa e só usa os escalares de Edition como fallback para
-registos legados sem statements. A migration é aditiva, não fabrica statements
-para dados antigos e deve ser validada na base de desenvolvimento existente
-sem reset. Ver `docs/decisions/publication-statements-phase-1.md` para a decisão
-transicional e o plano de remoção futura dos inputs escalares.
-
-### Contributions e Agents canónicos (Phase 1)
-
-
-O modelo canónico de responsabilidades é `Organization → Agent → Contribution
-→ ContributionSourcePart[]`. Agents são locais à Organization e `displayName`
-não afirma controlo de autoridade. Cada Contribution tem exactamente um alvo,
-Work ou Edition, e o serviço valida que a Organization do Agent é a mesma do
-Work alcançado pelo alvo.
-
-No import PORBASE, ocorrências UNIMARC 700/701/702 tornam-se Contributions de
-Work. Tag, indicadores, códigos, valores, repetições e ordem ficam em partes
-estruturadas; não são concatenados num nome substituto. O mapper UNIMARC usa as
-partes canónicas para construir `MarcRecord` e a serialização MARCXchange.
-
-A transição é por alvo: Contributions canónicas presentes substituem apenas o
-fallback legado daquele Work/Edition; quando não existem, `WorkContributor` e
-`EditionContributor` continuam a ser exportados. Os dois conjuntos não são
-misturados. Authority control, variantes de nomes, outras famílias 7XX e
-MARC21 são fases futuras.
-
-### Separação de proveniência
-
-Manter o `rawContent` como registo original imutável, separado dos dados locais corrigidos, é a decisão certa. Permite auditoria, comparação, reprocessamento com um parser melhor e exportação original sem sobrescrever a curadoria local. O `rawContent` não deve ser a fonte da exportação local.
-
-A melhoria necessária é transformar `BibliographicRecord` num registo de proveniência mais rico: fonte, formato, schema, remoteId, hash do payload, data de aquisição, versão do parser, estado de parsing e warnings. Se o mesmo título for importado de PORBASE, MARC21 ou um ficheiro local várias vezes, deve ser possível conservar várias fontes/registos, não apenas um payload indistinto.
-
-### Modelo canónico mais serializadores
-
-A cadeia `modelo local → mapper de perfil → MarcRecord → serializer` é correcta. Evita que Prisma fique acoplado a UNIMARC e permite no futuro mapear para MARC21, MARCXchange, MARCXML, ISO 2709, Dublin Core ou BIBFRAME sem duplicar todo o domínio.
-
-O modelo persistente do Folio é canónico e não é uma base de dados UNIMARC,
-MARC 21, MARCXchange, MARCXML ou ISO 2709. Tags, indicadores e códigos de
-subcampo pertencem ao perfil de intercâmbio, não à identidade duradoura dos
-conceitos do domínio. A cadeia de exportação é:
+### Pipeline bibliográfico
 
 ```text
-modelo local canónico Folio
-→ mapper de perfil
+modelo canónico Folio
+→ mapper do perfil
 → MarcRecord
 → serializer
 → formato de saída
 ```
 
-A cadeia de importação é:
-
 ```text
 payload externo
-→ parser do formato
-→ MarcRecord
-→ mapper de importação do perfil
-→ preview/modelo canónico Folio
+→ parser
+→ MarcRecord/preview editável
 → confirmação explícita
-→ persistência
+→ persistência canónica e proveniência
 ```
 
-`MarcRecord` é uma representação intermédia format-neutral para campos,
-indicadores, subcampos, ordem, repetição e warnings; não é o modelo persistente.
-Mappers devem reportar warnings estruturados, campos não mapeados e conversões
-potencialmente lossy, sem inventar dados para preencher diferenças entre
-perfis. A exportação local usa dados persistidos do Folio, não reconstrói
-`rawContent`, e MARCXchange/MARCXML permanecem serializers distintos.
+O modelo Prisma não é UNIMARC, MARC 21, MARCXchange, MARCXML ou ISO 2709. MARCXchange e MARCXML são serializações distintas. A exportação local usa dados persistidos, não `BibliographicRecord.rawContent`.
 
-### Separação entre dados de exportação e diagnóstico
+## 3. Decisões implementadas que devem ser preservadas
 
-A exportação bibliográfica separa os dados bibliográficos do diagnóstico:
+### Organization como tenant
 
-- a resposta actual contém apenas XML MARCXchange;
-- warnings estruturados são produzidos pelo mapper, mas não são incorporados no
-        XML, persistidos ou expostos pelo endpoint;
-- qualquer exposição futura de diagnóstico requer um contrato separado ainda
-        por decidir.
+Organization é a fronteira de acesso do catálogo e inventário; User é identidade global. Membership e role são validados no servidor. Não reintroduzir ownership por `userId`, nem tratar organização pessoal como modelo diferente.
 
-Esta fronteira mantém o XML compatível e semanticamente dedicado aos dados
-bibliográficos, enquanto permite que diagnósticos evoluam independentemente.
-Não está aprovado nem implementado um endpoint, parâmetro de query ou header
-para os expor.
+### Registo original separado dos dados locais
 
-No PORBASE actual, `resposta UNIMARC → parser PORBASE → preview estruturado →
-confirmação explícita → persistência canónica`. Uma futura selecção de perfil
-ao nível da organização, conversão automática ou mapper MARC 21 é uma decisão
-futura e não deve reescrever os dados canónicos.
+`BibliographicRecord.rawContent` preserva payload de origem e não é sobrescrito por edição local. O resultado curado vive nas relações/campos locais. Confirmação de preview é uma operação explícita e não deve ser automatizada.
 
-O `MarcRecord` actual deve ser tratado como uma representação de intercâmbio, não como o modelo canónico completo. Deve suportar pelo menos `recordFormat`, `characterEncoding`, `leader`, control fields, data fields, indicators, subfields, ordem e metadados de conversão. Para preservar campos desconhecidos, não se deve depender apenas de mappers que conhecem os campos actuais.
+### Modelo canónico e perfis de intercâmbio
 
-### PostgreSQL e Prisma
+Literais, ordem, repetição, indicadores e partes suportadas devem manter-se independentes do formato externo. Mappers devem declarar campos não mapeados e perdas; não preencher diferenças de perfil inventando dados. Dados legados mantêm fallback por alvo, sem misturar sets canónicos e legados.
 
-PostgreSQL é uma escolha sólida para catálogo, circulação, permissões e transacções. Prisma 7 com driver `pg` fornece pool de conexões; a documentação indica que o tamanho e timeouts dependem do driver adapter, cujo default `max` para `pg` é 10 e cujo timeout de conexão por defeito pode ser ilimitado, pelo que estes valores devem ser configurados explicitamente para produção.[^7]
+### PostgreSQL e monólito modular
 
-A escala não deve ser optimizada prematuramente trocando de base de dados. Deve-se primeiro garantir índices, paginação, queries selectivas, limites de payload, pool configurado, métricas e testes de carga. Para tráfego concorrente, a aplicação deve usar pool; migrações, introspecção e ferramentas administrativas devem usar conexão directa quando a infraestrutura fornecer ambas.[^8]
+As transacções, constraints e relações actuais justificam PostgreSQL. Manter monólito modular com services/use cases; controllers finos e lógica de domínio testável. Não decompor em microserviços por antecipação.
 
-### Tenancy por Organization (implementado)
+### Circulação explícita
 
-A arquitectura evoluiu para usar `Organization` como tenant único:
+Empréstimo, devolução, reserva, políticas e multas são conceitos próprios. Não codificar circulação em flags de `Item`.
 
-```text
-User
-  └── OrganizationMembership
-        └── Organization
-              ├── Work
-              │     └── Edition
-              │           └── Item
-              └── Library / Branch (futuro, opcional)
-```
+## 4. Fronteiras de domínio e integração presente
 
-- `Work.organizationId` e `Item.organizationId` são obrigatórios;
-- `Work.userId` e `Item.userId` não existem;
-- `Institution` e `institutionId` foram removidos;
-- a autorização é baseada em `OrganizationMembership` com roles controlados;
-- cada utilizador recebe uma organização pessoal na criação;
-- um utilizador pode pertencer a várias organizações.
+### Identity, Organization e catálogo
 
-Esta fundação resolve o risco histórico de ownership por `userId` e prepara o terreno para instituições, filiais e circulação.
+Há self-service de organizações, mas não há selecção de organização activa, memberships administráveis, convites, alteração de roles ou branches. Work creation e confirmação PORBASE sem `organizationId` usam fallback para a organização OWNER mais antiga. Esse fallback é compatibilidade transitória, não substituto para contexto tenant explícito.
 
-### Descrição física repetível e datas (implementado em Phase 1)
+PORBASE aceita variantes de pesquisa no DTO, mas implementa só ISBN. O preview não persiste. A confirmação envia o payload editável completo e não usa snapshot server-side nem repesquisa. Campos de metadata de contribuições (`sourceTag`, indicadores e source parts) continuam aceites no DTO de confirmação; a origem é marcada pelo servidor, mas a estrutura de origem apresentada pelo cliente não é autenticada contra o raw record. A rota manual de Contribution tem validação mais estrita. Esta fronteira merece decisão de segurança própria.
 
-`PhysicalDescription` é uma ocorrência `215`; os seus `PhysicalDescriptionPart` preservam códigos, valores, repetição e ordem. Os códigos conhecidos `a`–`f` têm labels na UI; códigos lowercase alfanuméricos desconhecidos de um carácter permanecem dados estruturais exportáveis.
+### Integração do modelo canónico
 
-`Edition.pageCount: Int?` é derivado conservadoramente de um único `215$a` simples como `383 p.`. Descrições complexas como `146, [6] p.` são preservadas e deixam `pageCount` nulo quando não é possível determinar um inteiro. A exportação só usa `pageCount` quando não existem ocorrências físicas.
+Schema e import PORBASE suportam grande parte da fundação Phase 1, e leitura/exportação consomem várias destas relações. Contudo, “modelo canónico implementado” não significa que todos os caminhos de escrita tenham migrado:
 
-`Edition.publicationDate` é uma string canónica em `YYYY`, `YYYY-MM` ou `YYYY-MM-DD`. A precisão é derivada da forma do valor e não é persistida redundante; nunca se usa `Date`/`toISOString()` para estes dados bibliográficos.
+- CRUD regular Work/Edition continua a escrever escalares para certos conceitos e não mantém sempre WorkTitle/EditionTitle/EditionLanguage;
+- o parser extrai 200$h/$i, mas não há armazenamento estruturado correspondente no schema;
+- notas podem modelar Work e Edition, mas o contrato/import corrente oferece a cobertura mais completa na Edition;
+- `BibliographicRecord` ainda tem proveniência básica, sem versionamento/hash/versão de parser e sem constraint que alinhe Work e Edition referenciados.
 
-## Riscos arquitecturais
+Manter a classificação por percurso — parsing, preview, confirmação, CRUD normal, leitura e exportação — em vez de rotular genericamente uma “Phase 1 concluída”.
 
-### Históricos (resolvidos)
+### Capas: componentes criados, ligação incompleta
 
-- **Modelo de biblioteca pessoal:** `Work.userId` e `Item.userId` foram removidos; `Organization` é agora o tenant único.[^4]
-- **Autenticação e autorização:** password hashing Argon2id, access tokens curtos, refresh tokens rotativos/revogáveis e `/auth/me` já estão implementados.[^3]
-- **Tenancy:** `Organization` e `OrganizationMembership` já existem; `Work.organizationId` e `Item.organizationId` são obrigatórios.
-- **Descrição física:** `PhysicalDescription` + `PhysicalDescriptionPart` preservam ocorrências `215`, ordem, repetição e códigos desconhecidos válidos. `Edition.pageCount` é derivado e secundário.[^6][^9]
+O schema distingue candidato de aquisição (`CoverCandidate`), blob (`CoverAsset`) e associação servível (`EditionCover`). O extractor detecta URLs 856; `SafeHttpFetcherService` valida allowlist, DNS/IP fixado, redirects, tempos, tamanho, MIME, magic bytes e descodificação; `StorageService` suporta filesystem/memória; o serviço adquire e deduplica assets; o endpoint requer membership e suporta ETag/cache condicional.
 
-### Actuais (pendentes)
+**Lacuna de integração confirmada:** `CoverAcquisitionServiceImpl` actualiza candidato e asset, mas não cria/activa `EditionCover`. Logo, aquisição não conduz por si só ao estado que `GET /editions/:id/cover` consulta. `coverUrl` fica `null` até existir uma associação EditionCover. Além disso:
 
-1. **Contributors:** `Agent`, `Contribution` e `ContributionSourcePart` estão implementados para o import PORBASE 700/701/702; permanecem pendentes o controlo de autoridades, variantes de nomes e famílias 7XX adicionais, não o modelo canónico básico.[^4]
-2. **Proveniência versionada:** `BibliographicRecord` precisa de mais metadados (source, format, schema, encoding, hash, parserVersion, warnings) e deve suportar múltiplas versões/fontes por obra ou edição.
-3. **Datas e texto original:** `publicationDate` já suporta precisão bibliográfica; permanece futuro preservar texto original adicional quando uma normalização não puder ser representada no modelo local.
-4. **Normalização de dados:** `PhysicalDescription.normalizedValue` é ainda derivado manualmente; é futuro automatizar a normalização e a extracção de dimensões, material e ilustrações.
-5. **Administração de memberships:** não existem endpoints para gerir membros, convidar utilizadores, alterar roles e selecção de organização activa.[^3]
-6. **Library/Branch:** não existe modelo de filiais ou localizações subordinadas a Organization.[^4]
-7. **Holdings e inventário:** não existe localização, cota, código de barras ou estado detalhado dos exemplares.
-8. **Auditoria:** não existe tabela `AuditEvent` para acções como importação, correcção, empréstimo e alteração de permissões.
-9. **Circulação:** não existe domínio de empréstimos, devoluções, reservas, políticas e multas.[^4]
-10. **Formatos MARC:** MARCXML, ISO 2709 e MARC21 são ainda futuras implementações; mapeadores para perfis adicionais permanecem pendentes.
+- não há fila/worker, lease/recuperação de estado ACQUIRING preso ou limite global de concorrência;
+- S3 não está implementado;
+- allowlist vazia é o default efectivo do fetcher se `COVER_ALLOWED_HOSTS` faltar;
+- `coverUrl` é projectado nas respostas directas de Edition, não nas Editions aninhadas nas respostas de Work/import;
+- `EditionCover` não impede mais de uma relação activa por Edition através de constraint.
 
-## Limitações actuais
+Esta é a principal costura interna de domínio a resolver antes de ampliar superfície de capas.
 
-O sistema está operacional para o fluxo de importação PORBASE e exportação local UNIMARC/MARCXchange. A integração Flutter é compatível com os campos actuais. As limitações conhecidas são:
+## 5. Riscos resolvidos ou reduzidos
 
-- `PhysicalDescription.normalizedValue` não é preenchido automaticamente (design para permitir normalização inteligente futura);
-- não existe UI de edição para descrições físicas (integração Flutter é aditiva e pode ser implementada em fase posterior);
-- Agents e Contributions canónicos estão implementados no backend e disponíveis em leitura no Flutter; permanecem futuros o controlo de autoridades, variantes de nomes e famílias 7XX adicionais;
-- não existe ainda UI de criação ou edição de Contributions;
-- não existe versionamento de provenância (cada registo original substitui o anterior);
-- não existe modelo de holdings, filiais ou circulação;
-- não existe auditoria de acessos e alterações;
-- exportação original (`BibliographicRecord.rawContent`) não tem endpoint dedicado;
-- MARCXML, ISO 2709 e MARC21 não têm mappers ou serializadores.
+- **Ownership pessoal acoplado a User:** substituído por Organization e membership.
+- **Passwords/tokens em claro:** password e refresh hashados; refresh rotativo e revogável.
+- **Preview persistido implicitamente:** preview e confirmação são operações separadas.
+- **Export a partir do raw record:** export local usa dados curados e pipeline mapper/serializer.
+- **XOR de Contribution/Note apenas em controller:** check SQL para exactamente um target.
+- **Abuso sem quotas HTTP:** `ThrottlerGuard` global e overrides para auth/signup, catálogo e listagens.
+- **Cache condicional incompatível com browsers:** CORS permite `If-None-Match` e expõe `ETag`.
+- **Fetch externo sem validação SSRF:** allowlist, DNS pinning, bloqueio de IPs especiais e limites de imagem no fetcher.
 
-## Desempenho e escalabilidade
+Estas medidas reduzem riscos, mas não removem limitações identificadas na integração nem são evidência de deployment/configuração de produção.
 
-### API e consultas
+## 6. Riscos e lacunas actuais
 
-Os endpoints de lista precisam de paginação estável antes de o catálogo crescer. Evitar respostas que carregam todas as `works`, `editions`, contributors e items num único pedido. Usar `limit` limitado pelo servidor, cursor pagination para listas mutáveis e `select` explícito em Prisma.
+### Prioridade de produto/tenancy
 
-Os índices actuais suportam os padrões de tenancy, ordenação e paginação:[^8]
+Sem organização activa, requests não identificam explicitamente o contexto tenant. Fallback para a primeira/mais antiga membership OWNER pode seleccionar contexto não pretendido quando um utilizador tem várias organizações. É o principal checkpoint arquitectural próximo.
 
-- `User(createdAt, id)`;
-- `Work(organizationId, createdAt, id)`;
-- `Work(organizationId, updatedAt, id)` (a considerar);
-- `Edition(workId, createdAt, id)`;
-- `Edition(workId, updatedAt, id)` (a considerar);
-- `Contributor(createdAt, id)`;
-- `WorkContributor(workId, sortOrder, id)` e `WorkContributor(contributorId)`;
-- `EditionContributor(editionId, sortOrder, id)` e `EditionContributor(contributorId)`;
-- `ExternalIdentifier(editionId, createdAt, id)`;
-- `BibliographicRecord(workId, createdAt, id)` e `BibliographicRecord(editionId, createdAt, id)`;
-- `Item(organizationId, status, createdAt, id)`;
-- `Item(organizationId, editionId)` (a considerar).
+### Integridade catalográfica e proveniência
 
-Para pesquisa de catálogo, `ILIKE '%termo%'` não será suficiente em escala. PostgreSQL oferece full-text search com `tsvector`, `tsquery` e o operador `@@`; também oferece ranking e pesquisa por relevância. A evolução recomendada é uma coluna de pesquisa denormalizada ou materializada para título, subtítulo, autores, ISBN, assuntos e identificadores, com índices GIN, além de trigramas para correspondência parcial e tolerância a acentos.[^10][^11][^12]
+Confirmação de import aceita estruturas editáveis sem snapshot assinado/guardado no servidor. Partes 200$h/$i são extraídas mas não persistidas como conceitos estruturados. CRUD geral não mantém uniformemente relações canónicas. BibliographicRecord pode ligar simultaneamente Work e Edition sem garantir consistência entre eles.
 
-### Importação e exportação
+### Capas
 
-Importações PORBASE individuais podem continuar síncronas no início. Importação de ficheiros MARC, lotes grandes, conversões e exports ISO 2709 devem ser jobs assíncronos: criar `ImportJob`/`ExportJob`, guardar progresso, erros por registo, idempotency key e resultado descarregável.
+Candidate → Asset está implementado; Asset → EditionCover não está ligado no fluxo de aquisição. Estados ACQUIRING sem lease não são recuperados automaticamente após queda do processo. Sweep periódico é síncrono/sequencial por instância; armazenamento de throttling e acquisition não constituem coordenação global de jobs.
 
-A exportação MARCXchange de um registo é pequena e pode permanecer síncrona. Exportar milhares de registos, converter ISO 2709 ou processar ficheiros deve sair do request HTTP para um worker. Isto evita timeouts, consumo excessivo de memória e bloqueio do processo API.
+### Segurança operacional
 
-### Caching e limites
+- `ApiExceptionFilter` escreve mensagem e stack de excepções no log sem aplicar redacção ao conteúdo da excepção; não regista request bodies/headers por defeito.
+- Não existe request/correlation ID.
+- Rate-limit storage é in-memory e não coordena réplicas.
+- Com allowlist de capa ausente, fetcher falha fechado; isto é seguro, mas precisa de configuração explícita.
 
-Não adicionar Redis já sem uma necessidade medida. Primeiro configurar pool, índices, paginação, observabilidade e cache HTTP onde fizer sentido. Redis será útil para rate limits distribuídos, jobs, locks e cache de pesquisas externas, não como substituto de um modelo de dados correcto.
+### Consulta e performance
 
-Para PORBASE, manter timeouts curtos, retries limitados com backoff apenas para erros transitórios, circuit breaker e cache de respostas por ISBN com TTL. Nunca persistir automaticamente um preview como catálogo; a confirmação explícita deve continuar a ser obrigatória.[^5]
+Cursor limita o nível superior, não a fanout de relações incluídas. Alguns padrões de ordenação não coincidem com índices e algumas listas não têm desempate explícito. Medir antes de optimizar. Não há pesquisa local full-text.
 
-## Decisão sobre formatos MARC
+### Deployment/migrations
 
-A escolha de UNIMARC para o contexto português é coerente. A IFLA mantém documentação UNIMARC e descreve ferramentas e documentação relacionadas com formatos ISO 2709 e XML. O objectivo futuro de aceitar MARC21 e exportar vários formatos deve ser resolvido por perfis de mapeamento, não por tornar o Prisma um esquema UNIMARC.[^13][^1]
+O repositório contém migrations, mas estado aplicado depende de cada ambiente. `20260907180000_refine_bibliographic_model` contém `DROP TABLE PhysicalDescription` e declara intenção de reset de desenvolvimento; qualquer aplicação deve ser revista contra dados e histórico do ambiente de destino.
 
-A estrutura `MarcRecord` actual deve ser evoluída para incluir:
+## 7. Arquitectura futura recomendada
 
-```ts
-type MarcRecord = {
-  format: 'UNIMARC' | 'MARC21' | 'UNKNOWN';
-  syntax: 'ISO2709' | 'MARCXCHANGE' | 'MARCXML' | 'TEXT';
-  encoding: 'UTF-8' | 'MARC-8' | 'UNKNOWN';
-  leader: string;
-  controlFields: MarcControlField[];
-  dataFields: MarcDataField[];
-  source?: MarcProvenance;
-};
-```
+### Contexto organizacional explícito
 
-O `syntax` e o `format` não devem ser confundidos. UNIMARC pode ser serializado em ISO 2709 ou MARCXchange; MARC21 também pode ser serializado em ISO 2709 ou MARCXML. A mesma estrutura intermédia deve suportar indicadores, subcampos e repetição.
+Formalizar em `1L-DEC.0` e implementar depois. Proposta para decisão, não contrato aprovado:
 
-Os mappers devem devolver resultado e warnings:
+- contexto tenant explícito em cada request, possivelmente `X-Folio-Organization-Id`;
+- membership sempre verificada no servidor;
+- organização activa fora do JWT;
+- preferência cliente não é autoridade;
+- nenhuma selecção implícita da primeira organização;
+- mudança de contexto invalida estado scoped no cliente.
 
-```text
-MarcMappingResult
-  record
-  warnings[]
-  unmappedFields[]
-  lossy: boolean
-```
+Nome final do header e códigos de erro ainda requerem decisão formal. A componente Flutter é dependência de contrato e está fora do escopo deste repositório.
 
-Quando a saída for incompleta, a UI deve indicar que é um subconjunto exportado. Para uma futura exportação institucional, convém ter modos `strict` e `permissive`: o modo strict recusa perdas críticas; o permissive gera o ficheiro com relatório de warnings.
+### Busca local
 
-## Arquitetura futura recomendada
+Separar pesquisa do catálogo Folio da pesquisa nos providers externos. Avaliar extensão controlada de `GET /works`, full-text PostgreSQL (`tsvector`, ranking, GIN) e cursor consistente com a ordenação. Trigramas apenas se relevância/medição justificar. Sem Elasticsearch ou Redis nesta fase.
 
-### Camadas
+### Capas
 
-```text
-Flutter Web/Mobile
-        |
-API / BFF NestJS
-        |
-Application services / use cases
-        |
-Domain model + authorization policies
-        |
-Repositories / Prisma
-        |
-PostgreSQL + object storage + worker queue
-```
+Completar primeiro a associação Candidate/Asset/EditionCover, idempotência e recuperação após falha. Só então considerar processamento distribuído, quotas de download por organização e S3, com storage partilhado e política de ciclo de vida.
 
-Os controllers devem permanecer finos. A lógica de importação, circulação e exportação deve viver em application services/use cases, com mappers e serializers puros testáveis sem NestJS.
+### Audit e captura
 
-### Módulos de domínio
+Adicionar auditoria de acções sem event sourcing completo. Na iteração `1M`, separar `ScanCapture`, maturidade/qualidade catalográfica, `ReviewTask` e `AuditEvent`; não os colapsar num enum `captured/identified/provisional/needsReview/validated` sem decisão de domínio.
 
-A divisão actual por entidades é útil no início, mas o crescimento deve orientar os módulos para capacidades:
+## 8. Roadmap revisto
 
-- Identity & Access
-- Organizations & Memberships
-- Cataloguing
-- Bibliographic Sources & Provenance
-- Holdings & Inventory
-- Circulation
-- Search
-- Import/Export Jobs
-- Audit & Observability
+Próximo checkpoint documental: **`1L-DEC.0` — decisão sobre contexto organizacional explícito.**
 
-Isto reduz a dependência entre controllers de CRUD e regras de negócio. `WorksModule` não deve continuar a ser o proprietário implícito de todos os recursos bibliográficos à medida que surgem instituições e circulação.
+Sequência acordada:
 
-### Eventos e auditoria
+1. `1L-API.0` — resolução explícita do contexto da organização e isolamento de tenancy.
+2. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped; dependência de contrato, fora de `folio-api`.
+3. `1K-API.0` — contrato de listagem, pesquisa e ordenação da biblioteca.
+4. `1K-API.1` — pesquisa local PostgreSQL.
+5. `1K-FLUTTER.0` — paginação/infinite loading; dependência de contrato.
+6. `1K-FLUTTER.1` — pesquisa e ordenação; dependência de contrato.
+7. `1L-API.1` — memberships, convites e roles.
+8. `1L-FLUTTER.1` — gestão de membros; dependência de contrato.
+9. `1M` — captura, qualidade catalográfica, tarefas de revisão e auditoria como conceitos separados.
 
-Acções como importação confirmada, correcção bibliográfica, empréstimo, devolução e alteração de permissões devem produzir eventos de auditoria. Não é necessário adoptar event sourcing completo; uma tabela append-only `AuditEvent` é suficiente inicialmente.
+No roadmap da API, detalhar somente work de backend. Flutter surge aqui apenas onde há dependência de contrato/API.
 
-Os eventos podem ser usados mais tarde para notificações, sincronização e reconstrução de histórico sem transformar todo o domínio numa arquitectura distribuída prematuramente.
+## 9. Não-objectivos
 
-## Roadmap revisto
+- Não modelar Prisma como cópia de UNIMARC/MARC 21.
+- Não persistir preview sem confirmação.
+- Não usar `rawContent` como dados locais curados ou como export local.
+- Não autorizar por `userId` do body.
+- Não confundir MARCXchange e MARCXML.
+- Não fazer circulação através de flags em Item.
+- Não introduzir Redis, microserviços, Elasticsearch ou filas sem volume/necessidade medidos.
+- Não tratar estados futuros de captura/revisão como enum já aprovado.
 
-### Fase 0 — fundação e estabilização (concluída para o MVP)
+## 10. Decisões imediatas
 
-Concluída:
-
-- hashing seguro;
-- access tokens e refresh tokens;
-- `/auth/me`;
-- tenancy por Organization;
-- OrganizationMembership e roles;
-- autorização por membership;
-- paginação e índices;
-- pool/timeouts;
-- CI e testes principais.
-
-Pendente antes de produção institucional:
-
-- administração completa de memberships;
-- convites;
-- selecção de organização activa;
-- políticas por filial;
-- rate limiting;
-- auditoria operacional;
-- validação da migration no ambiente de destino.
-
-### Fase 1 — fundação bibliográfica
-
-Concluída:
-
-- descrição física agrupada (`PhysicalDescription` + `PhysicalDescriptionPart`);
-- preservação de ocorrências, subcampos, ordem e códigos desconhecidos de `215`;
-- `pageCount` derivado conservativamente;
-- `publicationDate` textual com precisão bibliográfica preservada;
-- modelos canónicos `Agent`, `Contribution` e `ContributionSourcePart`;
-- parsing e persistência PORBASE 700/701/702 como Contributions direccionadas ao Work;
-- leituras e exportação que preferem Contributions canónicas por alvo, com fallback legado exclusivo;
-- visualização Flutter read-only de Contributions no detalhe de Edition, com UI localizada e testes;
-- normalização de indicadores MARC vazios ou ausentes no preview para `" "`;
-- importação PORBASE transaccional;
-- exportação local MARCXchange sem depender de `rawContent`;
-- contrato Flutter coordenado;
-- internacionalização da UI com `pt-PT` e `en`;
-- códigos estáveis de erro API e warnings PORBASE.
-
-Pendente:
-
-- `PublicationStatement` para local, agente/editor e data de publicação;
-- provenance versionada e metadados ricos;
-- normalizações derivadas e não destrutivas;
-- `MarcRecord` mais completo, incluindo encoding, syntax e relatório de perda;
-- `SeriesStatement`;
-- assuntos, classificações e notas;
-- authority control;
-- perfis/mappers adicionais, como MARC21.
-
-### Fase 2 — catálogo e ficheiros
-
-- importação MARCXchange/ISO 2709;
-- preview por registo;
-- deduplicação e idempotência;
-- jobs de importação/exportação assíncronos;
-- pesquisa de catálogo com full-text search PostgreSQL.
-
-### Fase 3 — inventário institucional
-
-- administração completa de memberships e selecção de organização activa;
-- Library/Branch subordinada a Organization;
-- holdings, localização, cota e código de barras;
-- inventário e operações em lote;
-- estados e histórico dos exemplares.
-
-### Fase 4 — circulação
-
-- patrons/membros da biblioteca;
-- loans, returns e reservations;
-- políticas, multas e notificações;
-- permissões para bibliotecários e leitores;
-- auditoria de empréstimos.
-
-### Fase 5 — formatos e integrações
-
-- exportação robusta de UNIMARC;
-- ISO 2709 com encoding e validação independente;
-- MARCXML separado de MARCXchange;
-- MARC21 mapper e serializer;
-- APIs/integrações externas adicionais;
-- scanner ISBN e importações em lote.
-
-## Decisões imediatas
-
-1. **Evoluir descrição física para edição e normalização.** A primeira iteração backend (Phase 1) adiciona `PhysicalDescription` com subfield, value, sortOrder, source e normalizedValue. A próxima iteração deve permitir edição local, normalização automática de dimensões e material, e UI correspondente.
-
-2. **Implementar contributions como autoridades.** Reuso conservador actual deve evoluir para `Agent`, `AgentName`, `AuthorityIdentifier` e `Contribution` com role codes controlados.
-
-3. **Implementar administração completa de memberships.** Endpoints para gerir membros, convidar utilizadores, alterar roles e selecção de organização activa.
-
-4. **Implementar Library/Branch e holdings.** Filiais e localizações subordinadas a Organization, com cota, código de barras e estado dos exemplares.
-
-5. **Implementar circulação com entidades explícitas.** `Patron`, `Loan`, `LoanPolicy`, `Hold`, `ReturnEvent`, `Fine`.
-
-6. **Implementar auditoria.** Tabela `AuditEvent` para acções importantes.
-
-7. **Expandir suporte MARC.** MARCXML, ISO 2709 e MARC21 com mappers e serializadores separados.
-
-## Não-objetivos explícitos
-
-1. **Não modelar Prisma como UNIMARC.** A local source of truth é canónica; UNIMARC é um perfil de exportação entre muitos.
-
-2. **Não implementar circulação com flags em Item.** Circulação exige entidades de domínio explícitas (Patron, Loan, LoanPolicy, etc).
-
-3. **Não aceitar ownership de catálogo por userId.** Organization é o único tenant; utilizador é global e relacionado através de OrganizationMembership.
-
-4. **Não descartar silenciosamente campos desconhecidos.** Quando a preservação for possível, guardar no MarcRecord; quando houver perda, emitir warnings estruturados.
-
-5. **Não implementar versões de Prisma que sejam cópias de standards bibliográficos.** Padrões como UNIMARC definem formatos de intercâmbio, não esquemas relacionais. Usar mappers e serializadores.
-
-6. **Não chamar PORBASE do Flutter.** O servidor-side é o único ponto de entrada; cache e rate limiting aplicam-se ali.
-
-7. **Não automatizar persistência de previews.** Preview é proposta; confirmação é operação separada e idempotente.
-
-## Conclusão
-
-O projecto está na direcção certa. A fundação de tenancy por `Organization` foi implementada e validada, resolvendo o risco histórico de ownership por `userId`. A Fase 1 de descrição física repetível foi implementada no backend, com Flutter compatível e aditivo.
-
-A próxima etapa é evoluir o modelo bibliográfico com contributions, proveniência versionada e auditoria, antes de implementar circulação e formatos avançados.
-
-A recomendação prática é consolidar a fundação bibliográfica e administrativa, depois implementar circulação e formatos adicionais sem reescrever as relações centrais.
-
----
-
-## References
-
-1. [UNIMARC formats and related documentation](https://www.ifla.org/publications/unimarc-formats-and-related-documentation/)
-
-2. [Introduction - UNIMARC](https://unimarc.org.ua/ifla/biblio2023/2023n1_0_0_UNIMARC_Introduction_4-7.pdf)
-
-3. [CONTEXT-5.md](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/154563503/74e2103d-8f7a-47a4-a9fe-02e69b86dd52/CONTEXT-5.md)
-
-4. [CONTEXT.md](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/154563503/bf995b35-e095-4a70-b6fa-fcfa642f5021/CONTEXT.md)
-
-5. [AGENTS-2.md](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/154563503/5c6a1c95-4297-40dd-a77e-84646d8ec675/AGENTS-2.md)
-
-6. [folio-cmtpp3zk10001hmv6jnwuycty.marcxchange.xml](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/154563503/db0d9e26-755d-48ea-a2b4-4f54af794500/folio-cmtpp3zk10001hmv6jnwuycty.marcxchange.xml)
-
-7. [Connection pool | Prisma Documentation](https://www.prisma.io/docs/orm/v7/prisma-client/setup-and-configuration/databases-connections/connection-pool)
-
-8. [Connecting to your database](https://www.prisma.io/docs/postgres/database/connecting-to-your-database)
-
-9. [marcxchange.xml](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/154563503/cf824549-a60f-4b52-857b-a8810b8cfc0d/marcxchange.xml)
-
-10. [Documentation: 18: Chapter 12. Full Text Search](https://www.postgresql.org/docs/current/textsearch.html)
-
-11. [PostgreSQL: Documentation: 18: 12.1. Introduction](https://www.postgresql.org/docs/current/textsearch-intro.html)
-
-12. [Documentation: 18: 12.3. Controlling Text Search](https://www.postgresql.org/docs/current/textsearch-controls.html)
-
-13. [UNIMARC Formats and Updates](https://www.ifla.org/unimarc-updates/)
+1. Formalizar contexto organizacional e contrato tenant em `1L-DEC.0`; não cristalizar header antes da decisão.
+2. Fechar a associação do asset adquirido à Edition e a política de capa activa antes de prometer disponibilidade via `coverUrl`.
+3. Decidir como autenticar os dados de contribuição de origem na confirmação do catálogo (snapshot do preview ou rederivação server-side).
+4. Definir estratégia de recuperação para candidatos ACQUIRING após falha de processo e coordenação se houver múltiplas réplicas.
+5. Planejar migração gradual dos CRUDs escalares para relações canónicas e decidir explicitamente a preservação de 200$h/$i.
+6. Corrigir/aceitar formalmente a política de redacção de mensagens/stacks e adicionar request ID antes de produção institucional.
+7. Rever migrations por ambiente; não inferir estado aplicado do repositório.
