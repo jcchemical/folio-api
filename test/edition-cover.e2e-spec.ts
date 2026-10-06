@@ -26,6 +26,7 @@ describe('GET /editions/:id/cover (e2e)', () => {
     editionExists: boolean;
     coverExists: boolean;
     memberAllowed: boolean;
+    storageFailure: boolean;
   };
   let storage: StorageService;
 
@@ -34,6 +35,7 @@ describe('GET /editions/:id/cover (e2e)', () => {
       editionExists: true,
       coverExists: true,
       memberAllowed: true,
+      storageFailure: false,
     };
     const passwordHash = await hashPassword(password);
     const users = [
@@ -118,7 +120,12 @@ describe('GET /editions/:id/cover (e2e)', () => {
         mimeType: 'image/png',
         sizeBytes: image.length,
       }),
-      get: async () => Readable.from([image]),
+      get: async () => {
+        if (state.storageFailure) {
+          throw new Error('private-storage-path-must-not-leak');
+        }
+        return Readable.from([image]);
+      },
       delete: async () => undefined,
       exists: async () => true,
     };
@@ -189,6 +196,22 @@ describe('GET /editions/:id/cover (e2e)', () => {
       .set('Authorization', `Bearer ${token}`)
       .expect(404)
       .expect(({ body }) => expect(body.code).toBe('COVER_NOT_FOUND'));
+  });
+
+  it('returns a sanitized error when stored cover bytes cannot be read', async () => {
+    state.storageFailure = true;
+    const token = await tokenFor('cover-member@example.test');
+
+    await request(app.getHttpServer())
+      .get(`/editions/${editionId}/cover`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(500)
+      .expect(({ body }) => {
+        expect(body.code).toBe('INTERNAL_ERROR');
+        expect(JSON.stringify(body)).not.toContain(
+          'private-storage-path-must-not-leak',
+        );
+      });
   });
 
   it('returns EDITION_NOT_FOUND when the edition does not exist', async () => {

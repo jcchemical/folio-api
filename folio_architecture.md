@@ -4,9 +4,9 @@
 
 ## 1. Síntese executiva
 
-A arquitectura central continua coerente: monólito modular NestJS, PostgreSQL, tenancy por `Organization`, modelo bibliográfico canónico separado dos perfis MARC e fluxo de importação com confirmação explícita. A base possui autenticação e rotação de refresh token, memberships e roles, estruturas canónicas bibliográficas, export local MARCXchange, throttling, CORS configurável e uma primeira cadeia de aquisição/serving de capas.
+A arquitectura central continua coerente: monólito modular NestJS, PostgreSQL, tenancy por `Organization`, modelo bibliográfico canónico separado dos perfis MARC e fluxo de importação com confirmação explícita. A base possui autenticação e rotação de refresh token, memberships e roles, estruturas canónicas bibliográficas, export local MARCXchange, throttling, CORS configurável e aquisição/serving de capas.
 
-A principal questão imediata não é escolher nova infraestrutura; é fechar coerência de contexto organizacional e integração entre capacidades já criadas. Em particular, a aquisição de capa produz `CoverAsset` mas não cria `EditionCover`, relação necessária para servir a capa e expor `coverUrl`. A escrita bibliográfica geral também não mantém ainda todas as relações canónicas que o import cria.
+A prioridade desta iteração é fechar a ligação Candidate → Asset → EditionCover com idempotência, isolamento tenant e preservação da selecção activa. A escrita bibliográfica geral também não mantém ainda todas as relações canónicas que o import cria.
 
 ## 2. Estado arquitectural actual
 
@@ -86,15 +86,11 @@ Manter a classificação por percurso — parsing, preview, confirmação, CRUD 
 
 O schema distingue candidato de aquisição (`CoverCandidate`), blob (`CoverAsset`) e associação servível (`EditionCover`). O extractor detecta URLs 856; `SafeHttpFetcherService` valida allowlist, DNS/IP fixado, redirects, tempos, tamanho, MIME, magic bytes e descodificação; `StorageService` suporta filesystem/memória; o serviço adquire e deduplica assets; o endpoint requer membership e suporta ETag/cache condicional.
 
-**Lacuna de integração confirmada:** `CoverAcquisitionServiceImpl` actualiza candidato e asset, mas não cria/activa `EditionCover`. Logo, aquisição não conduz por si só ao estado que `GET /editions/:id/cover` consulta. `coverUrl` fica `null` até existir uma associação EditionCover. Além disso:
+**Ligação implementada nesta iteração:** a Edition é resolvida apenas pelo `BibliographicRecord.editionId`; registos ligados só a Work mantêm o asset adquirido sem associação inventada. Uma transacção bloqueia Edition e Work, valida organização, cria/reutiliza `EditionCover` activa apenas se ainda não houver activa e grava `CoverCandidate.status=ACQUIRED`/`coverAssetId` na mesma transacção. A aquisição validada (fetch, armazenamento e upsert do `CoverAsset`) precede essa transacção. Se a associação falhar, a transacção reverte e agenda retry, mas mantém o asset/ficheiro já persistido; não remove assets potencialmente partilhados.
 
-- não há fila/worker, lease/recuperação de estado ACQUIRING preso ou limite global de concorrência;
-- S3 não está implementado;
-- allowlist vazia é o default efectivo do fetcher se `COVER_ALLOWED_HOSTS` faltar;
-- `coverUrl` é projectado nas respostas directas de Edition, não nas Editions aninhadas nas respostas de Work/import;
-- `EditionCover` não impede mais de uma relação activa por Edition através de constraint.
+A migration `20261006120000_one_active_edition_cover` adiciona índice único parcial por Edition para linhas activas. Antes de criar o índice, aborta sem alterar dados se encontrar duplicados; é necessária resolução explícita desses dados para aplicar a migration. O lock de Work serializa aquisições concorrentes do service entre processos; o índice protege também contra outros escritores. Não há worker/fila, lease/recuperação de estado ACQUIRING preso ou limite global de concorrência. S3 não está implementado; allowlist vazia continua a ser o default efectivo se `COVER_ALLOWED_HOSTS` faltar; `coverUrl` continua projectado apenas nas respostas directas de Edition, não nas Editions aninhadas em Work/import.
 
-Esta é a principal costura interna de domínio a resolver antes de ampliar superfície de capas.
+Uma falha de persistência do asset após `StorageService.save` pode deixar bytes órfãos, mas não cria associação incompleta. Uma Edition removida entre a leitura inicial e a transacção resulta em candidato ACQUIRED/asset sem EditionCover. Esta iteração não cria uma regra de substituição automática: uma capa activa existente é sempre preservada.
 
 ## 5. Riscos resolvidos ou reduzidos
 
@@ -121,7 +117,7 @@ Confirmação de import aceita estruturas editáveis sem snapshot assinado/guard
 
 ### Capas
 
-Candidate → Asset está implementado; Asset → EditionCover não está ligado no fluxo de aquisição. Estados ACQUIRING sem lease não são recuperados automaticamente após queda do processo. Sweep periódico é síncrono/sequencial por instância; armazenamento de throttling e acquisition não constituem coordenação global de jobs.
+Candidate → Asset → EditionCover activa está ligado no fluxo de aquisição, com lock transaccional e índice único parcial de capa activa. Estados ACQUIRING sem lease não são recuperados automaticamente após queda de processo. Sweep periódico é síncrono/sequencial por instância; não existe fila nem coordenação global de retries. Storage pode reter bytes sem associação se a transacção posterior falhar, permitindo retry sem apagar assets partilhados.
 
 ### Segurança operacional
 
@@ -165,23 +161,43 @@ Completar primeiro a associação Candidate/Asset/EditionCover, idempotência e 
 
 Adicionar auditoria de acções sem event sourcing completo. Na iteração `1M`, separar `ScanCapture`, maturidade/qualidade catalográfica, `ReviewTask` e `AuditEvent`; não os colapsar num enum `captured/identified/provisional/needsReview/validated` sem decisão de domínio.
 
-## 8. Roadmap revisto
+## 8. Roadmap acordado — ordem actualizada
 
-Próximo checkpoint documental: **`1L-DEC.0` — decisão sobre contexto organizacional explícito.**
+Estado nesta revisão: `1J-API.1` está implementada e validada; `1J-FLUTTER.1`
+é a próxima dependência; `1L-DEC.0` continua futuro.
 
-Sequência acordada:
+### Próxima iteração
 
-1. `1L-API.0` — resolução explícita do contexto da organização e isolamento de tenancy.
-2. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped; dependência de contrato, fora de `folio-api`.
-3. `1K-API.0` — contrato de listagem, pesquisa e ordenação da biblioteca.
-4. `1K-API.1` — pesquisa local PostgreSQL.
-5. `1K-FLUTTER.0` — paginação/infinite loading; dependência de contrato.
-6. `1K-FLUTTER.1` — pesquisa e ordenação; dependência de contrato.
-7. `1L-API.1` — memberships, convites e roles.
-8. `1L-FLUTTER.1` — gestão de membros; dependência de contrato.
-9. `1M` — captura, qualidade catalográfica, tarefas de revisão e auditoria como conceitos separados.
+1. `1J-API.1` — completar a associação automática `CoverAsset → EditionCover`,
+	garantir idempotência, coerência de tenancy e servir a capa adquirida.
 
-No roadmap da API, detalhar somente work de backend. Flutter surge aqui apenas onde há dependência de contrato/API.
+2. `1J-FLUTTER.1` — proteger a `CoverCache` contra respostas tardias de pedidos
+	iniciados antes do logout ou mudança de geração de sessão.
+
+### Depois da estabilização das capas
+
+3. `1L-DEC.0` — decisão formal sobre contexto organizacional explícito.
+
+4. `1L-API.0` — resolução explícita do contexto da organização e isolamento de
+	tenancy.
+
+5. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;
+	dependência de contrato e fora do repositório `folio-api`.
+
+6. `1K-API.0` — contrato de listagem, pesquisa e ordenação da biblioteca.
+
+7. `1K-API.1` — pesquisa local PostgreSQL.
+
+8. `1K-FLUTTER.0` — paginação/infinite loading; dependência de contrato.
+
+9. `1K-FLUTTER.1` — pesquisa e ordenação; dependência de contrato.
+
+10. `1L-API.1` — memberships, convites e roles.
+
+11. `1L-FLUTTER.1` — gestão de membros; dependência de contrato.
+
+12. `1M` — captura, qualidade catalográfica, tarefas de revisão e auditoria como
+	 conceitos separados.
 
 ## 9. Não-objectivos
 

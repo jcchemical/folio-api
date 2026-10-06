@@ -231,7 +231,7 @@ O schema tem `CoverCandidate`, `CoverAsset` e `EditionCover`:
 
 - `CoverCandidate` guarda URL/hash, fonte, estado (String, não enum), retries e próxima tentativa; liga-se a `BibliographicRecord` e opcionalmente a `CoverAsset`.
 - `CoverAsset` é único por `(organizationId, contentHash)` e aponta para backend/key, MIME, tamanho e dimensões.
-- `EditionCover` associa asset a Edition e tem `isActive`; há unique `(editionId, coverAssetId)`, mas não constraint que limite a uma só capa activa.
+- `EditionCover` associa asset a Edition e tem `isActive`; há unique `(editionId, coverAssetId)` e a migration `20261006120000_one_active_edition_cover` adiciona índice único parcial para limitar a uma capa activa por Edition. A migration aborta sem alterar dados se detectar duplicados activos preexistentes.
 
 `PorbaseCoverCandidateExtractor` extrai `$u` de campos UNIMARC 856, calcula URL hash e classifica candidato. O import grava candidatos com savepoint e não falha o import se essa extracção/persistência falhar. A classificação do extractor não substitui a validação de rede do fetcher.
 
@@ -250,9 +250,11 @@ O schema tem `CoverCandidate`, `CoverAsset` e `EditionCover`:
 
 `StorageService` tem `save/get/delete/exists`. Adaptadores existentes: `LocalFsStorage` (default fora de tests; raiz `COVER_STORAGE_ROOT`) e `InMemoryStorage` (apenas tests). S3 é planeado, não implementado.
 
-`CoverAcquisitionServiceImpl` é serviço in-process, com sweep no bootstrap e de 60 em 60 segundos fora de `NODE_ENV=test`. Busca candidatos PENDING vencidos, faz claim condicional atómico para ACQUIRING, fetch, SHA-256, armazenamento e upsert de `CoverAsset` scoped por organização. Retries usam `nextAttemptAt` e backoff de 1 min, 5 min, 15 min e 1 h; o fallback repete 1 h para a quinta retry. Ao atingir `retryCount >= 5`, marca `REJECTED/MAX_RETRIES_EXCEEDED`. O scan é sequencial; não há queue/worker nem limite global de concorrência.
+`CoverAcquisitionServiceImpl` é serviço in-process, com sweep no bootstrap e de 60 em 60 segundos fora de `NODE_ENV=test`. Busca candidatos PENDING vencidos, faz claim condicional atómico para ACQUIRING, fetch, SHA-256, armazenamento e upsert de `CoverAsset` scoped por organização. A Edition só é resolvida por `BibliographicRecord.editionId`; quando o registo só aponta para Work, o asset pode ser adquirido mas não é associada uma Edition arbitrária. Work e Edition inconsistentes ou de organizações diferentes causam rejeição do candidato.
 
-**Lacuna crítica:** a aquisição associa `CoverCandidate` a `CoverAsset`, mas não cria/activa `EditionCover`. O endpoint e `coverUrl` consultam `EditionCover`; portanto a aquisição actual, isoladamente, não torna o asset servível e não faz surgir `coverUrl`.
+Depois do download, storage e upsert do asset, uma transacção bloqueia as linhas da Edition e do Work, verifica a organização, preserva qualquer capa activa e cria/reutiliza uma `EditionCover` activa apenas quando nenhuma existe. O estado ACQUIRED e o `coverAssetId` do candidato são confirmados na mesma transacção do vínculo. Falha nesta transacção reverte a associação e o estado do candidato, agenda retry e mantém o `CoverAsset`/ficheiro já persistido; não remove assets partilhados. Candidatos sem Edition inequívoca ficam ACQUIRED com asset mas sem EditionCover. A unicidade parcial protege também escritores que não usem este service; o lock de Work serializa aquisições concorrentes da aplicação.
+
+Retries usam `nextAttemptAt` e backoff de 1 min, 5 min, 15 min e 1 h; o fallback repete 1 h para a quinta retry. Ao atingir `retryCount >= 5`, marca `REJECTED/MAX_RETRIES_EXCEEDED`. O scan é sequencial; não há queue/worker nem limite global de concorrência. Storage e criação do asset antecedem a transacção de associação; se a persistência do asset falhar depois de guardar os bytes, pode ficar um ficheiro órfão, sem associação bibliográfica. A migration do índice parcial falha de forma não destrutiva e requer resolução explícita caso encontre Edition com múltiplas capas activas.
 
 ### Endpoint e saída
 
@@ -312,29 +314,48 @@ Os comandos são procedimentos de validação, não afirmação de que foram cor
 3. Confirmação de import sem preview snapshot; campos de contribuição de origem do import são editáveis pelo cliente.
 4. CRUD regular de Work/Edition ainda não mantém sempre relações de títulos/línguas canónicas; `$h/$i` parseados não são persistidos estruturadamente.
 5. Proveniência limitada; inconsistência Work/Edition em BibliographicRecord não é constraint.
-6. Cover acquisition não cria EditionCover; então endpoint/coverUrl dependem de associação activada por mecanismo ainda ausente.
-7. coverUrl só em respostas directas de Edition; ausência em Editions aninhadas/resultado de import.
-8. Hosts do fetcher devem ser configurados; sem variável a allowlist é vazia.
-9. Storage S3, queue, rate-limit distribuído, request ID e redacção de mensagem/stack de excepções não existem.
-10. Migração `20260907180000_refine_bibliographic_model` declara-se como alvo de reset deliberado de desenvolvimento e executa `DROP TABLE PhysicalDescription`; confirmar estado/impacto do ambiente antes de aplicar migrations. Migrations versionadas não demonstram estado de aplicação remota.
+6. `coverUrl` só em respostas directas de Edition; ausência em Editions aninhadas/resultado de import.
+7. Hosts do fetcher devem ser configurados; sem variável a allowlist é vazia.
+8. Storage S3, queue, rate-limit distribuído, request ID e redacção de mensagem/stack de excepções não existem.
+9. Migração `20260907180000_refine_bibliographic_model` declara-se como alvo de reset deliberado de desenvolvimento e executa `DROP TABLE PhysicalDescription`; confirmar estado/impacto do ambiente antes de aplicar migrations. Migrations versionadas não demonstram estado de aplicação remota.
 
-## Roadmap acordado — não implementado
+## Roadmap acordado — ordem actualizada
 
-### Próximo checkpoint
+Estado nesta revisão: `1J-API.1` está implementada e validada; `1J-FLUTTER.1`
+é a próxima dependência; `1L-DEC.0` continua futuro.
 
-- `1L-DEC.0` — decisão formal sobre contexto organizacional explícito.
+### Próxima iteração
 
-### Sequência recomendada
+1. `1J-API.1` — completar a associação automática `CoverAsset → EditionCover`,
+   garantir idempotência, coerência de tenancy e servir a capa adquirida.
 
-1. `1L-API.0` — resolução explícita do contexto da organização e isolamento de tenancy.
-2. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped; dependência de contrato, fora deste repositório.
-3. `1K-API.0` — contrato de listagem, pesquisa e ordenação da biblioteca.
-4. `1K-API.1` — pesquisa local PostgreSQL.
-5. `1K-FLUTTER.0` — paginação/infinite loading; dependência de contrato.
-6. `1K-FLUTTER.1` — pesquisa e ordenação; dependência de contrato.
-7. `1L-API.1` — memberships, convites e roles.
-8. `1L-FLUTTER.1` — gestão de membros; dependência de contrato.
-9. `1M` — captura, qualidade catalográfica, tarefas de revisão e auditoria como conceitos separados.
+2. `1J-FLUTTER.1` — proteger a `CoverCache` contra respostas tardias de pedidos
+   iniciados antes do logout ou mudança de geração de sessão.
+
+### Depois da estabilização das capas
+
+3. `1L-DEC.0` — decisão formal sobre contexto organizacional explícito.
+
+4. `1L-API.0` — resolução explícita do contexto da organização e isolamento de
+   tenancy.
+
+5. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;
+   dependência de contrato e fora do repositório `folio-api`.
+
+6. `1K-API.0` — contrato de listagem, pesquisa e ordenação da biblioteca.
+
+7. `1K-API.1` — pesquisa local PostgreSQL.
+
+8. `1K-FLUTTER.0` — paginação/infinite loading; dependência de contrato.
+
+9. `1K-FLUTTER.1` — pesquisa e ordenação; dependência de contrato.
+
+10. `1L-API.1` — memberships, convites e roles.
+
+11. `1L-FLUTTER.1` — gestão de membros; dependência de contrato.
+
+12. `1M` — captura, qualidade catalográfica, tarefas de revisão e auditoria como
+    conceitos separados.
 
 Direcção futura de pesquisa local: pesquisa Folio distinta de providers externos; extensão controlada de `GET /works`; PostgreSQL full-text (`tsvector`, ranking e GIN), cursor compatível com ordenação; trigramas só com justificação medida. Sem Elasticsearch/Redis nesta fase.
 

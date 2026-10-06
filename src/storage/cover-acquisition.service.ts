@@ -6,6 +6,7 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SafeHttpFetcherService } from './safe-http-fetcher.js';
 import {
@@ -65,9 +66,13 @@ export class CoverAcquisitionServiceImpl
         url: true,
         bibliographicRecord: {
           select: {
-            work: { select: { organizationId: true } },
+            work: { select: { id: true, organizationId: true } },
             edition: {
-              select: { work: { select: { organizationId: true } } },
+              select: {
+                id: true,
+                workId: true,
+                work: { select: { id: true, organizationId: true } },
+              },
             },
           },
         },
@@ -86,9 +91,12 @@ export class CoverAcquisitionServiceImpl
     if (claim.count !== 1) return;
 
     try {
-      const organizationId = resolveOrganizationId(
-        candidate.bibliographicRecord,
-      );
+      const context = resolveCandidateContext(candidate.bibliographicRecord);
+      if (!context.ok) {
+        await this.rejectCandidate(candidate.id, context.error);
+        return;
+      }
+      const { organizationId, editionId } = context;
       const image = await this.fetcher.fetch(candidate.url);
       const contentHash = createHash('sha256')
         .update(image.buffer)
@@ -123,19 +131,76 @@ export class CoverAcquisitionServiceImpl
         });
       }
 
-      const acquired = await this.prisma.coverCandidate.updateMany({
-        where: { id: candidate.id, status: 'ACQUIRING' },
-        data: {
-          status: 'ACQUIRED',
-          coverAssetId: asset.id,
-          mimeType: image.mimeType,
-          rejectReason: null,
-          nextAttemptAt: null,
-        },
-      });
-      if (acquired.count !== 1) {
-        throw new Error('Cover candidate claim was lost before completion.');
+      if (asset.organizationId !== organizationId) {
+        await this.rejectCandidate(candidate.id, 'ORGANIZATION_MISMATCH');
+        return;
       }
+
+      await this.prisma.$transaction(async (transaction) => {
+        if (editionId) {
+          const lockedEditions = await lockEditionForCover(
+            transaction,
+            editionId,
+          );
+          const lockedEdition = lockedEditions[0];
+          if (
+            lockedEdition &&
+            lockedEdition.organizationId !== organizationId
+          ) {
+            const rejected = await transaction.coverCandidate.updateMany({
+              where: { id: candidate.id, status: 'ACQUIRING' },
+              data: {
+                status: 'REJECTED',
+                rejectReason: 'ORGANIZATION_MISMATCH',
+                nextAttemptAt: null,
+              },
+            });
+            if (rejected.count !== 1) {
+              throw new Error(
+                'Cover candidate claim was lost before rejection.',
+              );
+            }
+            return;
+          }
+
+          if (lockedEdition) {
+            const activeCover = await transaction.editionCover.findFirst({
+              where: { editionId, isActive: true },
+              select: { id: true },
+            });
+            if (!activeCover) {
+              await transaction.editionCover.upsert({
+                where: {
+                  editionId_coverAssetId: {
+                    editionId,
+                    coverAssetId: asset.id,
+                  },
+                },
+                create: {
+                  editionId,
+                  coverAssetId: asset.id,
+                  isActive: true,
+                },
+                update: { isActive: true },
+              });
+            }
+          }
+        }
+
+        const acquired = await transaction.coverCandidate.updateMany({
+          where: { id: candidate.id, status: 'ACQUIRING' },
+          data: {
+            status: 'ACQUIRED',
+            coverAssetId: asset.id,
+            mimeType: image.mimeType,
+            rejectReason: null,
+            nextAttemptAt: null,
+          },
+        });
+        if (acquired.count !== 1) {
+          throw new Error('Cover candidate claim was lost before completion.');
+        }
+      });
     } catch {
       await this.scheduleRetry(candidate.id);
       this.logger.warn(
@@ -208,12 +273,36 @@ export class CoverAcquisitionServiceImpl
       },
     });
   }
+
+  private async rejectCandidate(
+    candidateId: string,
+    reason: string,
+  ): Promise<void> {
+    await this.prisma.coverCandidate.updateMany({
+      where: { id: candidateId, status: 'ACQUIRING' },
+      data: {
+        status: 'REJECTED',
+        rejectReason: reason,
+        nextAttemptAt: null,
+      },
+    });
+  }
 }
 
-function resolveOrganizationId(record: {
-  work: { organizationId: string } | null;
-  edition: { work: { organizationId: string } } | null;
-}): string {
+type CoverCandidateRecord = {
+  work: { id: string; organizationId: string } | null;
+  edition: {
+    id: string;
+    workId: string;
+    work: { id: string; organizationId: string };
+  } | null;
+};
+
+function resolveCandidateContext(
+  record: CoverCandidateRecord,
+):
+  | { ok: true; organizationId: string; editionId: string | null }
+  | { ok: false; error: string } {
   const workOrganizationId = record.work?.organizationId;
   const editionOrganizationId = record.edition?.work.organizationId;
   if (
@@ -221,14 +310,32 @@ function resolveOrganizationId(record: {
     editionOrganizationId &&
     workOrganizationId !== editionOrganizationId
   ) {
-    throw new Error(
-      'Cover candidate record belongs to inconsistent organizations.',
-    );
+    return { ok: false, error: 'ORGANIZATION_MISMATCH' };
+  }
+  if (
+    record.work &&
+    record.edition &&
+    record.work.id !== record.edition.workId
+  ) {
+    return { ok: false, error: 'INCONSISTENT_BIBLIOGRAPHIC_RECORD' };
   }
 
   const organizationId = editionOrganizationId ?? workOrganizationId;
   if (!organizationId) {
-    throw new Error('Cover candidate has no owning organization.');
+    return { ok: false, error: 'NO_OWNING_ORGANIZATION' };
   }
-  return organizationId;
+  return { ok: true, organizationId, editionId: record.edition?.id ?? null };
+}
+
+async function lockEditionForCover(
+  transaction: Prisma.TransactionClient,
+  editionId: string,
+): Promise<Array<{ id: string; organizationId: string }>> {
+  return transaction.$queryRaw<Array<{ id: string; organizationId: string }>>`
+    SELECT edition."id", work."organizationId"
+    FROM "Edition" AS edition
+    INNER JOIN "Work" AS work ON work."id" = edition."workId"
+    WHERE edition."id" = ${editionId}
+    FOR UPDATE OF edition, work
+  `;
 }

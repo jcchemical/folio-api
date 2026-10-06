@@ -83,6 +83,10 @@ export class EditionsController {
         response.destroy(error instanceof Error ? error : undefined);
         return;
       }
+      response.removeHeader('Content-Type');
+      response.removeHeader('ETag');
+      response.removeHeader('Cache-Control');
+      response.removeHeader('X-Content-Type-Options');
       throw error;
     }
   }

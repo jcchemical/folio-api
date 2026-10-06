@@ -35,6 +35,10 @@ describe('CoverAcquisitionService', () => {
       retryCount?: number;
       existingAsset?: typeof existingAsset | null;
       fetchError?: Error;
+      storageError?: Error;
+      activeCover?: { id: string } | null;
+      editionMissing?: boolean;
+      lockedEditionOrganizationId?: string;
     } = {},
   ) {
     const candidate = {
@@ -42,8 +46,12 @@ describe('CoverAcquisitionService', () => {
       url: 'https://images.porbase.pt/cover.png',
       retryCount: options.retryCount ?? 0,
       bibliographicRecord: {
-        work: { organizationId: 'org-1' },
-        edition: null,
+        work: { id: 'work-1', organizationId: 'org-1' },
+        edition: {
+          id: 'edition-1',
+          workId: 'work-1',
+          work: { id: 'work-1', organizationId: 'org-1' },
+        },
       },
     };
     const prisma = {
@@ -67,25 +75,51 @@ describe('CoverAcquisitionService', () => {
         : vi.fn().mockResolvedValue(fetchedImage),
     };
     const storage = {
-      save: vi.fn().mockResolvedValue({
-        storageKey: 'org-1/file-1',
-        mimeType: 'image/png',
-        sizeBytes: imageBuffer.length,
-      }),
+      save: options.storageError
+        ? vi.fn().mockRejectedValue(options.storageError)
+        : vi.fn().mockResolvedValue({
+            storageKey: 'org-1/file-1',
+            mimeType: 'image/png',
+            sizeBytes: imageBuffer.length,
+          }),
       get: vi.fn(),
       delete: vi.fn(),
       exists: vi.fn(),
     };
+    const transaction = {
+      coverCandidate: prisma.coverCandidate,
+      editionCover: {
+        findFirst: vi.fn().mockResolvedValue(options.activeCover ?? null),
+        upsert: vi.fn().mockResolvedValue({ id: 'edition-cover-1' }),
+      },
+      $queryRaw: vi.fn().mockResolvedValue(
+        options.editionMissing
+          ? []
+          : [
+              {
+                id: 'edition-1',
+                organizationId: options.lockedEditionOrganizationId ?? 'org-1',
+              },
+            ],
+      ),
+    };
+    Object.assign(prisma, {
+      $transaction: vi.fn(
+        async (callback: (tx: typeof transaction) => unknown) =>
+          callback(transaction),
+      ),
+    });
     const service = new CoverAcquisitionServiceImpl(
       prisma as unknown as PrismaService,
       fetcher as unknown as SafeHttpFetcherService,
       storage as StorageService,
     );
-    return { service, prisma, fetcher, storage, candidate };
+    return { service, prisma, fetcher, storage, candidate, transaction };
   }
 
   it('acquires a pending candidate and persists its asset', async () => {
-    const { service, prisma, fetcher, storage, candidate } = createFixture();
+    const { service, prisma, fetcher, storage, candidate, transaction } =
+      createFixture();
 
     await service.acquire(candidate.id);
 
@@ -136,10 +170,29 @@ describe('CoverAcquisitionService', () => {
         }),
       }),
     );
+    expect(transaction.editionCover.upsert).toHaveBeenCalledWith({
+      where: {
+        editionId_coverAssetId: {
+          editionId: 'edition-1',
+          coverAssetId: existingAsset.id,
+        },
+      },
+      create: {
+        editionId: 'edition-1',
+        coverAssetId: existingAsset.id,
+        isActive: true,
+      },
+      update: { isActive: true },
+    });
+    expect(transaction.editionCover.findFirst).toHaveBeenCalledWith({
+      where: { editionId: 'edition-1', isActive: true },
+      select: { id: true },
+    });
+    expect(transaction.$queryRaw).toHaveBeenCalledOnce();
   });
 
   it('reuses an existing asset with the same organization-scoped content hash', async () => {
-    const { service, prisma, fetcher, storage } = createFixture({
+    const { service, prisma, fetcher, storage, transaction } = createFixture({
       existingAsset,
     });
 
@@ -154,6 +207,167 @@ describe('CoverAcquisitionService', () => {
           status: 'ACQUIRED',
           coverAssetId: existingAsset.id,
         }),
+      }),
+    );
+    expect(transaction.editionCover.upsert).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the acquired asset but does not associate it when no Edition is unambiguous', async () => {
+    const { service, candidate, transaction } = createFixture();
+    candidate.bibliographicRecord.edition = null;
+
+    await service.acquire(candidate.id);
+
+    expect(transaction.$queryRaw).not.toHaveBeenCalled();
+    expect(transaction.editionCover.upsert).not.toHaveBeenCalled();
+    expect(transaction.coverCandidate.updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'ACQUIRED',
+          coverAssetId: existingAsset.id,
+        }),
+      }),
+    );
+  });
+
+  it('keeps the acquired asset without an invalid association if the Edition disappeared', async () => {
+    const { service, candidate, transaction } = createFixture({
+      editionMissing: true,
+    });
+
+    await service.acquire(candidate.id);
+
+    expect(transaction.editionCover.upsert).not.toHaveBeenCalled();
+    expect(transaction.coverCandidate.updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'ACQUIRED' }),
+      }),
+    );
+  });
+
+  it('rejects inconsistent candidate and Edition organizations before fetching', async () => {
+    const { service, prisma, fetcher, candidate, transaction } =
+      createFixture();
+    candidate.bibliographicRecord.edition!.work.organizationId = 'org-2';
+
+    await service.acquire(candidate.id);
+
+    expect(fetcher.fetch).not.toHaveBeenCalled();
+    expect(transaction.editionCover.upsert).not.toHaveBeenCalled();
+    expect(prisma.coverCandidate.updateMany).toHaveBeenLastCalledWith({
+      where: { id: candidate.id, status: 'ACQUIRING' },
+      data: {
+        status: 'REJECTED',
+        rejectReason: 'ORGANIZATION_MISMATCH',
+        nextAttemptAt: null,
+      },
+    });
+  });
+
+  it('rejects an organization mismatch discovered under the Edition lock', async () => {
+    const { service, prisma, transaction } = createFixture({
+      lockedEditionOrganizationId: 'org-2',
+    });
+
+    await service.acquire('candidate-1');
+
+    expect(prisma.coverAsset.upsert).toHaveBeenCalledOnce();
+    expect(transaction.editionCover.upsert).not.toHaveBeenCalled();
+    expect(prisma.coverCandidate.updateMany).toHaveBeenLastCalledWith({
+      where: { id: 'candidate-1', status: 'ACQUIRING' },
+      data: {
+        status: 'REJECTED',
+        rejectReason: 'ORGANIZATION_MISMATCH',
+        nextAttemptAt: null,
+      },
+    });
+  });
+
+  it('preserves an already-active Edition cover', async () => {
+    const { service, transaction } = createFixture({
+      activeCover: { id: 'existing-active-cover' },
+    });
+
+    await service.acquire('candidate-1');
+
+    expect(transaction.editionCover.findFirst).toHaveBeenCalledOnce();
+    expect(transaction.editionCover.upsert).not.toHaveBeenCalled();
+  });
+
+  it('does not fetch candidates that are already rejected or processed', async () => {
+    const { service, prisma, fetcher, storage } = createFixture();
+    prisma.coverCandidate.findFirst.mockResolvedValue(null);
+
+    await service.acquire('candidate-1');
+
+    expect(fetcher.fetch).not.toHaveBeenCalled();
+    expect(storage.save).not.toHaveBeenCalled();
+    expect(prisma.coverCandidate.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('schedules retry when storage fails after a valid image download', async () => {
+    const { service, prisma, fetcher, storage } = createFixture({
+      storageError: new Error('storage unavailable'),
+    });
+    prisma.coverCandidate.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+
+    await service.acquire('candidate-1');
+
+    expect(fetcher.fetch).toHaveBeenCalledOnce();
+    expect(storage.save).toHaveBeenCalledOnce();
+    expect(prisma.coverAsset.upsert).not.toHaveBeenCalled();
+    expect(prisma.coverCandidate.updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'PENDING',
+          retryCount: { increment: 1 },
+        }),
+      }),
+    );
+  });
+
+  it('keeps a persisted asset and schedules retry if EditionCover conflicts', async () => {
+    const { service, prisma, transaction } = createFixture();
+    transaction.editionCover.upsert.mockRejectedValue(
+      Object.assign(new Error('unique conflict'), { code: 'P2002' }),
+    );
+    prisma.coverCandidate.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+
+    await service.acquire('candidate-1');
+
+    expect(prisma.coverAsset.upsert).toHaveBeenCalledOnce();
+    expect(transaction.coverCandidate.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'ACQUIRED' }),
+      }),
+    );
+    expect(prisma.coverCandidate.updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'PENDING',
+          retryCount: { increment: 1 },
+        }),
+      }),
+    );
+  });
+
+  it('reuses a hash-deduplicated asset for a second candidate with the same content', async () => {
+    const first = createFixture();
+    await first.service.acquire('candidate-1');
+    const second = createFixture({ existingAsset });
+    second.candidate.id = 'candidate-2';
+
+    await second.service.acquire('candidate-2');
+
+    expect(first.prisma.coverAsset.upsert).toHaveBeenCalledOnce();
+    expect(second.prisma.coverAsset.upsert).not.toHaveBeenCalled();
+    expect(second.transaction.editionCover.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ coverAssetId: existingAsset.id }),
       }),
     );
   });
