@@ -6,6 +6,8 @@ import {
 } from './local-fs.storage.js';
 import { STORAGE_SERVICE, type StorageService } from './storage.service.js';
 import { SafeHttpFetcherService } from './safe-http-fetcher.js';
+import { CoverAcquisitionServiceImpl } from './cover-acquisition.service.js';
+import { PrismaModule } from '../prisma/prisma.module.js';
 
 export type CoverStorageBackend = 'in_memory' | 'local_fs' | 's3';
 
@@ -43,7 +45,9 @@ export function createStorageService(
 }
 
 @Module({
+  imports: [PrismaModule],
   providers: [
+    CoverAcquisitionServiceImpl,
     {
       provide: SafeHttpFetcherService,
       useFactory: () => new SafeHttpFetcherService(),
@@ -53,6 +57,10 @@ export function createStorageService(
       useFactory: () => createStorageService(),
     },
   ],
-  exports: [STORAGE_SERVICE, SafeHttpFetcherService],
+  exports: [
+    STORAGE_SERVICE,
+    SafeHttpFetcherService,
+    CoverAcquisitionServiceImpl,
+  ],
 })
 export class StorageModule {}

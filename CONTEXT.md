@@ -36,8 +36,10 @@ Compatibilidade só deve existir quando reduz risco real de produto, não por ap
   `local_fs` (padrão fora de testes); `COVER_STORAGE_ROOT` define a raiz local.
   S3 permanece planeado e ainda não tem adaptador.
 - `SafeHttpFetcherService` valida allowlist, DNS/IP fixado, redirects, limites
-  de stream e conteúdo de imagem; está exposto pelo `StorageModule`, mas ainda
-  não está ligado a um fluxo de aquisição/persistência de capas.
+  de stream e conteúdo de imagem. `CoverAcquisitionService` usa o fetcher e o
+  storage para adquirir candidatos PENDING, com claim atómico, deduplicação por
+  hash scoped à organização e retries persistidos; varre pendentes no bootstrap
+  e periodicamente. Ainda não existe endpoint GET para servir capas.
 
 A configuração do Prisma 7 usa `prisma.config.ts`; o `datasource` do schema não contém `url`. O cliente gerado em `node_modules/.prisma/client` é output e não deve ser editado manualmente.
 
@@ -613,7 +615,7 @@ limite de 100. A configuração ignora User-Agents que correspondam a
 `/node-fetch/` e devolve headers `X-RateLimit-*`. O storage predefinido é em
 memória do processo; ambientes com várias réplicas precisam de storage
 partilhado. Limites de downloads de capas por organização ficam adiados até
-existir `CoverAcquisitionService`.
+existir um endpoint de aquisição/download dedicado.
 
 ### Dívida técnica prioritária
 

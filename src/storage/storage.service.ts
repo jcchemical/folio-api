@@ -20,3 +20,14 @@ export interface StorageService {
 }
 
 export const STORAGE_SERVICE = Symbol('StorageService');
+
+export function getConfiguredStorageBackend(
+  environment: NodeJS.ProcessEnv = process.env,
+): string {
+  const configuredBackend = environment.COVER_STORAGE_BACKEND;
+  return configuredBackend
+    ? configuredBackend.toLowerCase()
+    : environment.NODE_ENV === 'test'
+      ? 'in_memory'
+      : 'local_fs';
+}
