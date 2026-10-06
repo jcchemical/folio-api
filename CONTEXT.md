@@ -31,7 +31,9 @@ Compatibilidade só deve existir quando reduz risco real de produto, não por ap
 - Base de dados: PostgreSQL;
 - Driver: `@prisma/adapter-pg` + `pg`;
 - Documentação: Swagger UI em `/docs`;
-- CORS configurado para desenvolvimento local.
+- CORS usa origens configuráveis por `CORS_ORIGIN`, permite `If-None-Match` e
+  expõe `ETag`; quando `NODE_ENV` não está definido, assume configuração de
+  produção.
 - Storage de capas: `StorageModule` abstrai `in_memory` (apenas testes) e
   `local_fs` (padrão fora de testes); `COVER_STORAGE_ROOT` define a raiz local.
   S3 permanece planeado e ainda não tem adaptador.

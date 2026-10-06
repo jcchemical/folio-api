@@ -5,6 +5,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module.js';
 import { ApiExceptionFilter } from './../src/common/api-exception.filter.js';
+import { configureCors } from './../src/common/cors.config.js';
 
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
@@ -15,6 +16,14 @@ describe('AppController (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    configureCors(app, {
+      NODE_ENV: 'test',
+      CORS_ORIGIN: 'http://localhost:4200,https://folio.test',
+    });
+    app.use((_request, response, next) => {
+      response.setHeader('ETag', '"test-cover-etag"');
+      next();
+    });
     app.useGlobalPipes(
       new ValidationPipe({ whitelist: true, transform: true }),
     );
@@ -27,6 +36,36 @@ describe('AppController (e2e)', () => {
       .get('/')
       .expect(200)
       .expect('Hello World!');
+  });
+
+  it('allows If-None-Match in CORS preflight and exposes ETag', async () => {
+    await request(app.getHttpServer())
+      .options('/')
+      .set('Origin', 'https://folio.test')
+      .set('Access-Control-Request-Method', 'GET')
+      .set('Access-Control-Request-Headers', 'If-None-Match')
+      .expect(204)
+      .expect(({ headers }) => {
+        expect(headers['access-control-allow-origin']).toBe(
+          'https://folio.test',
+        );
+        expect(headers['access-control-allow-headers']).toContain(
+          'If-None-Match',
+        );
+        expect(headers['access-control-expose-headers']).toBe('ETag');
+        expect(headers['access-control-max-age']).toBe('3600');
+      });
+  });
+
+  it('makes ETag readable by an allowed cross-origin client', async () => {
+    await request(app.getHttpServer())
+      .get('/')
+      .set('Origin', 'https://folio.test')
+      .expect(200)
+      .expect(({ headers }) => {
+        expect(headers.etag).toBe('"test-cover-etag"');
+        expect(headers['access-control-expose-headers']).toBe('ETag');
+      });
   });
 
   it('returns a stable code for invalid credentials', async () => {
