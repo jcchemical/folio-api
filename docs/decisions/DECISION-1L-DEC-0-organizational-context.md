@@ -1,374 +1,171 @@
-# Decision: Organizational Context
+# DECISION-1L-DEC-0 — Contexto organizacional explícito
 
-**Status:** Proposed for implementation  
-**Date:** 2026-10-06  
-**Scope:** `folio-api`, `folio-app`, Prisma schema, HTTP contracts and documentation
+## Estado
+
+**Approved for implementation** — decisão normativa para o backend e cliente Tomos. Não significa que a implementação esteja concluída.
+
+**Data:** 2026-10-06
+
+**Âmbito:** tenancy, contexto HTTP, autorização e contratos da API Tomos.
+
+**Dependências aprovadas:**
+
+- `DECISION-1L-DEC-1-organization-library-location.md` — `Organization → Library → Location`;
+- `DECISION-1L-DEC-2-work-edition-holding-item.md` — `Work → Edition → Holding → Item`.
+
+Estas decisões são lidas em conjunto. Se o estado textual nos ficheiros dependentes ainda disser “Proposed for implementation”, prevalece a aprovação do proprietário registada nesta decisão; a respectiva metadata documental deve ser alinhada quando esses ficheiros puderem ser editados.
 
 ## 1. Contexto
 
-O Folio encontra-se numa fase inicial de definição e construção. A base de dados de desenvolvimento não contém dados relevantes, não existem utilizadores externos e não existem contratos empresariais que tenham de ser preservados.[1]
+Tomos está numa fase greenfield controlada: não há dados de produção, consumidores externos ou deployments empresariais a preservar. Schema, migrations, DTOs, rotas, serviços, testes e documentação podem ser reescritos para representar o modelo final. Não criar compatibilidade, janelas de depreciação ou fallbacks transitórios.
 
-Por essa razão, esta decisão não procura introduzir contexto organizacional de forma compatível com uma arquitectura anterior. Define directamente o modelo que deve ser considerado correcto daqui para a frente.[1]
+O servidor e o cliente têm de distinguir identidade autenticada, memberships, organização contextual do pedido, ownership persistido e autorização. Seleccionar a primeira organização ou a organização `OWNER` mais antiga é ambíguo e pode associar uma operação ao tenant errado. Agregar dados de todas as memberships também não representa uma única organização activa.
 
-Se a implementação actual divergir desta decisão, podem ser alterados ou removidos livremente:
+## 2. Decisão
 
-- schema;
-- migrations;
-- endpoints;
-- DTOs;
-- services;
-- providers;
-- código Flutter;
-- testes;
-- documentação;
-- dados da base de desenvolvimento.[1]
+### 2.1 Tenancy, identidade e estrutura de domínio
 
-Não deve ser mantida uma solução inferior apenas porque já foi implementada.[1]
-
-## 2. Problema
-
-O Folio suporta bibliotecas pessoais e institucionais, e o mesmo utilizador pode pertencer a várias organizações e trabalhar numa delas de cada vez.[2]
-
-A aplicação precisa de distinguir claramente:
-
-- a identidade autenticada;
-- as organizações a que o utilizador pertence;
-- a organização no contexto da operação actual;
-- a organização proprietária dos recursos persistidos;
-- as permissões do utilizador nessa organização.
-
-O sistema não deve escolher silenciosamente uma organização nem permitir que o contexto seja inferido de forma ambígua.[3][2]
-
-## 3. Decisão
-
-### 3.1 Organization é a fronteira de tenancy
-
-Todos os recursos organizacionais pertencem exactamente a uma `Organization`.[3][2]
-
-A relação conceptual é:
+`Organization` é a única fronteira de tenancy. A estrutura institucional aprovada é:
 
 ```text
 User
 └── OrganizationMembership
     └── Organization
+        ├── Library
+        │   └── Location
         └── Work
             └── Edition
-                └── Item
+                └── Holding
+                    └── Item
 ```
 
-As entidades organizacionais não devem manter ownership paralelo por utilizador, instituição ou sessão.[3][2]
+Uma `Library` pertence a uma `Organization`; uma `Location` pertence a uma `Library`. Uma `Work` pertence a uma `Organization`; `Edition` deriva a organização através de `Work`. `Holding` liga uma `Edition` e uma `Location` da mesma organização; `Item` pertence a `Holding`. Os invariantes e limites desses modelos são definidos nas duas decisões dependentes. Não introduzir `Campus` nem `ServicePoint` nesta fase.
 
-Não devem existir, para o mesmo recurso:
+O JWT identifica o utilizador apenas. Não contém a organização activa. O contexto organizacional pertence ao pedido e não é autorização: o servidor valida a existência da organização, a membership actual, a role e as regras de domínio. Uma preferência ou ID enviado pelo cliente nunca prova acesso.
 
-- `organizationId` e `userId` como proprietários alternativos;
-- `institutionId` paralelo;
-- regras diferentes de tenancy conforme o endpoint;
-- fallback para uma organização pessoal;
-- fallback para a primeira organização encontrada.[3][2]
+### 2.2 Contexto explícito em operações root/ambíguas
 
-### 3.2 Identidade e contexto são conceitos diferentes
-
-O token representa a identidade autenticada do utilizador e as claims globais necessárias.[2]
-
-A organização activa não faz parte do JWT.[2]
-
-A organização activa é contexto da operação e pode mudar sem alterar a identidade ou renovar tokens.[2]
-
-A autorização é sempre calculada com base na membership actual, não numa claim antiga sobre a organização.[2]
-
-### 3.3 Contexto explícito para operações ambíguas
-
-As operações cujo tenant não pode ser derivado inequivocamente de um recurso devem receber a organização explicitamente.
-
-O contrato escolhido é:
+O header escolhido para operações root/ambíguas é:
 
 ```http
 X-Folio-Organization-Id: <organization-id>
 ```
 
-O header é obrigatório para:
+É obrigatório quando uma operação organizacional não tem um recurso ou parent persistido que determine inequivocamente a organização — em particular, listagens root tenant-scoped, criação root de `Work` e confirmação/importação que cria dados locais. O header é apenas o contexto pretendido. A API valida formato, existência, membership e role antes da operação.
 
-- listagens de recursos organizacionais;
-- criação de recursos organizacionais;
-- pesquisa local do catálogo;
-- importação que persiste dados locais;
-- operações administrativas sobre uma organização;
-- qualquer operação cujo alvo não contenha já um identificador de organização.
+Não exigir o header só porque uma operação cria dados scoped. Criação filha sob um parent persistido deriva o contexto do parent; operações sobre recursos existentes derivam-no do próprio recurso. Se um header for também enviado numa operação de contexto derivado, tem de coincidir com a organização resolvida; caso contrário, falhar com `ORGANIZATION_CONTEXT_CONFLICT`.
 
-O header não é uma autorização. É apenas a indicação do contexto pretendido.
+Não há selecção implícita, fallback para organização pessoal/default, fallback para a membership `OWNER` mais antiga ou agregação de listas por todas as memberships. `GET /organizations` é a excepção intencional: lista memberships do utilizador e não representa uma lista de recursos de uma organização activa.
 
-O servidor deve:
+### 2.3 Regra de `/organizations/:id`
 
-1. validar o formato do identificador;
-2. confirmar que a organização existe;
-3. confirmar a membership do utilizador;
-4. resolver a role;
-5. aplicar as regras de autorização;
-6. executar a operação dentro desse contexto.
+`/organizations/:id` identifica a organização persistida pelo path. Resolver esse recurso primeiro e, em seguida, validar membership e role. Não exigir header apenas por a operação ser administrativa. O header pode ser aceite como verificação de consistência; se estiver presente e divergir do ID do path, falhar com `ORGANIZATION_CONTEXT_CONFLICT`. `GET /organizations` e `POST /organizations` não exigem contexto organizacional: o primeiro lista memberships do utilizador e o segundo cria uma nova organização com membership inicial.
 
-### 3.4 Recursos existentes derivam o contexto
+### 2.4 Recursos existentes e criações-filhas
 
-Quando o pedido contém um recurso cujo tenant é inequívoco, a organização é derivada do recurso.
+Para leitura, alteração ou remoção de um recurso existente, carregar o recurso e derivar a organização da ownership persistida, depois validar membership, role e autorização de domínio. Não aceitar `organizationId` redundante no body, query ou path como segunda autoridade.
 
-Exemplos:
+Criações-filhas derivam contexto dos parents persistidos:
 
-```http
-GET /works/:workId
-PATCH /editions/:editionId
-DELETE /items/:itemId
-GET /editions/:editionId/cover
-```
+- `Edition` deriva de `Work`;
+- `Holding` deriva de `Edition` e `Location`, que têm de pertencer à mesma `Organization`;
+- `Item` deriva de `Holding`;
+- `Location` deriva de `Library`;
+- `Library` criada sob uma `Organization` deriva dessa organização;
+- `Contribution` deriva do seu único alvo `Work` ou `Edition`;
+- identificadores externos derivam da `Edition`;
+- registos bibliográficos e capas derivam do alvo canónico persistido.
 
-Nesses casos, a API deve:
+Se o header também for fornecido, comparar com a organização derivada e falhar em caso de divergência. Relações inconsistentes ou ambíguas falham de forma segura; não escolher um dos tenants silenciosamente.
 
-1. carregar o recurso;
-2. resolver o `organizationId` persistido;
-3. validar a membership nessa organização;
-4. aplicar a autorização;
-5. executar a operação.
-
-Não é necessário repetir o `organizationId` na query, no body ou no path.
-
-Se uma rota receber também `X-Folio-Organization-Id`, o servidor deve validar que coincide com a organização do recurso. Um conflito deve falhar explicitamente, nunca ser ignorado.
-
-### 3.5 Operações globais ou externas
-
-As operações que não leem nem criam dados organizacionais não precisam de contexto de organização.
-
-Exemplos:
-
-```http
-POST /auth/login
-POST /auth/refresh
-POST /auth/logout
-GET /auth/me
-GET /organizations
-POST /catalogues/search
-GET /health
-```
-
-A pesquisa externa de catálogo não pertence a uma organização porque apenas consulta um provider externo.
-
-A importação confirmada pertence a uma organização porque cria dados locais e exige `X-Folio-Organization-Id`.
-
-## 4. Contratos de API
-
-### 4.1 Matriz normativa
-
-| Operação | Contexto |
-|---|---|
-| `GET /organizations` | Utilizador autenticado |
-| `POST /organizations` | Utilizador autenticado; cria a organização e membership inicial |
-| `GET /works` | `X-Folio-Organization-Id` obrigatório |
-| `POST /works` | `X-Folio-Organization-Id` obrigatório |
-| `GET /works/:id` | Derivado do recurso |
-| `PATCH /works/:id` | Derivado do recurso |
-| `DELETE /works/:id` | Derivado do recurso |
-| `GET /editions` | `X-Folio-Organization-Id` obrigatório |
-| `GET /editions/:id` | Derivado do recurso |
-| `PATCH /editions/:id` | Derivado do recurso |
-| `DELETE /editions/:id` | Derivado do recurso |
-| `GET /items` | `X-Folio-Organization-Id` obrigatório |
-| `POST /items` | `X-Folio-Organization-Id` obrigatório |
-| `DELETE /items/:id` | Derivado do recurso |
-| `POST /catalogues/search` | Sem organização |
-| `POST /catalogues/import` | `X-Folio-Organization-Id` obrigatório |
-| `GET /editions/:id/cover` | Derivado da Edition |
-| endpoints de memberships | Organização explícita ou derivada conforme o recurso |
-
-Esta tabela deve ser completada com todas as rotas reais antes da implementação.
-
-### 4.2 Body e query
-
-O contexto de tenancy não deve ser representado por `organizationId` redundante no body quando o pedido já usa o header ou um recurso identificável.
-
-Não criar dois valores concorrentes para a mesma decisão.
-
-Se uma operação requer contexto mas não recebe o header, falha.
-Se recebe um ID inválido, falha.
-Se o utilizador não tem membership, falha.
-Se o header contradiz o recurso, falha.
-
-## 5. Comportamento do cliente
-
-O `folio-app` deve:
-
-1. carregar as organizações do utilizador depois de restaurar a sessão;
-2. seleccionar automaticamente a única organização, quando existir apenas uma;
-3. pedir selecção explícita quando existirem várias;
-4. manter a organização seleccionada apenas como preferência de UX;
-5. enviar `X-Folio-Organization-Id` nas operações que exigem contexto;
-6. não enviar contexto em operações globais;
-7. invalidar todo o estado dependente da organização ao trocar;
-8. cancelar ou ignorar respostas tardias do contexto anterior;
-9. limpar caches scoped, incluindo capas;
-10. reagir a membership perdida ou organização removida.
-
-A preferência local nunca é autoridade. O servidor valida sempre o contexto.
-
-## 6. Autorização
-
-A autorização deve seguir esta ordem:
+### 2.5 Ordem de autorização
 
 ```text
-Request
+Pedido
 → autenticação
-→ resolução do recurso ou contexto
-→ validação da membership
-→ verificação da role
-→ regra de domínio
+→ resolução do contexto root ou do recurso/parent persistido
+→ validação da membership actual
+→ resolução/verificação da role
+→ autorização de domínio
 → operação
 ```
 
-Não deve existir autorização baseada apenas em:
+Não autorizar com base apenas em `userId`, `organizationId` ou role fornecidos pelo cliente, claims de organização no JWT, contexto guardado anteriormente, ou fallback escolhido pelo servidor. Resolver autorização antes da mutação.
 
-- `userId` enviado pelo cliente;
-- `organizationId` enviado pelo cliente;
-- role enviada pelo cliente;
-- organização guardada no JWT;
-- fallback escolhido pelo servidor.
+## 3. Matriz normativa de contexto por área
 
-## 7. Erros
+<!-- prettier-ignore -->
+| Área / operações | Contexto normativo |
+|---|---|
+| Auth e sessão: `POST /auth/login`, `/auth/refresh`, `/auth/logout`, `GET /auth/me` | Global à identidade/sessão; sem organização. |
+| Users | Global ou self-scoped ao utilizador autenticado; sem organização. Signup não escolhe tenant de pedidos futuros. Defaults de `Library`/`Location` seguem a decisão de onboarding, não um fallback de contexto. |
+| Organizations | `GET /organizations`: memberships do utilizador, sem header. `POST /organizations`: cria organização e membership inicial, sem organização prévia. `/organizations/:id`: deriva do path, valida membership/role; header opcional apenas para confirmar igualdade. |
+| Libraries | Listagem root scoped: header obrigatório. Recurso por ID deriva `Organization`. Criação sob Organization persistida deriva pelo parent; header opcional tem de coincidir. |
+| Locations | Listagem root scoped: header obrigatório. Recurso por ID deriva via `Library`. Criação sob Library persistida deriva pelo parent; header opcional tem de coincidir. |
+| Works | `GET /works` e `POST /works`: header obrigatório. Detalhe/alteração/remoção por ID: derive de Work e valide membership/role. |
+| Editions | Listagem root `GET /editions`: header obrigatório. Criação com `workId`: deriva de Work; header opcional tem de coincidir. Operações por ID, capa e export: derivam de Edition → Work. |
+| Holdings | Listagem root: header obrigatório. Criação: deriva de Edition e Location persistidas e valida mesma organização. Operações por ID: derivam do Holding. Header opcional em contexto derivado tem de coincidir. |
+| Items | Listagem root: header obrigatório. Criação: deriva do Holding persistido. Operações por ID: derivam de Item → Holding. Header opcional em contexto derivado tem de coincidir. |
+| Catalogue search | `POST /catalogues/search` consulta provider externo e não lê/persiste dados locais; sem organização. Não confundir com pesquisa local, que não é definida por esta decisão. |
+| Catalogue import | `POST /catalogues/import` confirma e persiste dados locais; header obrigatório para a criação root de Work. Editions e restantes filhos derivados seguem os parents criados/persistidos. |
+| External identifiers | Listagem root: header obrigatório. Criação sob Edition e operações por ID: derivam de Edition → Work; header opcional tem de coincidir. |
+| Contributions | Escrita aponta exactamente para um Work ou Edition persistido e deriva daí a organização; valida Agent na mesma organização. Header opcional tem de coincidir. |
+| Bibliographic records | Operações por ID derivam do alvo canónico e inequívoco; relações inconsistentes ou sem alvo organizacional falham, não escolhem arbitrariamente um alvo. |
+| Covers | Leitura deriva de Edition; aquisição em background deriva do registo/alvo persistido e valida a mesma organização. Requests não escolhem tenant de um asset isolado. |
+| Exports | Export de Edition deriva de Edition → Work e valida membership; header opcional tem de coincidir. |
+| Health, raiz e Swagger/docs | Globais; sem contexto organizacional. |
 
-Definir códigos estáveis e únicos para estes casos:
+“Listagem root” significa uma colecção sem parent persistido na rota que determine um tenant único. Uma rota nested sob um parent persistido usa contexto derivado desse parent. Filtros adicionais (`Library`, `Location`, `Holding`, `Edition`) restringem dentro da organização resolvida; não substituem o contexto de uma listagem root ambígua.
 
-- contexto obrigatório ausente;
-- identificador de organização inválido;
-- organização inexistente;
-- membership inexistente;
-- role insuficiente;
-- conflito entre contexto explícito e recurso;
-- recurso inexistente.
+## 4. Erros
 
-Os nomes concretos devem ser escolhidos uma vez e usados de forma consistente pela API e pelo Flutter.
+A API usa códigos estáveis distintos para:
 
-Exemplo:
+- `ORGANIZATION_CONTEXT_REQUIRED` — header ausente em operação root que o exige;
+- `ORGANIZATION_ID_INVALID` — identificador de contexto inválido;
+- `ORGANIZATION_NOT_FOUND` — organização inexistente;
+- `ORGANIZATION_MEMBERSHIP_REQUIRED` — utilizador sem membership;
+- `ORGANIZATION_ROLE_INSUFFICIENT` — role insuficiente;
+- `ORGANIZATION_CONTEXT_CONFLICT` — header em conflito com recurso/parent/path resolvido;
+- `RESOURCE_NOT_FOUND` — recurso solicitado inexistente.
 
-```text
-ORGANIZATION_CONTEXT_REQUIRED
-ORGANIZATION_ID_INVALID
-ORGANIZATION_NOT_FOUND
-ORGANIZATION_MEMBERSHIP_REQUIRED
-ORGANIZATION_ROLE_INSUFFICIENT
-ORGANIZATION_CONTEXT_CONFLICT
-RESOURCE_NOT_FOUND
-```
+Os status HTTP devem ser definidos de forma consistente na implementação. Erros de contexto explícito não devem ser confundidos com ausência de recurso. O cliente usa códigos, não texto livre, como contrato de tratamento.
 
-Os status HTTP devem ser definidos de forma coerente no contrato, não herdados automaticamente das implementações actuais.
+## 5. Consequências
 
-## 8. Alterações permitidas
+### Benefícios
 
-Para concretizar esta decisão, é permitido:
+- Um único tenant de domínio, explícito e verificável.
+- Listagens não agregam organizações sem intenção.
+- Child creates seguem ownership persistida em vez de repetir IDs de tenant.
+- O mesmo utilizador pode alternar de organização sem alterar identidade ou JWT.
+- Os modelos `Library/Location` e `Holding/Item` refinam o domínio sem criarem novos tenants.
 
-- remover fallbacks actuais;
-- alterar ou remover `organizationId` de DTOs;
-- alterar rotas;
-- alterar providers e interceptors;
-- recriar migrations;
-- apagar a base de desenvolvimento;
-- reescrever services;
-- alterar testes;
-- actualizar documentação;
-- fazer breaking changes entre API e Flutter.[1]
+### Custos e riscos
 
-Não criar uma camada de compatibilidade apenas para preservar o desenho actual.[1]
+- Alteração coordenada de API e cliente, CORS, DTOs, rotas, autorização e testes.
+- Reescrita de schema/migrations e remoção de ownership duplicada/legacy.
+- Headers inválidos, memberships alteradas, recursos inconsistentes e respostas tardias têm de ser tratados explicitamente.
 
-## 9. Invariantes
+## 6. Não objectivos
 
-A implementação deve garantir:
+Esta decisão não define administração completa de memberships, convites, roles finais, `Campus`, `ServicePoint`, branches, holdings adicionais além da decisão dependente, circulação, empréstimos, reservas, catálogo bibliográfico global, pesquisa full-text, auditoria completa ou persistência server-side da organização activa.
 
-1. Um recurso organizacional pertence a exactamente uma organização.
-2. Nenhum pedido organizacional atravessa organizações.
-3. Uma membership é validada antes da autorização.
-4. A ausência de contexto nunca escolhe silenciosamente uma organização.
-5. O cliente nunca consegue escolher uma role.
-6. Um recurso existente resolve o seu próprio tenant.
-7. O contexto não é identidade.
-8. A organização activa não é persistida como autoridade no servidor.
-9. A mudança de organização não reutiliza estado do contexto anterior.
-10. Os testes cobrem pelo menos dois utilizadores, duas organizações e recursos pertencentes a ambas.
+## 7. Ordem de implementação
 
-## 10. Não objectivos
+1. Aplicar conjuntamente esta decisão e as decisões de Library/Location e Holding/Item ao schema e migrations finais, sem camadas de compatibilidade.
+2. Implementar resolvers comuns de contexto explícito root e contexto derivado de recurso/parent.
+3. Classificar e actualizar rotas, DTOs, CORS, autorização e erros conforme a matriz.
+4. Remover fallbacks, agregação multi-organização nas listas scoped, ownership redundante e Contributor legacy conforme DEC-2.
+5. Provar isolamento, derivação de parent e mismatch com testes de duas organizações.
+6. Alinhar documentação e contratos do cliente com o comportamento implementado.
 
-Esta decisão não define:
+## 8. Critérios de aceitação
 
-- convites;
-- administração completa de memberships;
-- branches;
-- holdings;
-- circulação;
-- sincronização offline;
-- auditoria completa;
-- organização activa global no servidor;
-- pesquisa bibliográfica externa;
-- modelo de roles definitivo além do necessário para autorização.
-
-Esses assuntos podem depender deste contrato, mas devem ter decisões próprias.
-
-## 11. Ordem de implementação
-
-1. Reescrever schema, migrations e contratos para remover fallbacks.
-2. Implementar resolução explícita de contexto na API.
-3. Aplicar autorização uniforme a listagens, criações e recursos.
-4. Alinhar o cliente Flutter.
-5. Implementar selector de organização.
-6. Invalidar estado e caches ao trocar de contexto.
-7. Criar testes de isolamento.
-8. Actualizar `CONTEXT.md`, `AGENTS.md`, `folio_architecture.md` e `ITERATION_PLAN.md`.
-9. Resetar e verificar a base de desenvolvimento.[1]
-10. Fazer uma revisão final do contrato, não uma revisão de compatibilidade.
-
-## 12. Critérios de aceitação
-
-A decisão fica implementada quando:
-
-- não existem fallbacks de organização;
-- não existe ownership paralelo;
-- as operações ambíguas exigem contexto explícito;
-- os recursos identificados derivam o seu tenant;
-- o Flutter envia o header adequado;
-- operações entre organizações falham;
-- a alteração de contexto invalida estado e caches;
-- os códigos de erro são estáveis;
-- API e Flutter usam um único contrato;
-- a base de desenvolvimento pode ser recriada de raiz;
-- build, lint e testes passam;
-- a documentação já não descreve a arquitectura antiga.[1]
-
-## 13. Consequências
-
-### Positivas
-
-- modelo de tenancy explícito;
-- ausência de fallbacks silenciosos;
-- autorização uniforme;
-- contrato único;
-- menos condicionais históricas;
-- menos dívida técnica;
-- maior facilidade para evoluir memberships, branches e holdings;
-- testes de isolamento mais claros.
-
-### Negativas
-
-- serão necessárias alterações coordenadas na API e no Flutter;
-- alguns endpoints actuais podem mudar;
-- migrations e dados de desenvolvimento podem ser recriados;
-- o cliente precisa de gerir explicitamente o contexto;
-- certas decisões, como roles e memberships, continuam a exigir decisões próprias.[1]
-
-Estas consequências são aceitáveis porque o Folio ainda não tem dados ou consumidores que necessitem de compatibilidade.[1]
-
-## 14. Regra final
-
-Sempre que uma implementação actual entrar em conflito com esta decisão, não deve ser protegida por ser anterior.[1]
-
-A resposta preferida é escolher entre:
-
-- alterar;
-- remover;
-- reescrever;
-- recriar a migration;
-- resetar a base;
-- actualizar os contratos.[1]
-
-A existência de código não transforma uma decisão provisória numa restrição arquitectural.[1]
+- `Organization` é a única fronteira de tenancy; JWT representa apenas User.
+- Operações root/ambíguas exigem `X-Folio-Organization-Id`; operações por recurso e child creates derivam contexto persistido.
+- `/organizations/:id` deriva do path, valida membership/role e só compara header se este for fornecido.
+- Header em conflito falha explicitamente.
+- Não há fallback de organização nem listagem scoped que agregue todas as memberships.
+- `Library/Location` e `Holding/Item` obedecem às respectivas decisões e invariantes.
+- Erros e isolamento entre organizações são estáveis e testados.
