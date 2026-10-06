@@ -41,7 +41,9 @@ Compatibilidade só deve existir quando reduz risco real de produto, não por ap
   de stream e conteúdo de imagem. `CoverAcquisitionService` usa o fetcher e o
   storage para adquirir candidatos PENDING, com claim atómico, deduplicação por
   hash scoped à organização e retries persistidos; varre pendentes no bootstrap
-  e periodicamente. Ainda não existe endpoint GET para servir capas.
+  e periodicamente. `GET /editions/:id/cover` serve a capa ativa a membros da
+  organização, com ETag/If-None-Match e cache privada. O DTO de Edition ainda
+  não expõe `coverUrl`.
 
 A configuração do Prisma 7 usa `prisma.config.ts`; o `datasource` do schema não contém `url`. O cliente gerado em `node_modules/.prisma/client` é output e não deve ser editado manualmente.
 
