@@ -7,6 +7,7 @@ import {
   type PaginationInput,
 } from '../common/pagination.js';
 import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
+import { EditionOutputDto } from './dto/edition-output.dto.js';
 import {
   derivePublicationProjection,
   normalizePublicationDateLiteral,
@@ -72,10 +73,15 @@ export class EditionsService {
             parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
           },
         },
+        editionCovers: {
+          where: { isActive: true },
+          take: 1,
+          select: { id: true },
+        },
       },
       ...prisma,
     });
-    return paginate(rows, limit);
+    return paginate(rows.map(toEditionOutput), limit);
   }
 
   async findById(id: string, userId: string) {
@@ -129,11 +135,16 @@ export class EditionsService {
         items: {
           where: { organization: { memberships: { some: { userId } } } },
         },
+        editionCovers: {
+          where: { isActive: true },
+          take: 1,
+          select: { id: true },
+        },
       },
     });
     await this.assertEditionAccess(edition, userId);
     if (!edition) throw new NotFoundException('Edition not found');
-    return {
+    return toEditionOutput({
       ...edition,
       contributions: [
         ...contributionViews(
@@ -147,7 +158,7 @@ export class EditionsService {
           'EDITION',
         ),
       ],
-    };
+    });
   }
 
   async create(userId: string, workId: string, data: EditionInput) {
@@ -160,7 +171,7 @@ export class EditionsService {
       : null;
     if (projection?.warnings.length)
       this.logger.warn(JSON.stringify(projection.warnings));
-    return this.prisma.edition.create({
+    const created = await this.prisma.edition.create({
       data: {
         ...edition,
         ...(projection
@@ -186,8 +197,14 @@ export class EditionsService {
             parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
           },
         },
+        editionCovers: {
+          where: { isActive: true },
+          take: 1,
+          select: { id: true },
+        },
       },
     });
+    return toEditionOutput(created);
   }
 
   async update(id: string, userId: string, data: Partial<EditionInput>) {
@@ -284,7 +301,7 @@ export class EditionsService {
           }
         }
       }
-      return transaction.edition.findUniqueOrThrow({
+      const result = await transaction.edition.findUniqueOrThrow({
         where: { id: updated.id },
         include: {
           physicalDescriptions: {
@@ -299,8 +316,14 @@ export class EditionsService {
               parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
             },
           },
+          editionCovers: {
+            where: { isActive: true },
+            take: 1,
+            select: { id: true },
+          },
         },
       });
+      return toEditionOutput(result);
     });
   }
 
@@ -339,6 +362,18 @@ export class EditionsService {
       edition.work,
     );
   }
+}
+
+function toEditionOutput<T extends { id: string } & Record<string, unknown>>(
+  edition: T,
+): Omit<T, 'editionCovers'> & { coverUrl: string | null } {
+  const editionCovers = edition.editionCovers as
+    Array<{ id: string }> | undefined;
+  const { editionCovers: _editionCovers, ...output } = edition;
+  return new EditionOutputDto(output, Boolean(editionCovers?.length)) as Omit<
+    T,
+    'editionCovers'
+  > & { coverUrl: string | null };
 }
 
 function contributionViews(

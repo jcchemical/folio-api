@@ -42,8 +42,9 @@ Compatibilidade só deve existir quando reduz risco real de produto, não por ap
   storage para adquirir candidatos PENDING, com claim atómico, deduplicação por
   hash scoped à organização e retries persistidos; varre pendentes no bootstrap
   e periodicamente. `GET /editions/:id/cover` serve a capa ativa a membros da
-  organização, com ETag/If-None-Match e cache privada. O DTO de Edition ainda
-  não expõe `coverUrl`.
+  organização, com ETag/If-None-Match e cache privada. As respostas de Edition
+  incluem `coverUrl` como endpoint relativo quando existe capa ativa, ou `null`
+  quando não existe.
 
 A configuração do Prisma 7 usa `prisma.config.ts`; o `datasource` do schema não contém `url`. O cliente gerado em `node_modules/.prisma/client` é output e não deve ser editado manualmente.
 

@@ -70,6 +70,57 @@ describe('EditionsService.remove', () => {
   });
 });
 
+describe('EditionsService coverUrl output', () => {
+  it('returns the relative cover endpoint for active covers and null otherwise', async () => {
+    const editions = [
+      {
+        id: 'edition-with-cover',
+        title: 'Covered edition',
+        editionCovers: [{ id: 'edition-cover-1' }],
+      },
+      {
+        id: 'edition-without-cover',
+        title: 'Uncovered edition',
+        editionCovers: [],
+      },
+    ];
+    const prisma = {
+      edition: {
+        findMany: vi.fn().mockResolvedValue(editions),
+      },
+    } as unknown as PrismaService;
+    const service = new EditionsService(
+      prisma,
+      new OrganizationMembershipService(prisma),
+    );
+
+    const result = await service.findAllByUser(userId);
+
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        id: 'edition-with-cover',
+        coverUrl: '/editions/edition-with-cover/cover',
+      }),
+      expect.objectContaining({
+        id: 'edition-without-cover',
+        coverUrl: null,
+      }),
+    ]);
+    expect(result.items[0]).not.toHaveProperty('editionCovers');
+    expect(prisma.edition.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          editionCovers: {
+            where: { isActive: true },
+            take: 1,
+            select: { id: true },
+          },
+        }),
+      }),
+    );
+  });
+});
+
 describe('EditionsService physical descriptions', () => {
   it('creates descriptions in supplied order for an authorized member', async () => {
     const prisma = {
@@ -137,6 +188,11 @@ describe('EditionsService physical descriptions', () => {
         },
       }),
       include: {
+        editionCovers: {
+          where: { isActive: true },
+          take: 1,
+          select: { id: true },
+        },
         physicalDescriptions: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
           include: {
