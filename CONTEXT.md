@@ -14,6 +14,24 @@ Os estados são explícitos:
 
 Não usar este documento para inferir o estado de outra aplicação. O âmbito aqui é exclusivamente `folio-api`.
 
+## Greenfield e ausência de compatibilidade obrigatória
+
+Este repositório pertence a um produto em fase inicial. O código existente é apenas o estado actual do trabalho, não uma obrigação arquitectural.
+
+Antes de preservar uma API, campo, migration, fallback ou comportamento, pergunta se existe uma razão real de produto. Se não existir, podes alterá-lo ou removê-lo.
+
+A base de dados de desenvolvimento pode ser resetada. Breaking changes coordenadas entre `folio-api` e `folio-app` são permitidas.
+
+Não criar dívida técnica transitória para proteger:
+- dados de teste;
+- consumidores inexistentes;
+- contratos internos provisórios;
+- implementações que contradizem a arquitectura aprovada.
+
+Quando uma decisão nova substituir uma decisão antiga, actualizar schema, código, testes, migrations e documentação para representar apenas o desenho novo.
+
+
+
 ## Visão geral e stack
 
 ### Implementado

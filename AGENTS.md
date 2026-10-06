@@ -1,5 +1,21 @@
 # Folio App — Agent Guidance
 
+## Greenfield e ausência de compatibilidade obrigatória
+
+Este repositório pertence a um produto em fase inicial. O código existente é apenas o estado actual do trabalho, não uma obrigação arquitectural.
+
+Antes de preservar uma API, campo, migration, fallback ou comportamento, pergunta se existe uma razão real de produto. Se não existir, podes alterá-lo ou removê-lo.
+
+A base de dados de desenvolvimento pode ser resetada. Breaking changes coordenadas entre `folio-api` e `folio-app` são permitidas.
+
+Não criar dívida técnica transitória para proteger:
+- dados de teste;
+- consumidores inexistentes;
+- contratos internos provisórios;
+- implementações que contradizem a arquitectura aprovada.
+
+Quando uma decisão nova substituir uma decisão antiga, actualizar schema, código, testes, migrations e documentação para representar apenas o desenho novo.
+
 ## Project context
 
 - Read `CONTEXT.md` before changing application behavior. It is the source of truth for the current Flutter app, API surface, data model, development assumptions, limitations, and planned architecture.
