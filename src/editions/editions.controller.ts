@@ -10,6 +10,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
@@ -20,6 +21,7 @@ import {
   UpdateEditionDto,
 } from './dto/edition.dto.js';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
+import { THROTTLE_TTL_MS } from '../common/throttling.config.js';
 
 @ApiTags('editions')
 @ApiBearerAuth()
@@ -29,6 +31,7 @@ export class EditionsController {
   constructor(private readonly editionsService: EditionsService) {}
 
   @Get()
+  @Throttle({ default: { limit: 100, ttl: THROTTLE_TTL_MS } })
   findAll(@Query() query: PaginationQueryDto, @Req() request: Request) {
     return this.editionsService.findAllByUser(this.getUserId(request), query);
   }
@@ -39,10 +42,7 @@ export class EditionsController {
   }
 
   @Post()
-  create(
-    @Body() body: CreateEditionRequestDto,
-    @Req() request: Request,
-  ) {
+  create(@Body() body: CreateEditionRequestDto, @Req() request: Request) {
     const { workId, ...edition } = body;
     return this.editionsService.create(
       this.getUserId(request),

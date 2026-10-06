@@ -1,12 +1,19 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
-import { ApiBearerAuth, ApiOperation, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import { AuthService } from './auth.service.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
 import type { AuthenticatedUser } from './auth.types.js';
 import { RefreshTokenDto } from './dto/refresh-token.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { ApiErrorDto } from '../common/dto/api-error.dto.js';
+import { THROTTLE_TTL_MS } from '../common/throttling.config.js';
 
 @ApiTags('auth')
 @ApiBearerAuth()
@@ -15,15 +22,23 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
+  @Throttle({ default: { limit: 10, ttl: THROTTLE_TTL_MS } })
   @ApiOperation({ summary: 'Authenticate a user and issue a JWT' })
-  @ApiUnauthorizedResponse({ type: ApiErrorDto, description: 'Stable error code: AUTH_INVALID_CREDENTIALS.' })
+  @ApiUnauthorizedResponse({
+    type: ApiErrorDto,
+    description: 'Stable error code: AUTH_INVALID_CREDENTIALS.',
+  })
   login(@Body() body: LoginDto) {
     return this.authService.login(body.email, body.password);
   }
 
   @Post('refresh')
+  @Throttle({ default: { limit: 10, ttl: THROTTLE_TTL_MS } })
   @ApiOperation({ summary: 'Rotate a refresh token and issue new tokens' })
-  @ApiUnauthorizedResponse({ type: ApiErrorDto, description: 'Stable refresh-token error code.' })
+  @ApiUnauthorizedResponse({
+    type: ApiErrorDto,
+    description: 'Stable refresh-token error code.',
+  })
   refresh(@Body() body: RefreshTokenDto) {
     return this.authService.refresh(body.refreshToken);
   }

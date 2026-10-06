@@ -601,12 +601,26 @@ desta sub-iteração.
 - testes sem `JWT_SECRET` usam apenas um segredo fixo explicitamente limitado a `NODE_ENV=test`; development e production falham sem configuração explícita;
 - refresh tokens são hashes Argon2id guardados no utilizador, com validade de 7 dias, rotação e revogação.
 
+### Rate limiting
+
+`ThrottlerGuard` é aplicado globalmente com limite configurável por IP, usando
+`THROTTLE_LIMIT` (10 por defeito) e `THROTTLE_TTL` (60 segundos por defeito).
+Login, refresh e criação de utilizadores (signup em `POST /users`) têm limite
+explícito de 10 pedidos por janela; preview de catálogo (`POST /catalogues/search`,
+que é o endpoint preview actual) e importação (`POST /catalogues/import`) têm
+limite de 5; as listagens `GET /works`, `GET /editions` e `GET /items` têm
+limite de 100. A configuração ignora User-Agents que correspondam a
+`/node-fetch/` e devolve headers `X-RateLimit-*`. O storage predefinido é em
+memória do processo; ambientes com várias réplicas precisam de storage
+partilhado. Limites de downloads de capas por organização ficam adiados até
+existir `CoverAcquisitionService`.
+
 ### Dívida técnica prioritária
 
 Antes de produção ou utilização institucional:
 
-1. A fundação de memberships e roles e os endpoints self-service de Organizations já existem. Continua pendente a administração completa de memberships, a selecção de organização activa, políticas por filial, rate limiting e auditoria.
-2. adicionar rate limiting e auditoria;
+1. A fundação de memberships e roles e os endpoints self-service de Organizations já existem. Continua pendente a administração completa de memberships, a selecção de organização activa, políticas por filial e auditoria.
+2. adicionar auditoria;
 3. nunca expor hashes, tokens ou credenciais em respostas e logs.
 
 O hashing actual usa Argon2id através da biblioteca `argon2`, com `memoryCost: 65536` KiB, `timeCost: 3` e `parallelism: 1`. O salt é aleatório e gerado pela biblioteca para cada password; os parâmetros e o salt ficam codificados no hash Argon2id armazenado no campo `User.passwordHash`.

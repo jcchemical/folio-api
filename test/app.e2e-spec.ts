@@ -40,6 +40,76 @@ describe('AppController (e2e)', () => {
       });
   });
 
+  it('throttles login after ten requests and returns rate-limit headers', async () => {
+    for (let index = 0; index < 10; index += 1) {
+      const response = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: 'missing@example.com', password: 'wrong-password' })
+        .expect(401);
+
+      if (index === 0) {
+        expect(response.headers['x-ratelimit-limit']).toBe('10');
+        expect(response.headers['x-ratelimit-remaining']).toBe('9');
+        expect(response.headers['x-ratelimit-reset']).toBeDefined();
+      }
+    }
+
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'missing@example.com', password: 'wrong-password' })
+      .expect(429)
+      .expect(({ headers }) => {
+        expect(headers['retry-after']).toBeDefined();
+      });
+  });
+
+  it('throttles signup after ten requests', async () => {
+    for (let index = 0; index < 10; index += 1) {
+      await request(app.getHttpServer()).post('/users').send({}).expect(400);
+    }
+
+    await request(app.getHttpServer()).post('/users').send({}).expect(429);
+  });
+
+  it('throttles catalogue preview after five requests', async () => {
+    for (let index = 0; index < 5; index += 1) {
+      await request(app.getHttpServer())
+        .post('/catalogues/search')
+        .send({})
+        .expect(401);
+    }
+
+    await request(app.getHttpServer())
+      .post('/catalogues/search')
+      .send({})
+      .expect(429);
+  });
+
+  it('throttles catalogue imports after five requests', async () => {
+    for (let index = 0; index < 5; index += 1) {
+      await request(app.getHttpServer())
+        .post('/catalogues/import')
+        .send({})
+        .expect(401);
+    }
+
+    await request(app.getHttpServer())
+      .post('/catalogues/import')
+      .send({})
+      .expect(429);
+  });
+
+  it.each(['/works', '/editions', '/items'])(
+    'allows 100 requests to %s and throttles the 101st',
+    async (path) => {
+      for (let index = 0; index < 100; index += 1) {
+        await request(app.getHttpServer()).get(path).expect(401);
+      }
+
+      await request(app.getHttpServer()).get(path).expect(429);
+    },
+  );
+
   it('returns AUTH_INVALID_ACCESS_TOKEN for an unauthenticated JWT-protected route', async () => {
     await request(app.getHttpServer())
       .get('/auth/me')
@@ -54,7 +124,9 @@ describe('AppController (e2e)', () => {
       .get('/bibliographic-records/record-1')
       .expect(401);
 
-    await request(app.getHttpServer()).get('/bibliographic-records').expect(404);
+    await request(app.getHttpServer())
+      .get('/bibliographic-records')
+      .expect(404);
     await request(app.getHttpServer())
       .post('/bibliographic-records')
       .send({ format: 'MARC_TEXT', rawContent: '<record />' })

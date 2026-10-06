@@ -10,6 +10,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
@@ -17,6 +18,7 @@ import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { ItemsService } from './items.service.js';
 import { CreateItemDto, UpdateItemDto } from './dto/item.dto.js';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
+import { THROTTLE_TTL_MS } from '../common/throttling.config.js';
 
 @ApiTags('items')
 @ApiBearerAuth()
@@ -26,6 +28,7 @@ export class ItemsController {
   constructor(private readonly itemsService: ItemsService) {}
 
   @Get()
+  @Throttle({ default: { limit: 100, ttl: THROTTLE_TTL_MS } })
   findAll(@Query() query: PaginationQueryDto, @Req() request: Request) {
     return this.itemsService.findAllByUser(this.getUserId(request), query);
   }

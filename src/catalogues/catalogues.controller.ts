@@ -1,4 +1,5 @@
 import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -14,6 +15,7 @@ import { CatalogueImportDto } from './dto/catalogue-import.dto.js';
 import { SearchCatalogueDto } from './dto/search-catalogue.dto.js';
 import { ImportPreviewResponseDto } from './dto/import-preview-response.dto.js';
 import { CatalogueImportResponseDto } from './dto/catalogue-import.dto.js';
+import { THROTTLE_TTL_MS } from '../common/throttling.config.js';
 
 @ApiTags('catalogues')
 @ApiBearerAuth()
@@ -23,6 +25,7 @@ export class CataloguesController {
   constructor(private readonly catalogueService: CatalogueService) {}
 
   @Post('search')
+  @Throttle({ default: { limit: 5, ttl: THROTTLE_TTL_MS } })
   @ApiOperation({ summary: 'Search the default or selected catalogue source' })
   @ApiOkResponse({ type: ImportPreviewResponseDto })
   search(@Body() body: SearchCatalogueDto) {
@@ -33,6 +36,7 @@ export class CataloguesController {
   }
 
   @Post('import')
+  @Throttle({ default: { limit: 5, ttl: THROTTLE_TTL_MS } })
   @ApiOperation({
     summary: 'Confirm and persist an import from a catalogue source',
   })

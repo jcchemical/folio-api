@@ -10,6 +10,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
@@ -18,6 +19,7 @@ import { WorksService } from './works.service.js';
 import { CreateWorkDto, UpdateWorkDto } from './dto/work.dto.js';
 import type { Work } from '@prisma/client';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
+import { THROTTLE_TTL_MS } from '../common/throttling.config.js';
 
 @ApiTags('works')
 @ApiBearerAuth()
@@ -27,10 +29,8 @@ export class WorksController {
   constructor(private readonly worksService: WorksService) {}
 
   @Get()
-  async findAll(
-    @Query() query: PaginationQueryDto,
-    @Req() request: Request,
-  ) {
+  @Throttle({ default: { limit: 100, ttl: THROTTLE_TTL_MS } })
+  async findAll(@Query() query: PaginationQueryDto, @Req() request: Request) {
     return this.worksService.findAllByUser(this.getUserId(request), query);
   }
 

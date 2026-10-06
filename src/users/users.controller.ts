@@ -10,6 +10,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { ApiBearerAuth } from '@nestjs/swagger';
@@ -20,6 +21,7 @@ import { UsersService } from './users.service.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
 import type { PublicUser } from './users.service.js';
+import { THROTTLE_TTL_MS } from '../common/throttling.config.js';
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -35,24 +37,35 @@ export class UsersController {
 
   @Get(':id')
   @UseGuards(JwtAuthGuard)
-  async findOne(@Param('id') id: string, @Req() request: Request): Promise<PublicUser> {
+  async findOne(
+    @Param('id') id: string,
+    @Req() request: Request,
+  ): Promise<PublicUser> {
     return this.usersService.findOne(id, this.getUserId(request));
   }
 
   @Post()
+  @Throttle({ default: { limit: 10, ttl: THROTTLE_TTL_MS } })
   async create(@Body() dto: CreateUserDto): Promise<PublicUser> {
     return this.usersService.create(dto);
   }
 
   @Put(':id')
   @UseGuards(JwtAuthGuard)
-  async update(@Param('id') id: string, @Body() dto: UpdateUserDto, @Req() request: Request): Promise<PublicUser> {
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateUserDto,
+    @Req() request: Request,
+  ): Promise<PublicUser> {
     return this.usersService.update(id, this.getUserId(request), dto);
   }
 
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
-  async remove(@Param('id') id: string, @Req() request: Request): Promise<PublicUser> {
+  async remove(
+    @Param('id') id: string,
+    @Req() request: Request,
+  ): Promise<PublicUser> {
     return this.usersService.remove(id, this.getUserId(request));
   }
 
