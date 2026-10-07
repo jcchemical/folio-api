@@ -77,7 +77,7 @@ Do **not** require a header merely because an operation creates a scoped row. In
 | Contribution reads, where exposed | Persisted Work/Edition target | Derive and validate target Organization. |
 | `/contributors` legacy routes | Remove | **Implemented:** no Contributor routes/models remain; use canonical `Agent + Contribution`. |
 | `GET /bibliographic-records/:id` | Persisted Edition-owned record | **Implemented 2026-10-07:** derive Organization only through `BibliographicRecord → Edition → Work`; optional header must match; require current membership and use stable context/resource errors. This is the only direct Record route; there is no root list or Record-specific write route. Records are created by catalogue import. |
-| Cover read/acquisition | Edition/record-derived | Derive tenant through Edition/Work or the unambiguous BibliographicRecord target; constrain CoverAsset/EditionCover to the same Organization. Background acquisition does not use a request header. |
+| `GET /editions/:id/cover` / background acquisition | Edition/record-derived | **Implemented 2026-10-07:** read derives Organization from Edition → Work, accepts an optional consistency-only header, validates current membership, and uses stable context/resource errors. Acquisition is internal (no request user/header), derives tenant from Candidate → BibliographicRecord → Edition → Work, and rechecks ownership under Edition/Work lock. Asset remains Organization-scoped for storage/deduplication; deferred baseline triggers enforce Candidate/EditionCover-to-Asset organization equality. Partial unique index permits at most one active EditionCover per Edition. |
 | `GET /exports/marcxchange/edition/:editionId` | Persisted Edition | Derive Organization through Edition → Work and validate membership. |
 | `GET /health`, `GET /`, `/docs` | Global | No organization context. |
 
@@ -105,7 +105,7 @@ Before coding controllers, enumerate every existing and new route and record met
 - Remove `ExternalIdentifier.organizationId` if tenant is derivable from Edition; set uniqueness/indexes at the canonical scope.
 - Keep `BibliographicRecord` Edition-owned only; derive tenant through `Edition → Work`, with no duplicate `workId`/`organizationId`. **Implemented:** required Edition FK and `(editionId, createdAt, id)` index are in schema/baseline; no record target XOR is needed because only Edition is supported.
 - Keep `BibliographicNote` target XOR between Work and Edition, enforced by the baseline SQL check; derive tenant through its one parent. Current import writes Notes under Edition and there are no public Note routes.
-- Keep CoverAsset organization-scoped only if required for dedup/storage policy; constrain EditionCover asset and Edition to same organization. Ensure CoverCandidate's record/asset path cannot cross tenants.
+- Keep CoverAsset organization-scoped for storage-key isolation and deduplication; constrain EditionCover asset and Edition to same organization. Ensure CoverCandidate's record/asset path cannot cross tenants. **Implemented in baseline:** deferred triggers enforce these ownership paths; partial unique index protects one active cover per Edition.
 - Enforce Agent/Contribution target Organization equality at persistence boundary where feasible; keep Contribution's exactly-one Work-or-Edition invariant.
 - Remove Contributor, WorkContributor, EditionContributor from Prisma schema, services, DTOs, output projections, imports, exports/mappers and tests. **Implemented:** baseline/schema and code use only canonical `Agent + Contribution`; no legacy fallback projections remain.
 - Re-baseline/rewrite migrations from the final schema; development database reset is allowed. Do not add a compatibility migration chain for old ownership models.
@@ -167,6 +167,7 @@ Build shared fixtures with at least two users, two organizations, distinct roles
 - Holding creation rejects Edition and Location from different Organizations (including different Library within same/different Organization as specified).
 - Optional header matching a derived tenant succeeds; mismatch fails with `ORGANIZATION_CONTEXT_CONFLICT`.
 - Cross-tenant reads and writes fail for Work, Edition, Holding, Item, identifiers, Contributions, records, covers and export.
+- Cover reads allow any current member role, reject a mismatching optional header before storage reads, and preserve the single-active-cover invariant during acquisition.
 - Agent/Contribution and cover/record/Edition relationships cannot cross Organization.
 - No fallback chooses an OWNER or personal Organization; no list returns union of memberships.
 - Global auth, `/users` self-scoped operations, `GET /organizations`, external catalogue search, health, root and docs do not require organization context.

@@ -14,9 +14,14 @@ import {
 } from '../src/storage/storage.service.js';
 
 const memberId = 'cover-member';
+const secondMemberId = 'cover-member-b';
 const outsiderId = 'cover-outsider';
 const password = 'cover-integration-test-password';
 const editionId = `c${'a'.repeat(24)}`;
+const secondEditionId = `c${'d'.repeat(24)}`;
+const organizationId = `c${'b'.repeat(24)}`;
+const otherOrganizationId = `c${'c'.repeat(24)}`;
+const organizationHeader = 'X-Folio-Organization-Id';
 const image = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
 const contentHash = 'sha256-cover-content-hash';
 
@@ -26,6 +31,7 @@ describe('GET /editions/:id/cover (e2e)', () => {
     editionExists: boolean;
     coverExists: boolean;
     memberAllowed: boolean;
+    memberRole: string;
     storageFailure: boolean;
   };
   let storage: StorageService;
@@ -35,6 +41,7 @@ describe('GET /editions/:id/cover (e2e)', () => {
       editionExists: true,
       coverExists: true,
       memberAllowed: true,
+      memberRole: 'OWNER',
       storageFailure: false,
     };
     const passwordHash = await hashPassword(password);
@@ -51,6 +58,14 @@ describe('GET /editions/:id/cover (e2e)', () => {
         id: outsiderId,
         email: 'cover-outsider@example.test',
         name: 'Cover Outsider',
+        passwordHash,
+        refreshToken: null,
+        refreshTokenExpires: null,
+      },
+      {
+        id: secondMemberId,
+        email: 'cover-member-b@example.test',
+        name: 'Cover Member B',
         passwordHash,
         refreshToken: null,
         refreshTokenExpires: null,
@@ -86,25 +101,61 @@ describe('GET /editions/:id/cover (e2e)', () => {
           where: {
             userId_organizationId: { userId: string; organizationId: string };
           };
-        }) =>
-          state.memberAllowed &&
-          where.userId_organizationId.userId === memberId &&
-          where.userId_organizationId.organizationId === 'cover-org'
-            ? { role: 'OWNER', organization: { id: 'cover-org' } }
-            : null,
+        }) => {
+          const { userId, organizationId: requestedOrganizationId } =
+            where.userId_organizationId;
+          if (
+            state.memberAllowed &&
+            userId === memberId &&
+            requestedOrganizationId === organizationId
+          ) {
+            return {
+              role: state.memberRole,
+              organization: { id: organizationId },
+            };
+          }
+          if (
+            userId === secondMemberId &&
+            requestedOrganizationId === otherOrganizationId
+          ) {
+            return {
+              role: 'READER',
+              organization: { id: otherOrganizationId },
+            };
+          }
+          return null;
+        },
+      },
+      organization: {
+        findUnique: async ({ where }: { where: { id: string } }) =>
+          where.id === organizationId
+            ? { id: organizationId, name: 'Cover organization' }
+            : where.id === otherOrganizationId
+              ? { id: otherOrganizationId, name: 'Other organization' }
+              : null,
       },
       edition: {
-        findUnique: async ({ where }: { where: { id: string } }) =>
-          state.editionExists && where.id === editionId
-            ? { id: editionId, work: { organizationId: 'cover-org' } }
-            : null,
+        findUnique: async ({ where }: { where: { id: string } }) => {
+          if (!state.editionExists) return null;
+          if (where.id === editionId) {
+            return { id: editionId, work: { organizationId } };
+          }
+          if (where.id === secondEditionId) {
+            return {
+              id: secondEditionId,
+              work: { organizationId: otherOrganizationId },
+            };
+          }
+          return null;
+        },
       },
       editionCover: {
-        findFirst: async () =>
-          state.coverExists
+        findFirst: async ({ where }: { where: { editionId: string } }) =>
+          state.coverExists &&
+          [editionId, secondEditionId].includes(where.editionId)
             ? {
                 coverAsset: {
-                  storageKey: 'cover-org/image-key',
+                  storageKey: `${where.editionId === editionId ? organizationId : otherOrganizationId}/image-key`,
                   contentHash,
                   mimeType: 'image/png',
                 },
@@ -116,7 +167,7 @@ describe('GET /editions/:id/cover (e2e)', () => {
     };
     storage = {
       save: async () => ({
-        storageKey: 'cover-org/image-key',
+        storageKey: `${organizationId}/image-key`,
         mimeType: 'image/png',
         sizeBytes: image.length,
       }),
@@ -173,6 +224,56 @@ describe('GET /editions/:id/cover (e2e)', () => {
     expect(response.headers['x-content-type-options']).toBe('nosniff');
   });
 
+  it('accepts a matching optional organization header', async () => {
+    const token = await tokenFor('cover-member@example.test');
+
+    await request(app.getHttpServer())
+      .get(`/editions/${editionId}/cover`)
+      .set('Authorization', `Bearer ${token}`)
+      .set(organizationHeader, organizationId)
+      .expect(200);
+  });
+
+  it('rejects a mismatching organization header before reading the asset', async () => {
+    const token = await tokenFor('cover-member@example.test');
+    const readStorage = vi.spyOn(storage, 'get');
+
+    await request(app.getHttpServer())
+      .get(`/editions/${editionId}/cover`)
+      .set('Authorization', `Bearer ${token}`)
+      .set(organizationHeader, otherOrganizationId)
+      .expect(409)
+      .expect(({ body }) =>
+        expect(body.code).toBe('ORGANIZATION_CONTEXT_CONFLICT'),
+      );
+
+    expect(readStorage).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed optional organization header', async () => {
+    const token = await tokenFor('cover-member@example.test');
+
+    await request(app.getHttpServer())
+      .get(`/editions/${editionId}/cover`)
+      .set('Authorization', `Bearer ${token}`)
+      .set(organizationHeader, 'not-a-cuid')
+      .expect(400)
+      .expect(({ body }) => expect(body.code).toBe('ORGANIZATION_ID_INVALID'));
+  });
+
+  it.each(['READER', 'STAFF'])(
+    'allows %s membership to read the active cover',
+    async (role) => {
+      state.memberRole = role;
+      const token = await tokenFor('cover-member@example.test');
+
+      await request(app.getHttpServer())
+        .get(`/editions/${editionId}/cover`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+    },
+  );
+
   it('returns 304 without reading the stored image when If-None-Match matches', async () => {
     const token = await tokenFor('cover-member@example.test');
     const getStorageFile = vi.spyOn(storage, 'get');
@@ -214,7 +315,7 @@ describe('GET /editions/:id/cover (e2e)', () => {
       });
   });
 
-  it('returns EDITION_NOT_FOUND when the edition does not exist', async () => {
+  it('returns RESOURCE_NOT_FOUND when the edition does not exist', async () => {
     state.editionExists = false;
     const token = await tokenFor('cover-member@example.test');
 
@@ -222,7 +323,7 @@ describe('GET /editions/:id/cover (e2e)', () => {
       .get(`/editions/${editionId}/cover`)
       .set('Authorization', `Bearer ${token}`)
       .expect(404)
-      .expect(({ body }) => expect(body.code).toBe('EDITION_NOT_FOUND'));
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
   });
 
   it('forbids users without membership in the edition organization', async () => {
@@ -233,8 +334,29 @@ describe('GET /editions/:id/cover (e2e)', () => {
       .set('Authorization', `Bearer ${token}`)
       .expect(403)
       .expect(({ body }) =>
-        expect(body.code).toBe('AUTHORIZATION_READ_ROLE_REQUIRED'),
+        expect(body.code).toBe('ORGANIZATION_MEMBERSHIP_REQUIRED'),
       );
+  });
+
+  it('isolates Editions and active covers across two organizations', async () => {
+    const memberAToken = await tokenFor('cover-member@example.test');
+    const memberBToken = await tokenFor('cover-member-b@example.test');
+    const readStorage = vi.spyOn(storage, 'get');
+
+    await request(app.getHttpServer())
+      .get(`/editions/${secondEditionId}/cover`)
+      .set('Authorization', `Bearer ${memberAToken}`)
+      .expect(403)
+      .expect(({ body }) =>
+        expect(body.code).toBe('ORGANIZATION_MEMBERSHIP_REQUIRED'),
+      );
+    expect(readStorage).not.toHaveBeenCalled();
+
+    await request(app.getHttpServer())
+      .get(`/editions/${secondEditionId}/cover`)
+      .set('Authorization', `Bearer ${memberBToken}`)
+      .expect(200);
+    expect(readStorage).toHaveBeenCalledOnce();
   });
 
   it('rejects IDs that are not CUIDs', async () => {

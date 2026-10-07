@@ -184,3 +184,79 @@ describe('WorksService Phase 1 canonical read model', () => {
     ]);
   });
 });
+
+describe('WorksService nested Edition cover projection', () => {
+  it('returns coverUrl for nested Editions on detail and organization-scoped list', async () => {
+    const work = {
+      id: 'work-1',
+      organizationId: 'organization-1',
+      title: 'Covered work',
+      organization: { id: 'organization-1' },
+      editions: [
+        {
+          id: 'edition-with-cover',
+          title: 'Covered edition',
+          editionCovers: [{ id: 'cover-link-1' }],
+        },
+        {
+          id: 'edition-without-cover',
+          title: 'Uncovered edition',
+          editionCovers: [],
+        },
+      ],
+      contributions: [],
+    };
+    const { service, prisma, contexts } = createWorkService(work);
+    vi.mocked(prisma.work.findMany).mockResolvedValue([work] as never);
+
+    const detail = await service.findById('work-1', 'member');
+    const list = await service.findAllByUser('member', 'organization-1');
+
+    for (const projectedWork of [detail, list.items[0]]) {
+      expect(projectedWork.editions).toEqual([
+        expect.objectContaining({
+          id: 'edition-with-cover',
+          coverUrl: '/editions/edition-with-cover/cover',
+        }),
+        expect.objectContaining({
+          id: 'edition-without-cover',
+          coverUrl: null,
+        }),
+      ]);
+      expect(projectedWork.editions[0]).not.toHaveProperty('editionCovers');
+    }
+
+    expect(contexts.resolveRequiredRootContext).toHaveBeenCalledWith({
+      userId: 'member',
+      headerValue: 'organization-1',
+    });
+    const detailQuery = vi.mocked(prisma.work.findUnique).mock.calls[0][0];
+    expect(detailQuery?.include).toMatchObject({
+      editions: {
+        include: {
+          editionCovers: {
+            where: { isActive: true },
+            take: 1,
+            select: { id: true },
+          },
+        },
+      },
+    });
+    expect(prisma.work.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { organizationId: 'organization-1' },
+        include: expect.objectContaining({
+          editions: {
+            include: expect.objectContaining({
+              editionCovers: {
+                where: { isActive: true },
+                take: 1,
+                select: { id: true },
+              },
+            }),
+          },
+        }),
+      }),
+    );
+  });
+});

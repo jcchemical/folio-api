@@ -89,11 +89,13 @@ Manter a classificação por percurso — parsing, preview, confirmação, CRUD 
 
 ### Capas: componentes criados, ligação incompleta
 
-O schema distingue candidato de aquisição (`CoverCandidate`), blob (`CoverAsset`) e associação servível (`EditionCover`). O extractor detecta URLs 856; `SafeHttpFetcherService` valida allowlist, DNS/IP fixado, redirects, tempos, tamanho, MIME, magic bytes e descodificação; `StorageService` suporta filesystem/memória; o serviço adquire e deduplica assets; o endpoint requer membership e suporta ETag/cache condicional.
+O schema distingue candidato de aquisição (`CoverCandidate`), blob (`CoverAsset`) e associação servível (`EditionCover`). `CoverCandidate` deriva tenant por `BibliographicRecord → Edition → Work`; `EditionCover` por `Edition → Work`; `CoverAsset` mantém `organizationId` para dedupe/storage e nunca é autorização isolada. Triggers diferidos do baseline validam igualdade de organização nos vínculos Candidate/EditionCover a Asset, e índice único parcial garante no máximo uma EditionCover activa por Edition. O extractor detecta URLs 856; `SafeHttpFetcherService` aceita apenas HTTPS, valida allowlist, DNS/IP fixado, redirects, tempos, tamanho, MIME, magic bytes e descodificação; `StorageService` suporta filesystem/memória; o serviço adquire e deduplica assets.
+
+`GET /editions/:id/cover` deriva organização por Edition → Work, usa `OrganizationContextResolver`, permite header opcional apenas como confirmação de igualdade e exige membership (Reader+). O OpenAPI documenta resposta binária, MIME, ETag/cache, 304 e erros de contexto/recurso. `coverUrl` é projectado também nas Editions aninhadas em respostas de Work; não existe rota pública para criar/alterar Candidates, Assets ou EditionCovers.
 
 **Ligação implementada nesta iteração:** a Edition é resolvida apenas pelo `BibliographicRecord.editionId`; registos ligados só a Work mantêm o asset adquirido sem associação inventada. Uma transacção bloqueia Edition e Work, valida organização, cria/reutiliza `EditionCover` activa apenas se ainda não houver activa e grava `CoverCandidate.status=ACQUIRED`/`coverAssetId` na mesma transacção. A aquisição validada (fetch, armazenamento e upsert do `CoverAsset`) precede essa transacção. Se a associação falhar, a transacção reverte e agenda retry, mas mantém o asset/ficheiro já persistido; não remove assets potencialmente partilhados.
 
-A migration `20261006120000_one_active_edition_cover` adiciona índice único parcial por Edition para linhas activas. Antes de criar o índice, aborta sem alterar dados se encontrar duplicados; é necessária resolução explícita desses dados para aplicar a migration. O lock de Work serializa aquisições concorrentes do service entre processos; o índice protege também contra outros escritores. Não há worker/fila, lease/recuperação de estado ACQUIRING preso ou limite global de concorrência. S3 não está implementado; allowlist vazia continua a ser o default efectivo se `COVER_ALLOWED_HOSTS` faltar; `coverUrl` continua projectado apenas nas respostas directas de Edition, não nas Editions aninhadas em Work/import.
+A migration baseline `20261006150000_tomos_domain_baseline` adiciona índice único parcial por Edition para linhas activas e aborta sem alterar dados se encontrar duplicados; a constraint já existe na baseline, não se cria uma migration adicional. O lock de Work serializa aquisições concorrentes do service entre processos; o índice protege também contra outros escritores. Não há worker/fila, lease/recuperação de estado ACQUIRING preso ou limite global de concorrência. S3 não está implementado. `COVER_ALLOWED_HOSTS` ausente resulta em allowlist vazia; `.env.example` não é carregado automaticamente. O extractor aceita `porbase.pt` e subdomínios, mas o fetcher usa allowlist exacta, pelo que essa diferença pode deixar candidatos sem aquisição. O fetcher agora rejeita HTTP em qualquer hop, incluindo downgrade de redirect.
 
 Uma falha de persistência do asset após `StorageService.save` pode deixar bytes órfãos, mas não cria associação incompleta. Uma Edition removida entre a leitura inicial e a transacção resulta em candidato ACQUIRED/asset sem EditionCover. Esta iteração não cria uma regra de substituição automática: uma capa activa existente é sempre preservada.
 
@@ -166,7 +168,7 @@ Estado nesta revisão: `1J-API.1` e `1L-DEC.0` estão implementadas/aprovadas; O
 1. `1J-FLUTTER.1` — proteger a `CoverCache` contra respostas tardias de pedidos
 	iniciados antes do logout ou mudança de geração de sessão.
 
-2. Continuar `1L-API.0` — migrar covers e exports
+2. Continuar `1L-API.0` — migrar exports
 	conforme as decisões aprovadas.
 
 3. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;

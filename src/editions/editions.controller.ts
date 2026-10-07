@@ -20,7 +20,11 @@ import {
   ApiBearerAuth,
   ApiForbiddenResponse,
   ApiHeader,
+  ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
+  ApiProduces,
+  ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
@@ -73,6 +77,50 @@ export class EditionsController {
   }
 
   @Get(':id/cover')
+  @ApiHeader({
+    name: FOLIO_ORGANIZATION_HEADER,
+    required: false,
+    description:
+      'Optional consistency check; Organization is derived from Edition → Work.',
+  })
+  @ApiHeader({
+    name: 'If-None-Match',
+    required: false,
+    description: 'Conditional request using the active cover ETag.',
+  })
+  @ApiOperation({
+    summary: 'Read an Edition’s active cover image',
+    description:
+      'Organization is derived from Edition → Work. A supplied X-Folio-Organization-Id must match.',
+  })
+  @ApiProduces('image/jpeg', 'image/png', 'image/gif', 'image/webp')
+  @ApiOkResponse({
+    description: 'The active cover image bytes.',
+    headers: {
+      ETag: {
+        description: 'Content hash of the active image.',
+        schema: { type: 'string' },
+      },
+      'Cache-Control': { schema: { type: 'string' } },
+      'X-Content-Type-Options': { schema: { type: 'string' } },
+    },
+    content: {
+      'image/jpeg': { schema: { type: 'string', format: 'binary' } },
+      'image/png': { schema: { type: 'string', format: 'binary' } },
+      'image/gif': { schema: { type: 'string', format: 'binary' } },
+      'image/webp': { schema: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiResponse({ status: 304, description: 'The active cover is unchanged.' })
+  @ApiBadRequestResponse({
+    description: 'Edition ID or organization header is invalid.',
+  })
+  @ApiForbiddenResponse({
+    description: 'Membership in the Edition organization is required.',
+  })
+  @ApiNotFoundResponse({
+    description: 'The Edition or its active cover was not found.',
+  })
   async getCover(
     @Param('id') id: string,
     @Req() request: Request,
@@ -83,6 +131,7 @@ export class EditionsController {
     const cover = await this.editionCoverService.getActiveCover(
       id,
       this.getUserId(request),
+      request.headers[FOLIO_ORGANIZATION_HEADER],
     );
     const etag = `"${cover.contentHash}"`;
 

@@ -64,11 +64,8 @@ describe('SafeHttpFetcherService', () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it('accepts HTTPS and HTTP only for explicitly allowlisted hosts', async () => {
-    const { fetcher, request } = createFetcher({}, [
-      imageResponse,
-      imageResponse,
-    ]);
+  it('accepts HTTPS for explicitly allowlisted hosts', async () => {
+    const { fetcher, request } = createFetcher();
 
     await expect(
       fetcher.fetch('https://covers.example/cover.png'),
@@ -78,15 +75,17 @@ describe('SafeHttpFetcherService', () => {
       width: 1,
       height: 1,
     });
+    expect(request.mock.calls.map(([url]) => url.protocol)).toEqual(['https:']);
+  });
+
+  it('rejects HTTP before DNS or network access', async () => {
+    const { fetcher, resolveHost, request } = createFetcher();
+
     await expect(
       fetcher.fetch('http://covers.example/cover.png'),
-    ).resolves.toMatchObject({
-      mimeType: 'image/png',
-    });
-    expect(request.mock.calls.map(([url]) => url.protocol)).toEqual([
-      'https:',
-      'http:',
-    ]);
+    ).rejects.toMatchObject({ code: 'INVALID_URL' });
+    expect(resolveHost).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -186,6 +185,24 @@ describe('SafeHttpFetcherService', () => {
       'covers.example',
       'cdn.example',
     ]);
+  });
+
+  it('rejects HTTPS-to-HTTP redirect downgrades before resolving the destination', async () => {
+    const redirect: SafeHttpResponse = {
+      statusCode: 302,
+      headers: { location: 'http://cdn.example/cover.png' },
+      body: Buffer.alloc(0),
+    };
+    const { fetcher, resolveHost, request } = createFetcher(
+      { allowedHosts: ['covers.example', 'cdn.example'] },
+      [redirect],
+    );
+
+    await expect(
+      fetcher.fetch('https://covers.example/cover.png'),
+    ).rejects.toMatchObject({ code: 'INVALID_URL' });
+    expect(resolveHost).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledOnce();
   });
 
   it('rejects a redirect chain longer than three hops', async () => {

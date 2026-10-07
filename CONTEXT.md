@@ -116,7 +116,7 @@ A hierarquia implementada é `READER < STAFF < ADMIN < OWNER`. Leituras protegid
 - Não há endpoints de administração de memberships, convites ou alteração de roles.
 - Não há Branch, políticas por Library/Location, Campus, ServicePoint ou circulação. `Library`, `Location` e `Holding` já estão implementados no schema e API.
 - `getDefaultOrganization()` permanece para o onboarding de organização pessoal; não é usado pela confirmação de import nem pelos handlers de Organizations, Works, Editions ou inventário físico.
-- Ainda não foram migrados para contexto explícito root os restantes grupos scoped: capas e exports mantêm as regras próprias actuais.
+- Ainda não foram migrados para contexto explícito root os restantes grupos scoped: exports mantêm as regras próprias actuais.
 - `ExternalIdentifier` não persiste `organizationId`; a Organization é derivada de Edition → Work.
 - `BibliographicRecord` pertence exclusivamente a uma Edition; Organization deriva de `Edition → Work → Organization`. Não tem `workId` nem `organizationId` duplicados.
 
@@ -169,6 +169,9 @@ Organizações e catálogo local:
   `BibliographicRecord → Edition → Work`; header opcional só confirma igualdade
   e a leitura requer membership. Não há root list nem rotas próprias de escrita;
   Records são criados pela confirmação de importação de catálogo.
+- `GET /editions/:id/cover` — lê a capa activa; Organization deriva de
+  `Edition → Work`; header opcional só confirma igualdade; leitura requer
+  membership. Responde com bytes de imagem ou 304 para `If-None-Match` válido.
 
 Catálogo externo, capas e exportação:
 
@@ -270,9 +273,9 @@ MARCXchange e MARCXML são serializers/endpoints separados. O export actual é a
 
 O schema tem `CoverCandidate`, `CoverAsset` e `EditionCover`:
 
-- `CoverCandidate` guarda URL/hash, fonte, estado (String, não enum), retries e próxima tentativa; liga-se a `BibliographicRecord` e opcionalmente a `CoverAsset`.
-- `CoverAsset` é único por `(organizationId, contentHash)` e aponta para backend/key, MIME, tamanho e dimensões.
-- `EditionCover` associa asset a Edition e tem `isActive`; há unique `(editionId, coverAssetId)` e a migration `20261006120000_one_active_edition_cover` adiciona índice único parcial para limitar a uma capa activa por Edition. A migration aborta sem alterar dados se detectar duplicados activos preexistentes.
+- `CoverCandidate` deriva Organization por `BibliographicRecord → Edition → Work`, guarda URL/hash, fonte, estado (String, não enum), retries e próxima tentativa; liga-se ao Record e opcionalmente ao Asset.
+- `CoverAsset` é organization-scoped para isolamento do storage e deduplicação por `(organizationId, contentHash)`. Acesso servível nunca é autorizado pelo Asset sozinho.
+- `EditionCover` deriva Organization por `Edition → Work`, associa Edition a Asset e tem `isActive`; há unique `(editionId, coverAssetId)` e a migration `20261006150000_tomos_domain_baseline` adiciona índice único parcial para limitar a uma capa activa por Edition. Triggers diferidos impõem igualdade de organização em EditionCover→Asset e Candidate→Record→Edition→Asset. A migration aborta sem alterar dados se detectar capas activas duplicadas.
 
 `PorbaseCoverCandidateExtractor` extrai `$u` de campos UNIMARC 856, calcula URL hash e classifica candidato. O import grava candidatos com savepoint e não falha o import se essa extracção/persistência falhar. A classificação do extractor não substitui a validação de rede do fetcher.
 
@@ -280,18 +283,19 @@ O schema tem `CoverCandidate`, `CoverAsset` e `EditionCover`:
 
 `SafeHttpFetcherService`:
 
-- usa allowlist exacta `COVER_ALLOWED_HOSTS`; valida esquema, userinfo e portas;
+- aceita apenas HTTPS em cada hop, usa allowlist exacta `COVER_ALLOWED_HOSTS` e valida userinfo/portas; redirects HTTP (incluindo downgrade HTTPS→HTTP) são rejeitados;
 - resolve DNS e rejeita endereços não públicos; fixa endereço aprovado no callback lookup para ligação;
 - não usa proxy ambiente; trata redirects manualmente até três, revalidando host e DNS;
 - usa timeout total (`COVER_HTTP_TIMEOUT`, default 10 s), timeout de ligação (`COVER_CONNECT_TIMEOUT`, default 5 s) e stream máximo (`COVER_MAX_SIZE_BYTES`, default 5 MiB);
 - valida magic bytes e Content-Type para JPEG, PNG, GIF e WebP, e descodifica com `sharp`, limitando dimensões (`COVER_MAX_WIDTH`/`COVER_MAX_HEIGHT`, 5000 cada) e pixels;
-- `COVER_ALLOWED_HOSTS` ausente resulta em allowlist vazia, apesar de existir constante de configuração de exemplo; em runtime é necessário configurar hosts explicitamente.
+- `COVER_ALLOWED_HOSTS` ausente resulta em allowlist vazia. `.env.example` sugere `images.porbase.pt,purl.pt`, mas não é configuração carregada automaticamente; runtime exige configuração explícita.
+- O extractor aceita `porbase.pt` e subdomínios como host conhecido; a allowlist exacta do fetcher pode ainda rejeitar esses hosts/subdomínios, salvo configuração explícita. Isto falha fechado, mas pode deixar candidatos sem aquisição.
 
 ### Storage e aquisição
 
 `StorageService` tem `save/get/delete/exists`. Adaptadores existentes: `LocalFsStorage` (default fora de tests; raiz `COVER_STORAGE_ROOT`) e `InMemoryStorage` (apenas tests). S3 é planeado, não implementado.
 
-`CoverAcquisitionServiceImpl` é serviço in-process, com sweep no bootstrap e de 60 em 60 segundos fora de `NODE_ENV=test`. Busca candidatos PENDING vencidos, faz claim condicional atómico para ACQUIRING, fetch, SHA-256, armazenamento e upsert de `CoverAsset` scoped por organização. A Edition só é resolvida por `BibliographicRecord.editionId`; quando o registo só aponta para Work, o asset pode ser adquirido mas não é associada uma Edition arbitrária. Work e Edition inconsistentes ou de organizações diferentes causam rejeição do candidato.
+`CoverAcquisitionServiceImpl` é processamento interno in-process (sem User/header), com sweep no bootstrap e de 60 em 60 segundos fora de `NODE_ENV=test`. Busca candidatos PENDING vencidos, faz claim condicional atómico para ACQUIRING, deriva Organization por `CoverCandidate → BibliographicRecord → Edition → Work`, depois faz fetch, SHA-256, armazenamento e upsert de `CoverAsset` scoped por organização. A Edition só é resolvida por `BibliographicRecord.editionId`. A associação verifica de novo a Edition/Organization sob lock; constraints SQL também impedem associações cross-tenant.
 
 Depois do download, storage e upsert do asset, uma transacção bloqueia as linhas da Edition e do Work, verifica a organização, preserva qualquer capa activa e cria/reutiliza uma `EditionCover` activa apenas quando nenhuma existe. O estado ACQUIRED e o `coverAssetId` do candidato são confirmados na mesma transacção do vínculo. Falha nesta transacção reverte a associação e o estado do candidato, agenda retry e mantém o `CoverAsset`/ficheiro já persistido; não remove assets partilhados. Candidatos sem Edition inequívoca ficam ACQUIRED com asset mas sem EditionCover. A unicidade parcial protege também escritores que não usem este service; o lock de Work serializa aquisições concorrentes da aplicação.
 
@@ -299,9 +303,9 @@ Retries usam `nextAttemptAt` e backoff de 1 min, 5 min, 15 min e 1 h; o fallback
 
 ### Endpoint e saída
 
-`GET /editions/:id/cover` valida CUID, exige JWT e membership da organização da Edition, procura `EditionCover` activa, e lê `StorageService` apenas se o `If-None-Match` não corresponder. Responde com MIME, ETag baseado em `contentHash`, `Cache-Control: private, max-age=31536000` e `X-Content-Type-Options: nosniff`; correspondência devolve 304.
+`GET /editions/:id/cover` valida CUID, exige JWT e resolve contexto derivado por `OrganizationContextResolver`; `X-Folio-Organization-Id` é opcional e, se enviado, tem de coincidir com Edition→Work. Qualquer role com membership pode ler; não existe mutação pública de Candidate, Asset ou EditionCover. O handler procura `EditionCover` activa e lê `StorageService` apenas se `If-None-Match` não corresponder. Responde com MIME, ETag baseado em `contentHash`, `Cache-Control: private, max-age=31536000` e `X-Content-Type-Options: nosniff`; correspondência devolve 304. O OpenAPI descreve os MIME binários, headers, 304 e erros de contexto/recurso.
 
-`coverUrl` é um path relativo `/editions/{id}/cover` ou `null` nas respostas directas geradas por `EditionsService` (lista, detalhe, create/update). **Não é projectado nas Editions aninhadas em respostas de Work nem na resposta de importação de catálogo.**
+`coverUrl` é um path relativo `/editions/{id}/cover` ou `null` nas respostas directas geradas por `EditionsService` (lista, detalhe, create/update) e nas Editions aninhadas nas respostas de Work (lista e detalhe). Não é projectado na resposta de importação de catálogo.
 
 ## Exportação
 
@@ -350,13 +354,13 @@ Os comandos são procedimentos de validação, não afirmação de que foram cor
 
 ## Limitações conhecidas consolidadas
 
-1. A migração do contexto é parcial: Organizations/Works/Editions/Libraries/Locations/Holdings/Items, catalogue import, `POST /contributions` e leitura de Bibliographic Records usam contexto explícito ou derivado; covers e exports ainda não. `getDefaultOrganization()` permanece apenas usado pelo onboarding pessoal.
+1. A migração do contexto é parcial: Organizations/Works/Editions/Libraries/Locations/Holdings/Items, catalogue import, `POST /contributions` e leitura de Bibliographic Records/Covers usam contexto explícito ou derivado; exports ainda não. `getDefaultOrganization()` permanece apenas usado pelo onboarding pessoal.
 2. Sem gestão de memberships/convites/roles, branches, Campus, ServicePoint, auditoria ou circulação; Item não representa empréstimos nem estado de circulação. O CRUD administrativo de Agents permanece fora do âmbito.
 3. Confirmação de import sem preview snapshot; campos de contribuição de origem do import são editáveis pelo cliente.
 4. CRUD regular de Work/Edition ainda não mantém sempre relações de títulos/línguas canónicas; `$h/$i` parseados não são persistidos estruturadamente.
 5. Proveniência de Records limitada; não há snapshot do preview nem versionamento/hash do raw record.
-6. `coverUrl` só em respostas directas de Edition; ausência em Editions aninhadas/resultado de import.
-7. Hosts do fetcher devem ser configurados; sem variável a allowlist é vazia.
+6. `coverUrl` não é projectado na resposta de importação de catálogo.
+7. Hosts do fetcher devem ser configurados; sem variável a allowlist é vazia e o allowlist exacto pode não incluir todos os hosts aceites pelo extractor.
 8. Storage S3, queue, rate-limit distribuído, request ID e redacção de mensagem/stack de excepções não existem.
 9. Migração `20260907180000_refine_bibliographic_model` declara-se como alvo de reset deliberado de desenvolvimento e executa `DROP TABLE PhysicalDescription`; confirmar estado/impacto do ambiente antes de aplicar migrations. Migrations versionadas não demonstram estado de aplicação remota.
 
@@ -375,7 +379,7 @@ incompleta.
 
 ### Próxima migração backend
 
-2. Continuar `1L-API.0`: migrar covers e exports.
+2. Continuar `1L-API.0`: migrar exports.
 
 3. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;
    dependência de contrato e fora do repositório `folio-api`.

@@ -252,7 +252,7 @@ export class SafeHttpFetcherService implements SafeHttpFetcher {
 
   private validateUrl(url: URL): void {
     if (
-      (url.protocol !== 'https:' && url.protocol !== 'http:') ||
+      url.protocol !== 'https:' ||
       !url.hostname ||
       url.username.length > 0 ||
       url.password.length > 0 ||
@@ -261,7 +261,7 @@ export class SafeHttpFetcherService implements SafeHttpFetcher {
       throw new SafeHttpFetcherError('INVALID_URL', 'Invalid image URL.');
     }
 
-    if (url.port && url.port !== '80' && url.port !== '443') {
+    if (url.port && url.port !== '443') {
       throw new SafeHttpFetcherError(
         'INVALID_URL',
         'Image URL uses a disallowed port.',

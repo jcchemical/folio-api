@@ -1,6 +1,7 @@
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { API_ERROR_CODES, ApiException } from '../common/api-errors.js';
-import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
+import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
+import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   STORAGE_SERVICE,
@@ -11,11 +12,15 @@ import {
 export class EditionCoverService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly memberships: OrganizationMembershipService,
+    private readonly contexts: OrganizationContextResolver,
     @Inject(STORAGE_SERVICE) private readonly storage: StorageService,
   ) {}
 
-  async getActiveCover(editionId: string, userId: string) {
+  async getActiveCover(
+    editionId: string,
+    userId: string,
+    headerValue?: OrganizationHeaderValue,
+  ) {
     const edition = await this.prisma.edition.findUnique({
       where: { id: editionId },
       select: { id: true, work: { select: { organizationId: true } } },
@@ -23,26 +28,16 @@ export class EditionCoverService {
     if (!edition) {
       throw new ApiException(
         HttpStatus.NOT_FOUND,
-        API_ERROR_CODES.EDITION_NOT_FOUND,
+        API_ERROR_CODES.RESOURCE_NOT_FOUND,
         'Edition not found.',
       );
     }
 
-    try {
-      await this.memberships.assertWorkAccess(userId, edition.work);
-    } catch (error) {
-      if (
-        error instanceof HttpException &&
-        error.getStatus() === HttpStatus.FORBIDDEN
-      ) {
-        throw new ApiException(
-          HttpStatus.FORBIDDEN,
-          API_ERROR_CODES.UNAUTHORIZED_READ_ROLE,
-          'Read access to this Edition is required.',
-        );
-      }
-      throw error;
-    }
+    await this.contexts.resolveDerivedContext({
+      userId,
+      headerValue,
+      derivedOrganizationId: edition.work.organizationId,
+    });
 
     const editionCover = await this.prisma.editionCover.findFirst({
       where: { editionId, isActive: true },

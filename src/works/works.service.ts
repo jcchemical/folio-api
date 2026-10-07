@@ -11,6 +11,7 @@ import { OrganizationContextResolver } from '../organizations/organization-conte
 import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 import type { PhysicalDescriptionInput } from '../editions/dto/physical-description.dto.js';
 import type { PublicationStatementInput } from '../editions/dto/publication-statement.dto.js';
+import { EditionOutputDto } from '../editions/dto/edition-output.dto.js';
 import {
   derivePublicationProjection,
   normalizePublicationDateLiteral,
@@ -90,12 +91,17 @@ export class WorksService {
                 parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
               },
             },
+            editionCovers: {
+              where: { isActive: true },
+              take: 1,
+              select: { id: true },
+            },
           },
         },
       },
       ...prisma,
     });
-    return paginate(rows, limit);
+    return paginate(rows.map(withEditionCoverUrls), limit);
   }
 
   async findById(
@@ -140,6 +146,11 @@ export class WorksService {
                 parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
               },
             },
+            editionCovers: {
+              where: { isActive: true },
+              take: 1,
+              select: { id: true },
+            },
           },
         },
       },
@@ -157,6 +168,9 @@ export class WorksService {
         ...contribution,
         scope: 'WORK' as const,
       })),
+      editions: work.editions.map((edition) =>
+        toEditionOutput(edition as unknown as Record<string, unknown>),
+      ),
     };
   }
 
@@ -319,4 +333,20 @@ function derivePageCount(
     .map(({ value }) => /^(\d+)\s*(?:p\.?|pages?)$/i.exec(value.trim())?.[1])
     .filter((value): value is string => Boolean(value));
   return candidates.length === 1 ? Number(candidates[0]) : null;
+}
+
+function withEditionCoverUrls<T extends { editions: unknown[] }>(work: T) {
+  return {
+    ...work,
+    editions: work.editions.map((edition) =>
+      toEditionOutput(edition as Record<string, unknown>),
+    ),
+  };
+}
+
+function toEditionOutput(edition: Record<string, unknown>) {
+  const editionCovers = edition.editionCovers as
+    Array<{ id: string }> | undefined;
+  const { editionCovers: _editionCovers, ...output } = edition;
+  return new EditionOutputDto(output, Boolean(editionCovers?.length));
 }
