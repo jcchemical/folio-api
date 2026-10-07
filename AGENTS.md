@@ -9,6 +9,7 @@ Antes de preservar uma API, campo, migration, fallback ou comportamento, pergunt
 A base de dados de desenvolvimento pode ser resetada. Breaking changes coordenadas entre `folio-api` e `folio-app` são permitidas.
 
 Não criar dívida técnica transitória para proteger:
+
 - dados de teste;
 - consumidores inexistentes;
 - contratos internos provisórios;
@@ -61,8 +62,9 @@ Quando uma decisão nova substituir uma decisão antiga, actualizar schema, cód
 - Do not treat `Agent.displayName` as an authority-controlled preferred form.
 - `Agent` is scoped to Organization; validate Agent/target Organization equality in every Contribution write.
 - A Contribution targets exactly one Work or Edition; preserve the SQL XOR invariant.
-- Never accept client-controlled source, normalized name, 7XX tag, indicators or source parts through public contribution DTOs.
-- Trusted PORBASE paths preserve 700/701/702 tags, indicators, source-part order, repeated codes and literal values.
+- The manual `POST /contributions` DTO must not accept client-controlled source, normalized name, 7XX tag, indicators or source parts; the server assigns `MANUAL`.
+- PORBASE parsing and persistence preserve supported 7XX tags, indicators, source-part order, repeated codes and literal values.
+- Catalogue import is a separate confirmation contract: it accepts client-edited Contribution tags, indicators and source parts, while the server assigns `PORBASE`. These fields are not verified against `rawContent`; do not describe them as authenticated source metadata or redesign this boundary without an explicit decision.
 - Use only canonical `Agent + Contribution`; never merge or fall back to legacy `Contributor` sets. The legacy Contributor models/routes/projections are removed.
 - Do not infer Work versus Edition scope from a 7XX tag, `$4`, or role text.
 - Keep authority control and other 7XX families out of scope unless explicitly requested.
@@ -116,6 +118,7 @@ git diff --check
 ```
 
 Update `CONTEXT.md` if altering:
+
 - endpoints used;
 - app structure;
 - architecture decisions;
