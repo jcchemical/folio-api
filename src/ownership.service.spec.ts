@@ -1,5 +1,6 @@
-import { ForbiddenException, HttpException } from '@nestjs/common';
+import { HttpException, HttpStatus } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
+import { API_ERROR_CODES, ApiException } from './common/api-errors.js';
 import type { PrismaService } from './prisma/prisma.service.js';
 import { WorksService } from './works/works.service.js';
 import { EditionsService } from './editions/editions.service.js';
@@ -17,7 +18,13 @@ function prismaWith(model: Record<string, unknown>): PrismaService {
 function membershipPolicy(allowed: boolean) {
   const access = allowed
     ? vi.fn().mockResolvedValue(undefined)
-    : vi.fn().mockRejectedValue(new ForbiddenException());
+    : vi.fn().mockRejectedValue(
+        new ApiException(
+          HttpStatus.FORBIDDEN,
+          API_ERROR_CODES.ORGANIZATION_MEMBERSHIP_REQUIRED,
+          'You do not have access to this organization.',
+        ),
+      );
   return {
     resolveDerivedContext: access,
     assertWorkAccess: access,
@@ -89,7 +96,10 @@ describe('organization resource access', () => {
         prismaWith({ work: { findUnique: vi.fn().mockResolvedValue(work) } }),
         membershipPolicy(false) as never,
       ).findById('work-1', userId),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toMatchObject({
+      status: HttpStatus.FORBIDDEN,
+      response: { code: API_ERROR_CODES.ORGANIZATION_MEMBERSHIP_REQUIRED },
+    });
     await expect(
       new EditionsService(
         prismaWith({
@@ -99,7 +109,10 @@ describe('organization resource access', () => {
         }),
         membershipPolicy(false) as never,
       ).findById('edition-1', userId),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toMatchObject({
+      status: HttpStatus.FORBIDDEN,
+      response: { code: API_ERROR_CODES.ORGANIZATION_MEMBERSHIP_REQUIRED },
+    });
     await expect(
       new ItemsService(
         prismaWith({
@@ -108,13 +121,18 @@ describe('organization resource access', () => {
               id: 'item-1',
               holding: {
                 edition: { work: { id: 'work-1', organizationId } },
-                location: { library: { id: 'library-1' } },
+                location: {
+                  library: { id: 'library-1', organizationId },
+                },
               },
             }),
           },
         }),
         membershipPolicy(false) as never,
       ).findById('item-1', userId),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toMatchObject({
+      status: HttpStatus.FORBIDDEN,
+      response: { code: API_ERROR_CODES.ORGANIZATION_MEMBERSHIP_REQUIRED },
+    });
   });
 });
