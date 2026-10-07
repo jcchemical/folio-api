@@ -135,6 +135,42 @@ describe('ApiExceptionFilter', () => {
     });
   });
 
+  it('preserves the stable organization context codes, statuses, and shared response envelope', () => {
+    const errors = [
+      [400, API_ERROR_CODES.ORGANIZATION_CONTEXT_REQUIRED],
+      [400, API_ERROR_CODES.ORGANIZATION_ID_INVALID],
+      [404, API_ERROR_CODES.ORGANIZATION_NOT_FOUND],
+      [403, API_ERROR_CODES.ORGANIZATION_MEMBERSHIP_REQUIRED],
+      [403, API_ERROR_CODES.ORGANIZATION_ROLE_INSUFFICIENT],
+      [409, API_ERROR_CODES.ORGANIZATION_CONTEXT_CONFLICT],
+      [404, API_ERROR_CODES.RESOURCE_NOT_FOUND],
+    ] as const;
+
+    for (const [status, code] of errors) {
+      const output = response();
+      new ApiExceptionFilter().catch(
+        new ApiException(status, code, 'Safe context error.'),
+        host(output),
+      );
+
+      expect(output.statusCode).toBe(status);
+      expect(output.body).toEqual({
+        statusCode: status,
+        error:
+          status === 400
+            ? 'Bad Request'
+            : status === 403
+              ? 'Forbidden'
+              : status === 404
+                ? 'Not Found'
+                : 'Conflict',
+        code,
+        message: 'Safe context error.',
+      });
+      expect(JSON.stringify(output.body)).not.toContain('SELECT');
+    }
+  });
+
   it('returns the sanitized 500 envelope in production for an unknown error, with no debug field', () => {
     const output = response();
     new ApiExceptionFilter({

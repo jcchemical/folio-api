@@ -48,12 +48,12 @@ function createService(
     signAsync: vi.fn().mockResolvedValue('access-token'),
   } as unknown as JwtService;
 
-  return { service: new AuthService(prisma, jwtService), state };
+  return { service: new AuthService(prisma, jwtService), state, jwtService };
 }
 
 describe('AuthService password verification', () => {
   it('logs in with the correct password', async () => {
-    const { service, state } = createService(
+    const { service, state, jwtService } = createService(
       await hashPassword('correct-password'),
     );
 
@@ -70,6 +70,13 @@ describe('AuthService password verification', () => {
       name: 'User',
       roles: [],
     });
+    expect(jwtService.signAsync).toHaveBeenCalledWith(
+      { sub: user.id, email: user.email },
+      { expiresIn: '15m' },
+    );
+    expect(jwtService.signAsync.mock.calls[0][0]).not.toHaveProperty(
+      'organizationId',
+    );
   });
 
   it('refreshes a valid token and rotates it', async () => {

@@ -103,9 +103,13 @@ describe('organization resource access', () => {
       new ItemsService(
         prismaWith({
           item: {
-            findUnique: vi
-              .fn()
-              .mockResolvedValue({ id: 'item-1', organizationId }),
+            findUnique: vi.fn().mockResolvedValue({
+              id: 'item-1',
+              holding: {
+                edition: { work: { id: 'work-1', organizationId } },
+                location: { library: { id: 'library-1' } },
+              },
+            }),
           },
         }),
         membershipPolicy(false) as never,

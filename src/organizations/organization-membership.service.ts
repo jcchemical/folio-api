@@ -10,6 +10,13 @@ const ROLE_WEIGHT: Record<OrganizationRole, number> = {
   [OrganizationRole.OWNER]: 4,
 };
 
+export function roleMeetsMinimum(
+  actualRole: OrganizationRole,
+  minimumRole: OrganizationRole,
+): boolean {
+  return ROLE_WEIGHT[actualRole] >= ROLE_WEIGHT[minimumRole];
+}
+
 @Injectable()
 export class OrganizationMembershipService {
   constructor(private readonly prisma: PrismaService) {}
@@ -44,12 +51,7 @@ export class OrganizationMembershipService {
     organizationId: string,
     minimumRole: OrganizationRole = OrganizationRole.READER,
   ) {
-    const membership = await this.prisma.organizationMembership.findUnique({
-      where: {
-        userId_organizationId: { userId, organizationId },
-      },
-      include: { organization: true },
-    });
+    const membership = await this.findMembership(userId, organizationId);
 
     if (!membership) {
       throw new ApiException(
@@ -58,7 +60,7 @@ export class OrganizationMembershipService {
         'User is not a member of this organization.',
       );
     }
-    if (ROLE_WEIGHT[membership.role] < ROLE_WEIGHT[minimumRole]) {
+    if (!roleMeetsMinimum(membership.role, minimumRole)) {
       throw new ApiException(
         HttpStatus.FORBIDDEN,
         minimumRole === OrganizationRole.READER
@@ -69,6 +71,27 @@ export class OrganizationMembershipService {
     }
 
     return membership;
+  }
+
+  findMembership(userId: string, organizationId: string) {
+    return this.prisma.organizationMembership.findUnique({
+      where: {
+        userId_organizationId: { userId, organizationId },
+      },
+      include: { organization: true },
+    });
+  }
+
+  assertContextRole(
+    role: OrganizationRole,
+    minimumRole: OrganizationRole,
+  ): void {
+    if (roleMeetsMinimum(role, minimumRole)) return;
+    throw new ApiException(
+      HttpStatus.FORBIDDEN,
+      API_ERROR_CODES.ORGANIZATION_ROLE_INSUFFICIENT,
+      `Organization role ${minimumRole} is required.`,
+    );
   }
 
   async assertOrganizationAccess(userId: string, organizationId: string) {
