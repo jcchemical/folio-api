@@ -104,10 +104,6 @@ describe('ImportPreviewService', () => {
           },
         ],
       },
-      contributors: [
-        { name: 'Kazantzákis, Níkos', role: 'author' },
-        { name: 'Leite, Carlos', role: 'translator' },
-      ],
       externalIdentifiers: [
         { type: 'ISBN-13', value: isbn, source: 'PORBASE' },
         { type: 'PORBASE', value: '3664836', source: 'PORBASE' },
@@ -126,6 +122,8 @@ describe('ImportPreviewService', () => {
         rawContent: fixture,
       },
     });
+    expect(result).not.toHaveProperty('contributors');
+    expect(result.contributions).toEqual(expect.any(Array));
     expect(result.warnings).toEqual([]);
   });
 
@@ -218,14 +216,9 @@ describe('ImportPreviewService', () => {
         ...preview.edition,
         publicationPlace: preview.edition.placeOfPublication,
       },
-      contributors: preview.contributors.map((contributor) => ({
-        ...contributor,
-        scope: 'WORK',
-      })),
       contributions: preview.contributions,
       externalIdentifiers: preview.externalIdentifiers,
       bibliographicRecord: preview.bibliographicRecord,
-      item: { status: 'OWNED' },
     });
     const errors = await validate(confirmation);
 

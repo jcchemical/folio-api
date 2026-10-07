@@ -388,30 +388,31 @@ describe('EditionsService publication statements update semantics', () => {
 });
 
 describe('EditionsService Phase 1 canonical read model', () => {
-  it('keeps the read-only fallback for historical EditionContributor records', async () => {
-    const historicalEdition = {
-      ...edition,
-      work: {
-        ...edition.work,
-        workContributors: [],
-        contributions: [],
+  it('returns canonical Work and Edition Contributions with explicit scopes', async () => {
+    const workContribution = {
+      id: 'work-contribution',
+      sortOrder: 0,
+      agent: { id: 'agent-work', displayName: 'Work agent', kind: 'PERSON' },
+      sourceParts: [],
+    };
+    const editionContribution = {
+      id: 'edition-contribution',
+      sortOrder: 1,
+      agent: {
+        id: 'agent-edition',
+        displayName: 'Edition agent',
+        kind: 'PERSON',
       },
-      contributions: [],
-      editionContributors: [
-        {
-          id: 'legacy-edition-link',
-          role: 'translator',
-          sortOrder: 1,
-          contributor: {
-            id: 'legacy-contributor',
-            name: 'Historical Translator',
-          },
-        },
-      ],
-      items: [],
+      sourceParts: [],
+    };
+    const canonicalEdition = {
+      ...edition,
+      work: { ...edition.work, contributions: [workContribution] },
+      contributions: [editionContribution],
+      holdings: [],
     };
     const prisma = {
-      edition: { findUnique: vi.fn().mockResolvedValue(historicalEdition) },
+      edition: { findUnique: vi.fn().mockResolvedValue(canonicalEdition) },
       organizationMembership: {
         findUnique: vi.fn().mockResolvedValue({
           role: OrganizationRole.READER,
@@ -427,14 +428,14 @@ describe('EditionsService Phase 1 canonical read model', () => {
     await expect(service.findById(edition.id, userId)).resolves.toMatchObject({
       contributions: [
         {
-          id: 'legacy-edition-link',
+          id: 'work-contribution',
+          scope: 'WORK',
+          agent: { id: 'agent-work' },
+        },
+        {
+          id: 'edition-contribution',
           scope: 'EDITION',
-          roleLabel: 'translator',
-          agent: {
-            id: 'legacy-contributor',
-            displayName: 'Historical Translator',
-          },
-          sourceParts: [],
+          agent: { id: 'agent-edition' },
         },
       ],
     });
@@ -443,9 +444,8 @@ describe('EditionsService Phase 1 canonical read model', () => {
   it('requests titles, responsibility statements, languages, series, notes and classifications ordered deterministically', async () => {
     const fullEdition = {
       ...edition,
-      work: { ...edition.work, workContributors: [], contributions: [] },
+      work: { ...edition.work, contributions: [] },
       contributions: [],
-      editionContributors: [],
       titles: [],
       responsibilityStatements: [],
       languages: [],
@@ -454,7 +454,7 @@ describe('EditionsService Phase 1 canonical read model', () => {
       classifications: [],
       physicalDescriptions: [],
       publicationStatements: [],
-      items: [],
+      holdings: [],
     };
     const prisma = {
       edition: { findUnique: vi.fn().mockResolvedValue(fullEdition) },

@@ -91,7 +91,6 @@ export class EditionsService {
         work: {
           include: {
             titles: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
-            workContributors: { include: { contributor: true } },
             contributions: {
               orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
               include: {
@@ -108,7 +107,6 @@ export class EditionsService {
             sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
           },
         },
-        editionContributors: { include: { contributor: true } },
         titles: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
         responsibilityStatements: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
@@ -132,8 +130,11 @@ export class EditionsService {
             parts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
           },
         },
-        items: {
-          where: { organization: { memberships: { some: { userId } } } },
+        holdings: {
+          include: {
+            location: { include: { library: true } },
+            items: true,
+          },
         },
         editionCovers: {
           where: { isActive: true },
@@ -147,16 +148,8 @@ export class EditionsService {
     return toEditionOutput({
       ...edition,
       contributions: [
-        ...contributionViews(
-          edition.work.contributions,
-          edition.work.workContributors,
-          'WORK',
-        ),
-        ...contributionViews(
-          edition.contributions,
-          edition.editionContributors,
-          'EDITION',
-        ),
+        ...scopeContributions(edition.work.contributions, 'WORK'),
+        ...scopeContributions(edition.contributions, 'EDITION'),
       ],
     });
   }
@@ -376,30 +369,11 @@ function toEditionOutput<T extends { id: string } & Record<string, unknown>>(
   > & { coverUrl: string | null };
 }
 
-function contributionViews(
-  canonical: Array<{ id: string; sortOrder: number; agent: unknown }>,
-  legacy: Array<{
-    id: string;
-    role: string;
-    sortOrder: number;
-    contributor: { id: string; name: string };
-  }>,
+function scopeContributions<T extends { id: string; sortOrder: number }>(
+  contributions: T[],
   scope: 'WORK' | 'EDITION',
-) {
-  if (canonical.length)
-    return canonical.map((contribution) => ({ ...contribution, scope }));
-  return legacy.map((relation) => ({
-    id: relation.id,
-    sortOrder: relation.sortOrder,
-    scope,
-    roleLabel: relation.role,
-    agent: {
-      id: relation.contributor.id,
-      displayName: relation.contributor.name,
-      kind: 'UNKNOWN' as const,
-    },
-    sourceParts: [],
-  }));
+): Array<T & { scope: 'WORK' | 'EDITION' }> {
+  return contributions.map((contribution) => ({ ...contribution, scope }));
 }
 
 function toPhysicalDescriptionCreate(

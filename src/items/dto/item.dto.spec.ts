@@ -6,9 +6,8 @@ import { CreateItemDto, UpdateItemDto } from './item.dto.js';
 describe('CreateItemDto', () => {
   it('accepts only create fields and strips server-controlled fields', async () => {
     const dto = plainToInstance(CreateItemDto, {
-      editionId: 'edition-1',
+      holdingId: 'holding-1',
       label: null,
-      location: 'Shelf A',
       status: 'OWNED',
       id: 'forged-id',
       organizationId: 'forged-organization',
@@ -19,25 +18,23 @@ describe('CreateItemDto', () => {
 
     expect(await validate(dto, { whitelist: true })).toEqual([]);
     expect(dto).toEqual({
-      editionId: 'edition-1',
+      holdingId: 'holding-1',
       label: null,
-      location: 'Shelf A',
       status: 'OWNED',
     });
   });
 
-  it('requires a non-empty editionId', async () => {
-    for (const editionId of [undefined, '', '   ', 42]) {
-      const dto = plainToInstance(CreateItemDto, { editionId });
+  it('requires a non-empty holdingId', async () => {
+    for (const holdingId of [undefined, '', '   ', 42]) {
+      const dto = plainToInstance(CreateItemDto, { holdingId });
       expect(await validate(dto)).not.toEqual([]);
     }
   });
 
-  it('allows optional nullable label, location, and status but rejects empty status', async () => {
+  it('allows optional nullable label and status but rejects empty status', async () => {
     const nullable = plainToInstance(CreateItemDto, {
-      editionId: 'edition-1',
+      holdingId: 'holding-1',
       label: null,
-      location: null,
       status: null,
     });
     expect(await validate(nullable)).toEqual([]);
@@ -54,7 +51,6 @@ describe('UpdateItemDto', () => {
   it('accepts only mutable fields and strips identity, relationship, and timestamps', async () => {
     const dto = plainToInstance(UpdateItemDto, {
       label: null,
-      location: 'Shelf B',
       status: null,
       id: 'forged-id',
       editionId: 'forged-edition',
@@ -65,7 +61,7 @@ describe('UpdateItemDto', () => {
     });
 
     expect(await validate(dto, { whitelist: true })).toEqual([]);
-    expect(dto).toEqual({ label: null, location: 'Shelf B', status: null });
+    expect(dto).toEqual({ label: null, status: null });
   });
 
   it('allows an empty update and rejects empty or non-string status values', async () => {

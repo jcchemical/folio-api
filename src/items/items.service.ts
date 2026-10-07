@@ -11,10 +11,9 @@ import { OrganizationMembershipService } from '../organizations/organization-mem
 
 export interface ItemInput {
   label?: string | null;
-  location?: string | null;
   status?: string | null;
   notes?: string | null;
-  editionId: string;
+  holdingId: string;
 }
 
 @Injectable()
@@ -27,9 +26,22 @@ export class ItemsService {
   async findAllByUser(userId: string, query: PaginationInput = {}) {
     const { limit, prisma } = paginationArgs(query);
     const rows = await this.prisma.item.findMany({
-      where: { organization: { memberships: { some: { userId } } } },
+      where: {
+        holding: {
+          edition: {
+            work: { organization: { memberships: { some: { userId } } } },
+          },
+        },
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      include: { edition: true, organization: true },
+      include: {
+        holding: {
+          include: {
+            edition: true,
+            location: { include: { library: true } },
+          },
+        },
+      },
       ...prisma,
     });
     return paginate(rows, limit);
@@ -38,7 +50,14 @@ export class ItemsService {
   async findById(id: string, userId: string) {
     const item = await this.prisma.item.findUnique({
       where: { id },
-      include: { edition: true, organization: true },
+      include: {
+        holding: {
+          include: {
+            edition: { include: { work: true } },
+            location: { include: { library: true } },
+          },
+        },
+      },
     });
     if (!item)
       throw new ApiException(
@@ -48,22 +67,20 @@ export class ItemsService {
       );
     await this.organizationMemberships.assertOrganizationAccess(
       userId,
-      item.organizationId,
+      item.holding.edition.work.organizationId,
     );
     return item;
   }
 
   async create(userId: string, data: ItemInput) {
     validateStatus(data.status);
-    const edition = await this.requireWritableEdition(data.editionId, userId);
+    const holding = await this.requireWritableHolding(data.holdingId, userId);
     return this.prisma.item.create({
       data: {
         label: data.label,
-        location: data.location,
         status: data.status ?? undefined,
         notes: data.notes,
-        editionId: edition.id,
-        organizationId: edition.work.organizationId,
+        holdingId: holding.id,
       },
     });
   }
@@ -72,7 +89,7 @@ export class ItemsService {
     const item = await this.findById(id, userId);
     await this.organizationMemberships.assertRole(
       userId,
-      item.organizationId,
+      item.holding.edition.work.organizationId,
       OrganizationRole.STAFF,
     );
     validateStatus(data.status);
@@ -80,7 +97,6 @@ export class ItemsService {
       where: { id },
       data: {
         label: data.label,
-        location: data.location,
         status: data.status ?? undefined,
         notes: data.notes,
       },
@@ -91,28 +107,31 @@ export class ItemsService {
     const item = await this.findById(id, userId);
     await this.organizationMemberships.assertRole(
       userId,
-      item.organizationId,
+      item.holding.edition.work.organizationId,
       OrganizationRole.STAFF,
     );
     return this.prisma.item.delete({ where: { id } });
   }
 
-  private async requireWritableEdition(editionId: string, userId: string) {
-    const edition = await this.prisma.edition.findUnique({
-      where: { id: editionId },
-      include: { work: true },
+  private async requireWritableHolding(holdingId: string, userId: string) {
+    const holding = await this.prisma.holding.findUnique({
+      where: { id: holdingId },
+      include: {
+        edition: { include: { work: true } },
+        location: { include: { library: true } },
+      },
     });
-    if (!edition)
+    if (!holding)
       throw new ApiException(
         HttpStatus.NOT_FOUND,
-        API_ERROR_CODES.EDITION_NOT_FOUND,
-        'Edition not found.',
+        API_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'Holding not found.',
       );
     await this.organizationMemberships.assertWorkWriteAccess(
       userId,
-      edition.work,
+      holding.edition.work,
     );
-    return edition;
+    return holding;
   }
 }
 

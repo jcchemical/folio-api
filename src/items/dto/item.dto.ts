@@ -8,22 +8,17 @@ import {
 } from 'class-validator';
 
 export class CreateItemDto {
-  @ApiProperty({ example: 'edition_cuid' })
+  @ApiProperty({ example: 'holding_cuid' })
   @IsDefined()
   @IsString()
   @IsNotEmpty()
   @Matches(/\S/)
-  editionId!: string;
+  holdingId!: string;
 
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
   @IsString()
   label?: string | null;
-
-  @ApiPropertyOptional({ nullable: true })
-  @IsOptional()
-  @IsString()
-  location?: string | null;
 
   @ApiPropertyOptional({ nullable: true, example: 'OWNED' })
   @IsOptional()
@@ -38,11 +33,6 @@ export class UpdateItemDto {
   @IsOptional()
   @IsString()
   label?: string | null;
-
-  @ApiPropertyOptional({ nullable: true })
-  @IsOptional()
-  @IsString()
-  location?: string | null;
 
   @ApiPropertyOptional({ nullable: true, example: 'OWNED' })
   @IsOptional()

@@ -66,11 +66,9 @@ export class CoverAcquisitionServiceImpl
         url: true,
         bibliographicRecord: {
           select: {
-            work: { select: { id: true, organizationId: true } },
             edition: {
               select: {
                 id: true,
-                workId: true,
                 work: { select: { id: true, organizationId: true } },
               },
             },
@@ -92,10 +90,6 @@ export class CoverAcquisitionServiceImpl
 
     try {
       const context = resolveCandidateContext(candidate.bibliographicRecord);
-      if (!context.ok) {
-        await this.rejectCandidate(candidate.id, context.error);
-        return;
-      }
       const { organizationId, editionId } = context;
       const image = await this.fetcher.fetch(candidate.url);
       const contentHash = createHash('sha256')
@@ -290,41 +284,22 @@ export class CoverAcquisitionServiceImpl
 }
 
 type CoverCandidateRecord = {
-  work: { id: string; organizationId: string } | null;
   edition: {
     id: string;
-    workId: string;
     work: { id: string; organizationId: string };
-  } | null;
+  };
 };
 
-function resolveCandidateContext(
-  record: CoverCandidateRecord,
-):
-  | { ok: true; organizationId: string; editionId: string | null }
-  | { ok: false; error: string } {
-  const workOrganizationId = record.work?.organizationId;
-  const editionOrganizationId = record.edition?.work.organizationId;
-  if (
-    workOrganizationId &&
-    editionOrganizationId &&
-    workOrganizationId !== editionOrganizationId
-  ) {
-    return { ok: false, error: 'ORGANIZATION_MISMATCH' };
-  }
-  if (
-    record.work &&
-    record.edition &&
-    record.work.id !== record.edition.workId
-  ) {
-    return { ok: false, error: 'INCONSISTENT_BIBLIOGRAPHIC_RECORD' };
-  }
-
-  const organizationId = editionOrganizationId ?? workOrganizationId;
-  if (!organizationId) {
-    return { ok: false, error: 'NO_OWNING_ORGANIZATION' };
-  }
-  return { ok: true, organizationId, editionId: record.edition?.id ?? null };
+function resolveCandidateContext(record: CoverCandidateRecord): {
+  ok: true;
+  organizationId: string;
+  editionId: string;
+} {
+  return {
+    ok: true,
+    organizationId: record.edition.work.organizationId,
+    editionId: record.edition.id,
+  };
 }
 
 async function lockEditionForCover(

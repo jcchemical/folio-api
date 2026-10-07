@@ -46,10 +46,8 @@ describe('CoverAcquisitionService', () => {
       url: 'https://images.porbase.pt/cover.png',
       retryCount: options.retryCount ?? 0,
       bibliographicRecord: {
-        work: { id: 'work-1', organizationId: 'org-1' },
         edition: {
           id: 'edition-1',
-          workId: 'work-1',
           work: { id: 'work-1', organizationId: 'org-1' },
         },
       },
@@ -212,24 +210,6 @@ describe('CoverAcquisitionService', () => {
     expect(transaction.editionCover.upsert).toHaveBeenCalledOnce();
   });
 
-  it('keeps the acquired asset but does not associate it when no Edition is unambiguous', async () => {
-    const { service, candidate, transaction } = createFixture();
-    candidate.bibliographicRecord.edition = null;
-
-    await service.acquire(candidate.id);
-
-    expect(transaction.$queryRaw).not.toHaveBeenCalled();
-    expect(transaction.editionCover.upsert).not.toHaveBeenCalled();
-    expect(transaction.coverCandidate.updateMany).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          status: 'ACQUIRED',
-          coverAssetId: existingAsset.id,
-        }),
-      }),
-    );
-  });
-
   it('keeps the acquired asset without an invalid association if the Edition disappeared', async () => {
     const { service, candidate, transaction } = createFixture({
       editionMissing: true,
@@ -243,25 +223,6 @@ describe('CoverAcquisitionService', () => {
         data: expect.objectContaining({ status: 'ACQUIRED' }),
       }),
     );
-  });
-
-  it('rejects inconsistent candidate and Edition organizations before fetching', async () => {
-    const { service, prisma, fetcher, candidate, transaction } =
-      createFixture();
-    candidate.bibliographicRecord.edition!.work.organizationId = 'org-2';
-
-    await service.acquire(candidate.id);
-
-    expect(fetcher.fetch).not.toHaveBeenCalled();
-    expect(transaction.editionCover.upsert).not.toHaveBeenCalled();
-    expect(prisma.coverCandidate.updateMany).toHaveBeenLastCalledWith({
-      where: { id: candidate.id, status: 'ACQUIRING' },
-      data: {
-        status: 'REJECTED',
-        rejectReason: 'ORGANIZATION_MISMATCH',
-        nextAttemptAt: null,
-      },
-    });
   });
 
   it('rejects an organization mismatch discovered under the Edition lock', async () => {

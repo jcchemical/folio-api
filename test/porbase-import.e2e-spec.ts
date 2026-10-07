@@ -43,7 +43,7 @@ describe('Catalogue source operations (e2e)', () => {
         sourceId: 'porbase',
         work: { title: `owned-by-${userId}` },
         edition: { title: 'E2E Edition' },
-        contributors: [],
+        contributions: [],
         externalIdentifiers: [],
         bibliographicRecord: {
           format: 'MARCXCHANGE',
@@ -51,7 +51,6 @@ describe('Catalogue source operations (e2e)', () => {
           source: 'PORBASE',
           rawContent: '<collection />',
         },
-        item: { status: 'OWNED' },
       }),
     };
 
@@ -79,7 +78,6 @@ describe('Catalogue source operations (e2e)', () => {
   const validImport = {
     work: { title: 'E2E Work' },
     edition: { title: 'E2E Edition' },
-    contributors: [],
     externalIdentifiers: [],
     bibliographicRecord: {
       format: 'MARCXCHANGE',
@@ -87,7 +85,6 @@ describe('Catalogue source operations (e2e)', () => {
       source: 'PORBASE',
       rawContent: '<collection />',
     },
-    item: { status: 'OWNED' },
   };
 
   it('uses PORBASE by default through the generic endpoints', async () => {
@@ -114,6 +111,8 @@ describe('Catalogue source operations (e2e)', () => {
       .expect(({ body }) => {
         expect(body.work.title).toBe('owned-by-e2e-user');
         expect(body.sourceId).toBe('porbase');
+        expect(body).not.toHaveProperty('item');
+        expect(body).not.toHaveProperty('contributors');
       });
   });
 

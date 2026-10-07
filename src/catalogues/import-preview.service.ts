@@ -5,7 +5,6 @@ import { CataloguesService } from './catalogues.service.js';
 import type { PorbaseBibliographicFieldsDto } from './dto/porbase-search-response.dto.js';
 import type { CatalogueWarningDto } from './dto/catalogue-warning.dto.js';
 import type {
-  ImportPreviewContributorDto,
   ImportPreviewEditionDto,
   ImportPreviewExternalIdentifierDto,
   ImportPreviewResponseDto,
@@ -75,10 +74,6 @@ export class ImportPreviewService {
     if (/^\d{13}$/.test(normalizedIsbn)) edition.isbn13 = normalizedIsbn;
     if (/^\d{9}[\dX]$/.test(normalizedIsbn)) edition.isbn10 = normalizedIsbn;
 
-    const contributors = [
-      ...toContributors(metadata.authors, 'author'),
-      ...toContributors(metadata.translators ?? [], 'translator'),
-    ];
     const externalIdentifiers = toExternalIdentifiers(metadata, query);
     const warnings = [...result.warnings];
 
@@ -141,7 +136,6 @@ export class ImportPreviewService {
     return {
       work: { title },
       edition,
-      contributors,
       contributions: metadata.contributions ?? [],
       externalIdentifiers,
       bibliographicRecord: {
@@ -158,13 +152,6 @@ export class ImportPreviewService {
       warnings: unique(warnings),
     };
   }
-}
-
-function toContributors(
-  names: string[],
-  role: string,
-): ImportPreviewContributorDto[] {
-  return names.filter(Boolean).map((name) => ({ name, role }));
 }
 
 function toExternalIdentifiers(

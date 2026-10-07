@@ -414,28 +414,6 @@ export class CatalogueImportEditionDto {
   editionStatements?: CatalogueEditionStatementInputDto[];
 }
 
-export class CatalogueImportContributorDto {
-  @ApiProperty({ example: 'Nikos Kazantzakis' })
-  @IsString()
-  @IsNotEmpty()
-  name!: string;
-
-  @ApiProperty({ example: 'AUTHOR' })
-  @IsString()
-  @IsNotEmpty()
-  role!: string;
-
-  @ApiProperty({ enum: ['WORK', 'EDITION'], example: 'WORK' })
-  @IsIn(['WORK', 'EDITION'])
-  scope!: 'WORK' | 'EDITION';
-
-  @ApiPropertyOptional({ example: 0, default: 0 })
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  sortOrder?: number;
-}
-
 export class CatalogueImportExternalIdentifierDto {
   @ApiProperty({ example: 'ISBN-13' })
   @IsString()
@@ -469,28 +447,6 @@ export class CatalogueImportBibliographicRecordDto {
   rawContent!: string;
 }
 
-export class CatalogueImportItemDto {
-  @ApiPropertyOptional({ example: null, nullable: true })
-  @IsOptional()
-  @IsString()
-  label?: string | null;
-
-  @ApiPropertyOptional({ example: null, nullable: true })
-  @IsOptional()
-  @IsString()
-  location?: string | null;
-
-  @ApiProperty({ example: 'OWNED' })
-  @IsString()
-  @IsNotEmpty()
-  status!: string;
-
-  @ApiPropertyOptional({ example: null, nullable: true })
-  @IsOptional()
-  @IsString()
-  notes?: string | null;
-}
-
 export class CatalogueImportDto {
   @ApiPropertyOptional({ example: 'porbase' })
   @IsOptional()
@@ -509,13 +465,6 @@ export class CatalogueImportDto {
   @ValidateNested()
   @Type(() => CatalogueImportEditionDto)
   edition!: CatalogueImportEditionDto;
-
-  @ApiProperty({ type: [CatalogueImportContributorDto] })
-  @IsDefined()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => CatalogueImportContributorDto)
-  contributors!: CatalogueImportContributorDto[];
 
   @ApiPropertyOptional({ type: [CatalogueContributionInputDto] })
   @IsOptional()
@@ -536,12 +485,6 @@ export class CatalogueImportDto {
   @ValidateNested()
   @Type(() => CatalogueImportBibliographicRecordDto)
   bibliographicRecord!: CatalogueImportBibliographicRecordDto;
-
-  @ApiProperty({ type: CatalogueImportItemDto })
-  @IsDefined()
-  @ValidateNested()
-  @Type(() => CatalogueImportItemDto)
-  item!: CatalogueImportItemDto;
 }
 
 export class CatalogueImportedOrganizationDto {
@@ -619,15 +562,6 @@ export class CatalogueImportedPublicationStatementDto {
   parts!: CatalogueImportedPublicationStatementPartDto[];
 }
 
-export class CatalogueImportedItemDto {
-  @ApiProperty() id!: string;
-  @ApiPropertyOptional({ nullable: true }) label?: string | null;
-  @ApiPropertyOptional({ nullable: true }) location?: string | null;
-  @ApiProperty() status!: string;
-  @ApiPropertyOptional({ nullable: true }) notes?: string | null;
-  @ApiProperty() organizationId!: string;
-}
-
 export class CatalogueImportedTitleDto {
   @ApiProperty() id!: string;
   @ApiProperty() type!: string;
@@ -675,14 +609,6 @@ export class CatalogueImportedClassificationDto {
   @ApiProperty() system!: string;
   @ApiPropertyOptional({ nullable: true }) systemEdition?: string | null;
   @ApiPropertyOptional({ nullable: true }) authorityId?: string | null;
-  @ApiProperty() sortOrder!: number;
-}
-
-export class CatalogueImportedContributorDto {
-  @ApiProperty() id!: string;
-  @ApiProperty() name!: string;
-  @ApiProperty() role!: string;
-  @ApiProperty({ enum: ['WORK', 'EDITION'] }) scope!: 'WORK' | 'EDITION';
   @ApiProperty() sortOrder!: number;
 }
 
@@ -744,12 +670,8 @@ export class CatalogueImportedEditionDto {
   externalIdentifiers!: CatalogueImportedExternalIdentifierDto[];
   @ApiProperty({ type: [CatalogueImportedBibliographicRecordDto] })
   bibliographicRecords!: CatalogueImportedBibliographicRecordDto[];
-  @ApiProperty({ type: [CatalogueImportedContributorDto] })
-  contributors!: CatalogueImportedContributorDto[];
   @ApiProperty({ type: [CatalogueImportedContributionDto] })
   contributions!: CatalogueImportedContributionDto[];
-  @ApiProperty({ type: [CatalogueImportedItemDto] })
-  items!: CatalogueImportedItemDto[];
   @ApiProperty({ type: [CatalogueImportedTitleDto] })
   titles!: CatalogueImportedTitleDto[];
   @ApiProperty({ type: [CatalogueImportedResponsibilityStatementDto] })
@@ -774,8 +696,6 @@ export class CatalogueImportedWorkDto {
   organization!: CatalogueImportedOrganizationDto;
   @ApiProperty({ type: [CatalogueImportedEditionDto] })
   editions!: CatalogueImportedEditionDto[];
-  @ApiProperty({ type: [CatalogueImportedContributorDto] })
-  contributors!: CatalogueImportedContributorDto[];
   @ApiProperty({ type: [CatalogueImportedContributionDto] })
   contributions!: CatalogueImportedContributionDto[];
   @ApiProperty({ type: [CatalogueImportedBibliographicRecordDto] })
@@ -797,8 +717,6 @@ export class CatalogueImportResponseDto {
   @ApiProperty({ type: CatalogueImportedEditionDto })
   edition!: CatalogueImportedEditionDto;
 
-  @ApiProperty({ type: [CatalogueImportedContributorDto] })
-  contributors!: CatalogueImportedContributorDto[];
   @ApiProperty({ type: [CatalogueImportedContributionDto] })
   contributions!: CatalogueImportedContributionDto[];
 
@@ -807,9 +725,6 @@ export class CatalogueImportResponseDto {
 
   @ApiProperty({ type: CatalogueImportedBibliographicRecordDto })
   bibliographicRecord!: CatalogueImportedBibliographicRecordDto;
-
-  @ApiProperty({ type: CatalogueImportedItemDto })
-  item!: CatalogueImportedItemDto;
 
   @ApiProperty({ type: [Object], example: [] })
   warnings?: Array<{

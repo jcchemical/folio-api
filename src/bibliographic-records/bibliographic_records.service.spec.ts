@@ -5,24 +5,23 @@ import type { OrganizationMembershipService } from '../organizations/organizatio
 import { BibliographicRecordsService } from './bibliographic_records.service.js';
 
 const userId = 'user-1';
+const work = { id: 'work-1', organizationId: 'organization-1' };
+const edition = { id: 'edition-1', work };
 const record = {
   id: 'record-1',
+  editionId: edition.id,
+  edition,
   rawContent: '<record />',
-  work: { id: 'work-1', organizationId: 'organization-1' },
-  edition: null,
 };
 
-function createService(authorized: boolean, result: typeof record | null = record) {
+function createService(authorized: boolean, result = record as object | null) {
   const prisma = {
     bibliographicRecord: {
       findUnique: vi.fn().mockResolvedValue(result),
       findMany: vi.fn().mockResolvedValue([record]),
     },
     edition: {
-      findUnique: vi.fn().mockResolvedValue({
-        id: 'edition-1',
-        work: record.work,
-      }),
+      findUnique: vi.fn().mockResolvedValue(edition),
     },
   } as unknown as PrismaService;
   const memberships = {
@@ -31,68 +30,30 @@ function createService(authorized: boolean, result: typeof record | null = recor
       : vi.fn().mockRejectedValue(new ForbiddenException()),
   } as unknown as OrganizationMembershipService;
 
-  return { memberships, service: new BibliographicRecordsService(prisma, memberships) };
+  return {
+    prisma,
+    memberships,
+    service: new BibliographicRecordsService(prisma, memberships),
+  };
 }
 
 describe('BibliographicRecordsService.findOne', () => {
-  it('returns a record to a member of its work organization', async () => {
-    const { memberships, service } = createService(true);
+  it('authorizes through the required Edition target and its Work', async () => {
+    const { prisma, memberships, service } = createService(true);
 
     await expect(service.findOne(userId, record.id)).resolves.toEqual(record);
-    expect(memberships.assertWorkAccess).toHaveBeenCalledWith(userId, record.work);
+    expect(prisma.bibliographicRecord.findUnique).toHaveBeenCalledWith({
+      where: { id: record.id },
+      include: { edition: { include: { work: true } } },
+    });
+    expect(memberships.assertWorkAccess).toHaveBeenCalledWith(userId, work);
   });
 
-  it('rejects a non-member with 403 Forbidden', async () => {
+  it('rejects a non-member of the Edition Work organization', async () => {
     const { service } = createService(false);
 
     await expect(service.findOne(userId, record.id)).rejects.toBeInstanceOf(
       ForbiddenException,
-    );
-  });
-
-  it('authorizes through an Edition work instead of an unrelated direct work', async () => {
-    const editionWork = {
-      id: 'edition-work-1',
-      organizationId: 'organization-member',
-    };
-    const recordWithIndirectWork = {
-      id: 'record-through-edition-1',
-      rawContent: '<record />',
-      work: { id: 'unrelated-work-1', organizationId: 'organization-other' },
-      edition: { id: 'edition-1', work: editionWork },
-    };
-    const prisma = {
-      bibliographicRecord: {
-        findUnique: vi.fn().mockResolvedValue(recordWithIndirectWork),
-      },
-    } as unknown as PrismaService;
-    const memberMemberships = {
-      assertWorkAccess: vi.fn().mockResolvedValue(undefined),
-    } as unknown as OrganizationMembershipService;
-    const nonMemberMemberships = {
-      assertWorkAccess: vi.fn().mockRejectedValue(new ForbiddenException()),
-    } as unknown as OrganizationMembershipService;
-
-    await expect(
-      new BibliographicRecordsService(prisma, memberMemberships).findOne(
-        userId,
-        recordWithIndirectWork.id,
-      ),
-    ).resolves.toEqual(recordWithIndirectWork);
-    expect(memberMemberships.assertWorkAccess).toHaveBeenCalledWith(
-      userId,
-      editionWork,
-    );
-
-    await expect(
-      new BibliographicRecordsService(prisma, nonMemberMemberships).findOne(
-        'external-user',
-        recordWithIndirectWork.id,
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(nonMemberMemberships.assertWorkAccess).toHaveBeenCalledWith(
-      'external-user',
-      editionWork,
     );
   });
 
@@ -106,20 +67,20 @@ describe('BibliographicRecordsService.findOne', () => {
 });
 
 describe('BibliographicRecordsService.findByEdition', () => {
-  it('returns records only after authorizing access to the Edition work', async () => {
+  it('returns records only after authorizing access to the Edition Work', async () => {
     const { memberships, service } = createService(true);
 
-    await expect(service.findByEdition(userId, 'edition-1')).resolves.toEqual([
+    await expect(service.findByEdition(userId, edition.id)).resolves.toEqual([
       record,
     ]);
-    expect(memberships.assertWorkAccess).toHaveBeenCalledWith(userId, record.work);
+    expect(memberships.assertWorkAccess).toHaveBeenCalledWith(userId, work);
   });
 
-  it('rejects users without access to the Edition work', async () => {
+  it('rejects users without access to the Edition Work', async () => {
     const { service } = createService(false);
 
     await expect(
-      service.findByEdition('external-user', 'edition-1'),
+      service.findByEdition('external-user', edition.id),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -131,13 +92,10 @@ describe('BibliographicRecordsService.findByEdition', () => {
     const memberships = {
       assertWorkAccess: vi.fn(),
     } as unknown as OrganizationMembershipService;
-    const serviceWithMissingEdition = new BibliographicRecordsService(
-      prisma,
-      memberships,
-    );
+    const service = new BibliographicRecordsService(prisma, memberships);
 
     await expect(
-      serviceWithMissingEdition.findByEdition(userId, 'missing-edition'),
+      service.findByEdition(userId, 'missing-edition'),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

@@ -45,12 +45,6 @@ type LocalClassification = Ordered & {
   authorityId?: string | null;
 };
 
-export type LocalContributorLink = {
-  role: string;
-  sortOrder: number;
-  contributor: { name: string };
-};
-
 export type LocalContribution = Ordered & {
   sourceTag: string | null;
   indicator1: string | null;
@@ -121,10 +115,6 @@ export type UnimarcLocalEditionInput = {
   publicationPlace?: string | null;
   language?: string | null;
   pageCount?: number | null;
-  editionContributors?: LocalContributorLink[];
-  workContributors?: LocalContributorLink[];
-  editionContributions?: LocalContribution[];
-  workContributions?: LocalContribution[];
 };
 
 /** Maps persisted canonical Folio data to the supported local UNIMARC subset. */
@@ -864,20 +854,14 @@ function appendContributions(
   fields: MarcDataField[],
   warnings: BibliographicExportWarning[],
 ): void {
-  const editionContributions =
-    edition.contributions ?? edition.editionContributions ?? [];
-  const workContributions =
-    edition.work?.contributions ?? edition.workContributions ?? [];
   appendContributionTarget(
-    editionContributions,
-    edition.editionContributors ?? [],
+    edition.contributions ?? [],
     'Edition',
     fields,
     warnings,
   );
   appendContributionTarget(
-    workContributions,
-    edition.workContributors ?? [],
+    edition.work?.contributions ?? [],
     'Work',
     fields,
     warnings,
@@ -886,7 +870,6 @@ function appendContributions(
 
 function appendContributionTarget(
   contributions: LocalContribution[],
-  legacy: LocalContributorLink[],
   scope: 'Edition' | 'Work',
   fields: MarcDataField[],
   warnings: BibliographicExportWarning[],
@@ -939,39 +922,6 @@ function appendContributionTarget(
         });
     }
     return;
-  }
-  for (const contributor of [...legacy].sort(
-    (a, b) => a.sortOrder - b.sortOrder,
-  )) {
-    if (
-      contributor.role.toLowerCase() !== 'author' ||
-      !isNonEmpty(contributor.contributor.name)
-    ) {
-      warn(warnings, {
-        code: 'unmapped_data',
-        source: `${scope} legacy contributor role:${contributor.role}`,
-        target: null,
-        message:
-          'Legacy contributor was not mapped because no approved role-to-UNIMARC mapping exists.',
-        sourceValue: contributor.contributor.name,
-        lossy: true,
-      });
-      continue;
-    }
-    fields.push(
-      dataField('700', ' ', ' ', [
-        { code: 'a', value: contributor.contributor.name },
-      ]),
-    );
-    warn(warnings, {
-      code: 'normalization',
-      source: `${scope} legacy contributor`,
-      target: '700$a',
-      message:
-        'Legacy author was exported using a synthesized 700 field because canonical Contributions are absent.',
-      sourceValue: contributor.contributor.name,
-      lossy: true,
-    });
   }
 }
 

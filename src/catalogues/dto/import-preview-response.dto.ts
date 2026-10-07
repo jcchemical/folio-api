@@ -92,14 +92,6 @@ export class ImportPreviewEditionDto {
   classifications!: CatalogueClassificationDto[];
 }
 
-export class ImportPreviewContributorDto {
-  @ApiProperty({ example: 'Kazantzákis, Níkos' })
-  name!: string;
-
-  @ApiProperty({ example: 'author' })
-  role!: string;
-}
-
 export class ImportPreviewExternalIdentifierDto {
   @ApiProperty({ example: 'ISBN-13' })
   type!: string;
@@ -143,9 +135,6 @@ export class ImportPreviewResponseDto {
 
   @ApiProperty({ type: [CatalogueResponsibilityStatementDto] })
   responsibilityStatements!: CatalogueResponsibilityStatementDto[];
-
-  @ApiProperty({ type: [ImportPreviewContributorDto] })
-  contributors!: ImportPreviewContributorDto[];
 
   @ApiProperty({ type: [CatalogueContributionDto] })
   contributions!: CatalogueContributionDto[];

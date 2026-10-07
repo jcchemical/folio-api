@@ -89,16 +89,6 @@ describe('Catalogue import persistence (e2e)', () => {
                   ],
                 },
               ],
-              items: [
-                {
-                  id: 'item-1',
-                  label: null,
-                  location: null,
-                  status: 'OWNED',
-                  notes: null,
-                  organizationId: 'organization-1',
-                },
-              ],
               titles: [
                 {
                   id: 'et-1',
@@ -120,21 +110,13 @@ describe('Catalogue import persistence (e2e)', () => {
               classifications: [],
               physicalDescriptions: [],
               publicationStatements: [],
-              editionContributors: [],
               contributions: [],
             },
           ],
-          workContributors: [],
           contributions: [],
           bibliographicRecords: [],
         }),
       },
-      contributor: {
-        findMany: async () => [],
-        create: async () => ({ id: 'contributor-1', name: 'Author Name' }),
-      },
-      workContributor: { create: async () => ({}) },
-      editionContributor: { create: async () => ({}) },
       externalIdentifier: { create: async () => ({}) },
       bibliographicRecord: {
         create: async () => ({
@@ -166,16 +148,6 @@ describe('Catalogue import persistence (e2e)', () => {
       },
       coverCandidate: { upsert: vi.fn().mockResolvedValue({}) },
       $executeRawUnsafe: vi.fn().mockResolvedValue(0),
-      item: {
-        create: async () => ({
-          id: 'item-1',
-          label: null,
-          location: null,
-          status: 'OWNED',
-          notes: null,
-          organizationId: 'organization-1',
-        }),
-      },
     };
     return { tx: t };
   }
@@ -253,7 +225,6 @@ describe('Catalogue import persistence (e2e)', () => {
           ],
           languages: [{ code: 'por', role: 'TEXT', sortOrder: 0 }],
         },
-        contributors: [],
         externalIdentifiers: [
           { type: 'ISBN-13', value: '9789724426495', source: 'PORBASE' },
         ],
@@ -270,7 +241,6 @@ describe('Catalogue import persistence (e2e)', () => {
           schema: 'FORGED',
           sourceId: 'forged-provider',
         },
-        item: { status: 'OWNED' },
       })
       .expect(201);
 
@@ -292,6 +262,8 @@ describe('Catalogue import persistence (e2e)', () => {
     );
     expect(response.body.bibliographicRecord.source).toBe('PORBASE');
     expect(response.body.bibliographicRecord.sourceId).toBe('porbase');
+    expect(response.body).not.toHaveProperty('item');
+    expect(response.body.edition).not.toHaveProperty('items');
     expect(response.body.bibliographicRecord.unmappedSourceFields).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

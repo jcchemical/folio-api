@@ -11,36 +11,6 @@ import {
 import { serializeMarcXchange } from '../bibliography/serializers/marcxchange.serializer.js';
 import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
 
-type CanonicalExportInput = UnimarcLocalEditionInput & {
-  legacyProjection: {
-    edition: {
-      title: string;
-      subtitle: string | null;
-      isbn10: string | null;
-      isbn13: string | null;
-      publisher: string | null;
-      publicationDate: string | null;
-      publicationPlace: string | null;
-      language: string | null;
-      pageCount: number | null;
-    };
-    work: { title: string };
-  };
-  titles: unknown[];
-  responsibilityStatements: unknown[];
-  languages: unknown[];
-  editionStatements: unknown[];
-  series: unknown[];
-  notes: unknown[];
-  classifications: unknown[];
-  contributions: NonNullable<UnimarcLocalEditionInput['editionContributions']>;
-  work: NonNullable<UnimarcLocalEditionInput['work']> & {
-    titles: unknown[];
-    notes: unknown[];
-    contributions: NonNullable<UnimarcLocalEditionInput['workContributions']>;
-  };
-};
-
 @Injectable()
 export class ExportsService {
   constructor(
@@ -54,10 +24,6 @@ export class ExportsService {
       include: {
         work: {
           include: {
-            workContributors: {
-              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-              include: { contributor: true },
-            },
             titles: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
             notes: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
             contributions: {
@@ -81,10 +47,6 @@ export class ExportsService {
         notes: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
         classifications: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-        },
-        editionContributors: {
-          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          include: { contributor: true },
         },
         contributions: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
@@ -132,9 +94,8 @@ export class ExportsService {
         work: { title: edition.work.title },
       };
 
-      const localEdition: CanonicalExportInput = {
+      const localEdition: UnimarcLocalEditionInput = {
         id: edition.id,
-        // Transitional aliases remain until the mapper is updated in 1G-API.2.
         ...legacyProjection.edition,
         legacyProjection,
         titles: edition.titles,
@@ -148,16 +109,10 @@ export class ExportsService {
         physicalDescriptions: edition.physicalDescriptions,
         publicationStatements: edition.publicationStatements,
         work: {
-          title: legacyProjection.work.title,
           titles: edition.work.titles,
           notes: edition.work.notes,
           contributions: edition.work.contributions,
-          workContributors: edition.work.workContributors,
-        } as CanonicalExportInput['work'],
-        editionContributors: edition.editionContributors,
-        workContributors: edition.work.workContributors,
-        editionContributions: edition.contributions,
-        workContributions: edition.work.contributions,
+        },
         externalIdentifiers: edition.externalIdentifiers,
       };
 

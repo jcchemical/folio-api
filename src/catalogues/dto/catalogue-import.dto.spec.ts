@@ -92,7 +92,6 @@ describe('CatalogueImportDto client-editable Phase 1 fields', () => {
     format: 'MARCXCHANGE',
     rawContent: '<collection />',
   };
-  const baseItem = { status: 'OWNED' };
 
   it('accepts multiple titles, languages, series, notes and classifications', async () => {
     const instance = plainToInstance(CatalogueImportDto, {
@@ -119,10 +118,8 @@ describe('CatalogueImportDto client-editable Phase 1 fields', () => {
           { notation: '821.134.3', system: 'UDC', sortOrder: 0 },
         ],
       },
-      contributors: [],
       externalIdentifiers: [],
       bibliographicRecord: baseBibliographicRecord,
-      item: baseItem,
     });
 
     const errors = await validate(instance, { whitelist: true });
@@ -136,10 +133,8 @@ describe('CatalogueImportDto client-editable Phase 1 fields', () => {
         ...baseEdition,
         titles: [{ type: 'INVALID', value: 'x', sortOrder: 0 }],
       },
-      contributors: [],
       externalIdentifiers: [],
       bibliographicRecord: baseBibliographicRecord,
-      item: baseItem,
     });
 
     const errors = await validate(instance);
@@ -169,10 +164,8 @@ describe('CatalogueImportDto client-editable Phase 1 fields', () => {
           { kind: 'OTHER', value: 'revista', sortOrder: 6 },
         ],
       },
-      contributors: [],
       externalIdentifiers: [],
       bibliographicRecord: baseBibliographicRecord,
-      item: baseItem,
     });
 
     expect(await validate(instance, { whitelist: true })).toEqual([]);
@@ -206,10 +199,8 @@ describe('CatalogueImportDto client-editable Phase 1 fields', () => {
           { kind: 'EDITION', value: '2.ª edição', sourceTag: '' },
         ],
       },
-      contributors: [],
       externalIdentifiers: [],
       bibliographicRecord: baseBibliographicRecord,
-      item: baseItem,
     });
 
     const errors = await validate(instance);

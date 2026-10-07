@@ -77,41 +77,6 @@ describe('WorksService organization access', () => {
 });
 
 describe('WorksService Phase 1 canonical read model', () => {
-  it('keeps the read-only fallback for historical WorkContributor records', async () => {
-    const work = {
-      id: 'work-legacy',
-      organizationId: 'organization-1',
-      title: 'Historical work',
-      organization: { id: 'organization-1' },
-      editions: [],
-      contributions: [],
-      workContributors: [
-        {
-          id: 'legacy-work-link',
-          role: 'author',
-          sortOrder: 2,
-          contributor: { id: 'legacy-contributor', name: 'Historical Author' },
-        },
-      ],
-    };
-    const { service } = createWorkService(work);
-
-    await expect(service.findById(work.id, 'member')).resolves.toMatchObject({
-      contributions: [
-        {
-          id: 'legacy-work-link',
-          scope: 'WORK',
-          roleLabel: 'author',
-          agent: {
-            id: 'legacy-contributor',
-            displayName: 'Historical Author',
-          },
-          sourceParts: [],
-        },
-      ],
-    });
-  });
-
   it('reads titles, responsibility statements, languages, series, notes and classifications ordered deterministically', async () => {
     const work = {
       id: 'work-1',

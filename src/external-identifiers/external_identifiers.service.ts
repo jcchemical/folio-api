@@ -6,7 +6,11 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { paginate, paginationArgs, type PaginationInput } from '../common/pagination.js';
+import {
+  paginate,
+  paginationArgs,
+  type PaginationInput,
+} from '../common/pagination.js';
 import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
 
 export interface ExternalIdentifierInput {
@@ -26,7 +30,11 @@ export class ExternalIdentifiersService {
   async findAllByUser(userId: string, query: PaginationInput = {}) {
     const { limit, prisma } = paginationArgs(query);
     const rows = await this.prisma.externalIdentifier.findMany({
-      where: { edition: { work: { organization: { memberships: { some: { userId } } } } } },
+      where: {
+        edition: {
+          work: { organization: { memberships: { some: { userId } } } },
+        },
+      },
       orderBy: { createdAt: 'desc' },
       ...prisma,
     });
@@ -37,7 +45,7 @@ export class ExternalIdentifiersService {
     const edition = await this.assertEditionOwnership(data.editionId, userId);
     try {
       return await this.prisma.externalIdentifier.create({
-        data: { ...data, organizationId: edition.work.organizationId },
+        data,
       });
     } catch (error: unknown) {
       throw this.mapUniqueViolation(error, data.type, data.value);
@@ -54,7 +62,9 @@ export class ExternalIdentifiersService {
     const edition = editionId
       ? await this.assertEditionOwnership(editionId, userId)
       : identifier.edition;
-    if (edition.work.organizationId !== identifier.edition.work.organizationId) {
+    if (
+      edition.work.organizationId !== identifier.edition.work.organizationId
+    ) {
       throw new BadRequestException(
         'External identifiers cannot be reassigned across organizations',
       );
@@ -65,11 +75,14 @@ export class ExternalIdentifiersService {
         data: {
           ...changes,
           ...(editionId ? { editionId } : {}),
-          organizationId: edition.work.organizationId,
         },
       });
     } catch (error: unknown) {
-      throw this.mapUniqueViolation(error, changes.type ?? identifier.type, changes.value ?? identifier.value);
+      throw this.mapUniqueViolation(
+        error,
+        changes.type ?? identifier.type,
+        changes.value ?? identifier.value,
+      );
     }
   }
 
@@ -84,7 +97,10 @@ export class ExternalIdentifiersService {
       include: { work: true },
     });
     if (!edition) throw new NotFoundException('Edition not found');
-    await this.organizationMemberships.assertWorkWriteAccess(userId, edition.work);
+    await this.organizationMemberships.assertWorkWriteAccess(
+      userId,
+      edition.work,
+    );
     return edition;
   }
 
@@ -93,7 +109,8 @@ export class ExternalIdentifiersService {
       where: { id },
       include: { edition: { include: { work: true } } },
     });
-    if (!identifier) throw new NotFoundException('External identifier not found');
+    if (!identifier)
+      throw new NotFoundException('External identifier not found');
     await this.organizationMemberships.assertWorkWriteAccess(
       userId,
       identifier.edition.work,
@@ -102,8 +119,13 @@ export class ExternalIdentifiersService {
   }
 
   private mapUniqueViolation(error: unknown, type: string, value: string) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      return new ConflictException(`External identifier ${type}:${value} already exists`);
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      return new ConflictException(
+        `External identifier ${type}:${value} already exists`,
+      );
     }
     return error;
   }

@@ -331,7 +331,6 @@ export const canonicalExportEdition = {
       },
     ],
     notes: [],
-    workContributors: [],
     contributions: [
       {
         id: 'contribution-713',
@@ -350,7 +349,6 @@ export const canonicalExportEdition = {
       },
     ],
   },
-  editionContributors: [],
   bibliographicRecords: [
     {
       rawContent:
@@ -387,7 +385,6 @@ export const legacyFallbackEdition = {
     organizationId: canonicalExportOrganizationId,
     titles: [],
     notes: [],
-    workContributors: [],
     contributions: [],
   },
   titles: [],
@@ -401,6 +398,4 @@ export const legacyFallbackEdition = {
   externalIdentifiers: [],
   physicalDescriptions: [],
   publicationStatements: [],
-  editionContributors: [],
-  workContributors: [],
 };

@@ -105,7 +105,6 @@ export class WorksService {
       include: {
         organization: true,
         titles: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
-        workContributors: { include: { contributor: true } },
         contributions: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
           include: {
@@ -147,23 +146,10 @@ export class WorksService {
     await this.organizationMemberships.assertWorkAccess(userId, work);
     return {
       ...work,
-      contributions: (work.contributions ?? []).length
-        ? (work.contributions ?? []).map((contribution) => ({
-            ...contribution,
-            scope: 'WORK' as const,
-          }))
-        : (work.workContributors ?? []).map((relation) => ({
-            id: relation.id,
-            sortOrder: relation.sortOrder,
-            scope: 'WORK' as const,
-            roleLabel: relation.role,
-            agent: {
-              id: relation.contributor.id,
-              displayName: relation.contributor.name,
-              kind: 'UNKNOWN' as const,
-            },
-            sourceParts: [],
-          })),
+      contributions: (work.contributions ?? []).map((contribution) => ({
+        ...contribution,
+        scope: 'WORK' as const,
+      })),
     };
   }
 

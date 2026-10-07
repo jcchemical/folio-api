@@ -30,12 +30,15 @@ function createService() {
   return {
     prisma,
     memberships,
-    service: new ExternalIdentifiersService(prisma as never, memberships as never),
+    service: new ExternalIdentifiersService(
+      prisma as never,
+      memberships as never,
+    ),
   };
 }
 
-describe('ExternalIdentifiersService organization scope', () => {
-  it('derives organizationId from the authorized edition on create', async () => {
+describe('ExternalIdentifiersService Edition ownership', () => {
+  it('persists only the canonical Edition target without duplicate organization ownership', async () => {
     const { service, prisma } = createService();
 
     await service.create('user-a', {
@@ -49,7 +52,6 @@ describe('ExternalIdentifiersService organization scope', () => {
         type: 'ISBN-13',
         value: '9789898236005',
         editionId: 'edition-a',
-        organizationId: 'organization-a',
       },
     });
   });
@@ -78,7 +80,9 @@ describe('ExternalIdentifiersService organization scope', () => {
       id: 'edition-b',
       work: { organizationId: 'organization-b' },
     });
-    memberships.assertWorkWriteAccess.mockRejectedValue(new ForbiddenException());
+    memberships.assertWorkWriteAccess.mockRejectedValue(
+      new ForbiddenException(),
+    );
 
     await expect(
       service.update('identifier-a', 'user-a', { editionId: 'edition-b' }),

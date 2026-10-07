@@ -26,10 +26,6 @@ const baseInput: CatalogueImportDto = {
       },
     ],
   },
-  contributors: [
-    { name: '  Jane   Doe ', role: 'AUTHOR', scope: 'WORK', sortOrder: 0 },
-    { name: 'John Smith', role: 'TRANSLATOR', scope: 'EDITION', sortOrder: 0 },
-  ],
   externalIdentifiers: [
     { type: 'ISBN-13', value: '978-972-44-2649-5', source: 'PORBASE' },
     { type: 'PORBASE', value: 'record-1', source: 'PORBASE' },
@@ -39,18 +35,11 @@ const baseInput: CatalogueImportDto = {
     remoteId: 'record-1',
     rawContent: '<collection />',
   },
-  item: {
-    label: null,
-    location: null,
-    status: 'OWNED',
-    notes: null,
-  },
 };
 
 function createTransactionMock(organizationId = 'organization-1') {
   const work = { id: 'work-1' };
   const edition = { id: 'edition-1' };
-  const contributor = { id: 'contributor-1', name: 'Jane Doe' };
   const tx = {
     edition: {
       findFirst: vi.fn().mockResolvedValue(null),
@@ -78,8 +67,6 @@ function createTransactionMock(organizationId = 'organization-1') {
                 unmappedSourceFields: [],
               },
             ],
-            items: [],
-            editionContributors: [],
             titles: [],
             responsibilityStatements: [],
             languages: [],
@@ -88,18 +75,9 @@ function createTransactionMock(organizationId = 'organization-1') {
             classifications: [],
           },
         ],
-        workContributors: [],
         bibliographicRecords: [],
       }),
     },
-    contributor: {
-      findMany: vi.fn().mockResolvedValue([contributor]),
-      create: vi
-        .fn()
-        .mockResolvedValue({ id: 'contributor-2', name: 'John Smith' }),
-    },
-    workContributor: { create: vi.fn().mockResolvedValue({}) },
-    editionContributor: { create: vi.fn().mockResolvedValue({}) },
     agent: {
       findMany: vi.fn().mockResolvedValue([]),
       create: vi
@@ -136,7 +114,6 @@ function createTransactionMock(organizationId = 'organization-1') {
     },
     coverCandidate: { upsert: vi.fn().mockResolvedValue({}) },
     $executeRawUnsafe: vi.fn().mockResolvedValue(0),
-    item: { create: vi.fn().mockResolvedValue({ id: 'item-1' }) },
   };
 
   return { tx, work, edition };
@@ -165,9 +142,7 @@ describe('PorbaseImportService', () => {
     expect(tx.work.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ organizationId: 'organization-1' }),
     });
-    expect(tx.item.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ organizationId: 'organization-1' }),
-    });
+    expect(tx).not.toHaveProperty('item');
     expect(tx.edition.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         publicationDate: '2022',
@@ -189,9 +164,10 @@ describe('PorbaseImportService', () => {
     });
     expect(tx.externalIdentifier.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        organizationId: 'organization-1',
+        editionId: 'edition-1',
       }),
     });
+    expect(result).not.toHaveProperty('item');
     expect(result.id).toBe('work-1');
   });
 
@@ -289,7 +265,7 @@ describe('PorbaseImportService', () => {
       data: expect.objectContaining({ organizationId: 'organization-b' }),
     });
     expect(tx.externalIdentifier.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ organizationId: 'organization-b' }),
+      data: expect.objectContaining({ editionId: 'edition-1' }),
     });
   });
 
@@ -341,7 +317,9 @@ describe('PorbaseImportService', () => {
 
   it('rolls back when an internal creation fails', async () => {
     const { tx } = createTransactionMock();
-    tx.item.create.mockRejectedValue(new Error('item failure'));
+    tx.externalIdentifier.create.mockRejectedValue(
+      new Error('identifier failure'),
+    );
     const prisma = {
       $transaction: vi.fn(
         async (callback: (transaction: typeof tx) => unknown) => callback(tx),
@@ -357,12 +335,12 @@ describe('PorbaseImportService', () => {
     );
 
     await expect(service.import('jwt-user-1', baseInput)).rejects.toThrow(
-      'item failure',
+      'identifier failure',
     );
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
-  it('does not persist legacy contributor payloads when canonical contributions are absent', async () => {
+  it('does not invent holdings or items during bibliographic import', async () => {
     const { tx } = createTransactionMock();
     const prisma = {
       $transaction: vi.fn(
@@ -378,12 +356,10 @@ describe('PorbaseImportService', () => {
       } as never,
     );
 
-    await service.import('jwt-user-1', baseInput);
+    const result = await service.import('jwt-user-1', baseInput);
 
-    expect(tx.contributor.findMany).not.toHaveBeenCalled();
-    expect(tx.contributor.create).not.toHaveBeenCalled();
-    expect(tx.workContributor.create).not.toHaveBeenCalled();
-    expect(tx.editionContributor.create).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty('item');
+    expect(tx).not.toHaveProperty('item');
     expect(tx.contribution.create).not.toHaveBeenCalled();
   });
 
@@ -459,10 +435,6 @@ describe('PorbaseImportService', () => {
           }),
         }),
       );
-      expect(tx.contributor.findMany).not.toHaveBeenCalled();
-      expect(tx.contributor.create).not.toHaveBeenCalled();
-      expect(tx.workContributor.create).not.toHaveBeenCalled();
-      expect(tx.editionContributor.create).not.toHaveBeenCalled();
     }
 
     expect(transactions[0].tx.contribution.create).not.toHaveBeenCalledWith(
@@ -729,7 +701,6 @@ describe('PorbaseImportService', () => {
         }),
       ]),
     );
-    expect(tx.contributor.create).not.toHaveBeenCalled();
   });
 
   it('persists repeated 205 statements without collapsing their order or kinds', async () => {
@@ -1076,7 +1047,7 @@ describe('PorbaseImportService', () => {
     expect(tx.$executeRawUnsafe).toHaveBeenCalledWith(
       'ROLLBACK TO SAVEPOINT cover_candidate_extraction',
     );
-    expect(tx.item.create).toHaveBeenCalled();
+    expect(tx.bibliographicRecord.create).toHaveBeenCalled();
   });
 
   it('attributes the persisted record to the provider id supplied by the caller, not the client', async () => {

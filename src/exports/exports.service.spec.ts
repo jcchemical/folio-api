@@ -37,15 +37,9 @@ function createEdition(overrides: Record<string, unknown> = {}) {
       id: 'work-1',
       title: 'Título da obra',
       organizationId: 'organization-1',
-      workContributors: [
-        {
-          role: 'author',
-          sortOrder: 0,
-          contributor: { name: 'Autor Local' },
-        },
-      ],
+      contributions: [],
     },
-    editionContributors: [],
+    contributions: [],
     externalIdentifiers: [],
     physicalDescriptions: [],
     ...overrides,
@@ -127,16 +121,8 @@ describe('ExportsService', () => {
         include: expect.objectContaining({
           work: expect.objectContaining({
             include: expect.objectContaining({
-              workContributors: expect.objectContaining({
-                orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-                include: { contributor: true },
-              }),
               contributions: expect.any(Object),
             }),
-          }),
-          editionContributors: expect.objectContaining({
-            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-            include: { contributor: true },
           }),
           contributions: expect.any(Object),
         }),
@@ -172,14 +158,6 @@ describe('ExportsService', () => {
     }
     expect(workInclude.titles).toEqual({ orderBy: ordered });
     expect(workInclude.notes).toEqual({ orderBy: ordered });
-    expect(include.editionContributors).toEqual({
-      orderBy: ordered,
-      include: { contributor: true },
-    });
-    expect(workInclude.workContributors).toEqual({
-      orderBy: ordered,
-      include: { contributor: true },
-    });
     expect(include.contributions).toEqual({
       orderBy: ordered,
       include: {
@@ -205,7 +183,7 @@ describe('ExportsService', () => {
     });
   });
 
-  it('passes canonical relations and segregated legacy projections to the mapper while producing XML', async () => {
+  it('passes canonical relations to the mapper while producing XML', async () => {
     const canonical = {
       titles: [{ type: 'MAIN', value: 'Canonical title', sortOrder: 0 }],
       responsibilityStatements: [{ label: 'STATEMENT', value: 'Statement' }],

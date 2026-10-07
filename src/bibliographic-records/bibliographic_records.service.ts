@@ -12,13 +12,16 @@ export class BibliographicRecordsService {
   async findOne(userId: string, id: string) {
     const record = await this.prisma.bibliographicRecord.findUnique({
       where: { id },
-      include: { work: true, edition: { include: { work: true } } },
+      include: { edition: { include: { work: true } } },
     });
     if (!record) throw new NotFoundException('Bibliographic record not found');
+    if (!record.edition)
+      throw new NotFoundException('Bibliographic record has no Edition');
 
-    const work = record.edition?.work ?? record.work;
-    if (!work) throw new NotFoundException('Bibliographic record has no work');
-    await this.organizationMemberships.assertWorkAccess(userId, work);
+    await this.organizationMemberships.assertWorkAccess(
+      userId,
+      record.edition.work,
+    );
     return record;
   }
 

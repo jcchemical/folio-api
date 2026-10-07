@@ -371,14 +371,6 @@ describe('canonical local UNIMARC mapper', () => {
         },
         work: { title: 'Legacy work title' },
       },
-      editionContributors: [
-        {
-          role: 'author',
-          sortOrder: 0,
-          contributor: { name: 'Legacy author' },
-        },
-      ],
-      workContributors: [],
     });
 
     expect(result.record.dataFields).toEqual([
@@ -419,12 +411,6 @@ describe('canonical local UNIMARC mapper', () => {
         indicator2: ' ',
         subfields: [{ code: 'a', value: '100 p.' }],
       },
-      {
-        tag: '700',
-        indicator1: ' ',
-        indicator2: ' ',
-        subfields: [{ code: 'a', value: 'Legacy author' }],
-      },
     ]);
     expect(result.warnings).toEqual(
       expect.arrayContaining([
@@ -453,16 +439,11 @@ describe('canonical local UNIMARC mapper', () => {
           target: '215$a',
           lossy: true,
         }),
-        expect.objectContaining({
-          source: 'Edition legacy contributor',
-          target: '700$a',
-          lossy: true,
-        }),
       ]),
     );
   });
 
-  it('uses canonical contributions per target and falls back only for the target without them', () => {
+  it('exports canonical contributions only and does not synthesize contributors', () => {
     const result = mapLocalEditionToUnimarc({
       id: 'target-fallback',
       titles: [{ type: 'MAIN', value: 'Title', sortOrder: 0 }],
@@ -479,31 +460,11 @@ describe('canonical local UNIMARC mapper', () => {
         },
       ],
       work: { contributions: [], titles: [], notes: [] },
-      editionContributors: [
-        {
-          role: 'author',
-          sortOrder: 0,
-          contributor: { name: 'Ignored edition legacy' },
-        },
-      ],
-      workContributors: [
-        {
-          role: 'author',
-          sortOrder: 0,
-          contributor: { name: 'Fallback work legacy' },
-        },
-      ],
     });
 
     expect(
       result.record.dataFields.filter(({ tag }) => tag.startsWith('70')),
     ).toEqual([
-      {
-        tag: '700',
-        indicator1: ' ',
-        indicator2: ' ',
-        subfields: [{ code: 'a', value: 'Fallback work legacy' }],
-      },
       {
         tag: '702',
         indicator1: '1',
@@ -511,11 +472,7 @@ describe('canonical local UNIMARC mapper', () => {
         subfields: [{ code: 'a', value: 'Canonical edition contributor' }],
       },
     ]);
-    expect(
-      result.record.dataFields.some(({ subfields }) =>
-        subfields.some(({ value }) => value === 'Ignored edition legacy'),
-      ),
-    ).toBe(false);
+    expect(result.record.dataFields).toHaveLength(3);
   });
 
   it('preserves canonical corporate contribution tags 710 through 713 without name-based inference', () => {
