@@ -1,8 +1,8 @@
 # Checklist: 1L-API.0 Organizational Context and Domain Structure
 
-**Status:** Ready for implementation against the approved target model
+**Status:** Partially implemented; remaining route groups continue under the approved target model
 
-**Date:** 2026-10-06
+**Date:** 2026-10-07
 
 **Scope:** `folio-api` schema, migrations, HTTP contracts, authorization, tests and documentation
 
@@ -12,7 +12,7 @@
 
 This checklist translates the three organizational/domain decisions into one backend implementation plan. The current implementation is a baseline to replace, not a compatibility requirement. The development database may be reset; there are no production data or external consumers to preserve. Do not add compatibility bridges, fallback periods, or migration-safe layering.
 
-The current API has `Organization → Work → Edition → Item` but no `Library`, `Location`, or `Holding`. It accepts optional body `organizationId` for Work creation and catalogue import, chooses the oldest `OWNER` organization if omitted, and returns several root lists across all caller memberships. It has no `X-Folio-Organization-Id` resolver. `Item` and `ExternalIdentifier` persist duplicate organization ownership; legacy `Contributor` remains in schema/routes and is used as a fallback beside canonical `Agent + Contribution` data. `BibliographicRecord` can point to unrelated Work and Edition rows. These are implementation gaps, not constraints to retain.
+The original 2026-10-06 baseline described `Organization → Work → Edition → Item`, lacked `Library`, `Location`, and `Holding`, and had implicit tenant fallbacks. That paragraph is a historical baseline, not the current API state. As of 2026-10-07, the Prisma baseline contains `Organization → Library → Location` and `Organization → Work → Edition → Holding → Item`; Organizations, Works, Editions, Libraries, Locations, Holdings, and Items use explicit root or persisted-parent context. Remaining groups and legacy models below are not implied complete by this physical-inventory slice.
 
 ## 2. Normative target model
 
@@ -64,8 +64,9 @@ Do **not** require a header merely because an operation creates a scoped row. In
 | Root `GET /items` | Explicit root context | Require header; filter through Item → Holding → Location/Library/Organization. |
 | `POST /items` | Child create under persisted Holding | Derive tenant from Holding; do not accept tenant/location/edition ownership as alternate input. Header is optional and must match if present. |
 | `GET/PUT/DELETE /items/:id` | Persisted Item | Derive through Holding; validate membership/role; reject supplied mismatch. |
-| Library/Location lists at root collection routes | Explicit root context | Require header and restrict results to one Organization. Nested routes under `organizations/:organizationId` or `libraries/:libraryId` derive context from the persisted parent. |
-| Library creation under Organization | Child create under persisted Organization | Derive from the Organization parent; if header supplied, require equality. |
+| Current `/libraries` root GET/POST | Explicit root context | Require header; POST has no body `organizationId`. Resource-by-ID derives Organization. |
+| Nested Library creation under Organization, if exposed | Child create under persisted Organization | Derive from the Organization parent; if header supplied, require equality. This nested route is not currently exposed. |
+| Library/Location root lists | Explicit root context | Require header and restrict results to one Organization. Nested Location creation under Library derives context from the persisted parent. |
 | Location creation under Library | Child create under persisted Library | Derive through Library → Organization; if header supplied, require equality. |
 | `POST /catalogues/search` | Global external-provider preview | No Organization context; it does not read or persist local tenant data. This is not local catalogue search. |
 | `POST /catalogues/import` | Root operation creating local Work/Edition data | Require header; remove nested `work.organizationId`; create all imported records in that context. Any nested Edition derives from the newly created Work. |

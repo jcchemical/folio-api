@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   Matches,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreateItemDto {
@@ -20,12 +21,17 @@ export class CreateItemDto {
   @IsString()
   label?: string | null;
 
-  @ApiPropertyOptional({ nullable: true, example: 'OWNED' })
-  @IsOptional()
+  @ApiPropertyOptional({ example: 'OWNED' })
+  @ValidateIf((_object, value) => value !== undefined)
   @IsString()
   @IsNotEmpty()
   @Matches(/\S/)
-  status?: string | null;
+  status?: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  notes?: string | null;
 }
 
 export class UpdateItemDto {
@@ -34,10 +40,15 @@ export class UpdateItemDto {
   @IsString()
   label?: string | null;
 
-  @ApiPropertyOptional({ nullable: true, example: 'OWNED' })
-  @IsOptional()
+  @ApiPropertyOptional({ example: 'OWNED' })
+  @ValidateIf((_object, value) => value !== undefined)
   @IsString()
   @IsNotEmpty()
   @Matches(/\S/)
-  status?: string | null;
+  status?: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsString()
+  notes?: string | null;
 }

@@ -1,6 +1,6 @@
 # Decision: Work, Edition, Holding and Item
 
-**Status:** Proposed for implementation  
+**Status:** Approved for implementation
 **Date:** 2026-10-06  
 **Scope:** Domain model, Prisma schema, API contracts, inventory boundaries, future circulation support
 
@@ -30,8 +30,8 @@ Isto prejudica a clareza do domínio e dificulta circulação, inventário, rela
 
 Exemplos:
 
-- *Os Lusíadas* enquanto obra;
-- *Dom Quixote* enquanto obra;
+- _Os Lusíadas_ enquanto obra;
+- _Dom Quixote_ enquanto obra;
 - um comentário jurídico enquanto obra.
 
 `Work` não representa um exemplar físico nem uma posse específica de uma biblioteca.
@@ -54,32 +54,38 @@ Exemplos:
 
 `Holding` representa que uma determinada organização possui uma determinada edição numa determinada `Library` e `Location`, agregando dados partilhados pelos exemplares dessa posse.
 
-Exemplos de dados próprios de `Holding`:
+Dados próprios de `Holding` incluem:
 
-- `organizationId`;
-- `libraryId`;
-- `locationId`;
 - `editionId`;
+- `locationId`;
 - cota base;
 - notas de coleção;
-- política local de circulação, se vier a existir;
-- metadados operacionais da posse.
+
+`organizationId` e `libraryId` são derivados de `Edition → Work` e
+`Location → Library`; não são persistidos em `Holding`. A base de dados valida
+que ambos os caminhos chegam à mesma `Organization`.
 
 ### 3.4 Item representa o exemplar físico individual
 
-`Item` representa a cópia física individual e é a unidade de circulação.
+`Item` representa a cópia física individual. Pode servir de alvo a circulação
+numa fase futura, mas esta decisão não implementa estados de empréstimo,
+disponibilidade ou workflows de circulação.
 
-Exemplos de dados próprios de `Item`:
+No physical-inventory API slice, os dados próprios de `Item` são `label`,
+`status` e `notes`, além de identity/timestamps. O schema usa String com default
+`OWNED` para `status`; não há enum fechado aprovado nesta decisão. Esse campo
+não representa empréstimo, disponibilidade nem estado de circulação.
 
-- barcode;
-- número de exemplar;
-- estado;
+Exemplos de dados de cópia que poderão ser considerados em decisões futuras:
+
+- barcode ou número de exemplar;
+- label/identificador local;
 - notas específicas do exemplar;
-- disponibilidade;
-- condição;
-- dados próprios de empréstimo e circulação.
+- atributos descritivos da cópia.
 
-O FOLIO usa o item como unidade de empréstimo e rastreamento de estado; Tomos deve seguir este princípio.[web:38][web:73]
+O FOLIO usa o item como unidade de empréstimo e rastreamento de estado; Tomos
+mantém essa possibilidade arquitectural futura sem introduzir empréstimos,
+disponibilidade ou estado de circulação no Item nesta fase.[web:38][web:73]
 
 ### 3.5 Estrutura aprovada
 

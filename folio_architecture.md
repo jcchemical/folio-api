@@ -1,12 +1,12 @@
 # Reavaliação arquitectural — Folio API
 
-> Revisão: 2026-10-06. Este documento avalia a direcção e riscos arquitecturais; `CONTEXT.md` é a referência operacional do estado detalhado das rotas e configuração.
+> Revisão: 2026-10-07. Este documento avalia a direcção e riscos arquitecturais; `CONTEXT.md` é a referência operacional do estado detalhado das rotas e configuração.
 
 ## 1. Síntese executiva
 
 A arquitectura central continua coerente: monólito modular NestJS, PostgreSQL, tenancy por `Organization`, modelo bibliográfico canónico separado dos perfis MARC e fluxo de importação com confirmação explícita. A base possui autenticação e rotação de refresh token, memberships e roles, estruturas canónicas bibliográficas, export local MARCXchange, throttling, CORS configurável e aquisição/serving de capas.
 
-A prioridade desta iteração é fechar a ligação Candidate → Asset → EditionCover com idempotência, isolamento tenant e preservação da selecção activa. A escrita bibliográfica geral também não mantém ainda todas as relações canónicas que o import cria.
+A ligação Candidate → Asset → EditionCover está implementada com idempotência, isolamento tenant e preservação da selecção activa. A escrita bibliográfica geral também não mantém ainda todas as relações canónicas que o import cria.
 
 ## 2. Estado arquitectural actual
 
@@ -14,7 +14,8 @@ A prioridade desta iteração é fechar a ligação Candidate → Asset → Edit
 
 - **Runtime e persistência:** NestJS 12, TypeScript ESM, Prisma 7, PostgreSQL e `pg.Pool` com valores configuráveis.
 - **Identity & Access:** Argon2id, JWT curto, refresh hashado/rotativo/revogável, filtro global de erros e guards.
-- **Tenancy:** Organization como fronteira de Work, Edition e Item; membership N:N com `OWNER`, `ADMIN`, `STAFF`, `READER`.
+- **Tenancy:** Organization como única fronteira; contexto explícito/derivado com memberships actuais e roles `OWNER`, `ADMIN`, `STAFF`, `READER`.
+- **Inventário físico:** `Organization → Library → Location` e `Organization → Work → Edition → Holding → Item`; Item conserva apenas atributos de exemplar e `holdingId`.
 - **Catálogo externo:** contrato `CatalogueProvider`, provider PORBASE único, preview separado de persistência.
 - **Modelo bibliográfico:** tabelas canónicas para títulos, responsabilidades, línguas, declarações, séries, notas, classificações, publicação, descrição física e contribuições.
 - **Intercâmbio:** mapeamento de dados locais para UNIMARC e serialização MARCXchange separada.
@@ -45,7 +46,11 @@ O modelo Prisma não é UNIMARC, MARC 21, MARCXchange, MARCXML ou ISO 2709. MARC
 
 ### Organization como tenant
 
-Organization é a fronteira de acesso do catálogo e inventário; User é identidade global. Membership e role são validados no servidor. Não reintroduzir ownership por `userId`, nem tratar organização pessoal como modelo diferente.
+Organization é a fronteira única de acesso do catálogo e inventário; User é identidade global. Membership e role são validados no servidor. Não reintroduzir ownership por `userId`, nem tratar organização pessoal como modelo diferente. O JWT identifica apenas User; `X-Folio-Organization-Id` é obrigatório em listas/criações root ambíguas e opcional como verificação de consistência quando o parent/recurso persistido deriva o tenant. Organizations, Works, Editions, Libraries, Locations, Holdings e Items já usam esse contrato nas rotas migradas.
+
+### Library, Location, Holding e Item
+
+`Library` pertence a Organization e `Location` pertence a Library; nenhuma das duas é uma fronteira de tenancy. `Holding` liga exactamente uma Edition e uma Location, sem duplicar `organizationId`; a migration baseline valida por constraint triggers diferidos que `Edition → Work → Organization` e `Location → Library → Organization` coincidem. `Item` pertence somente a Holding e não duplica Edition, Library, Location ou Organization. Não há Campus, ServicePoint ou estados de circulação em Item.
 
 ### Registo original separado dos dados locais
 
@@ -67,7 +72,7 @@ Empréstimo, devolução, reserva, políticas e multas são conceitos próprios.
 
 ### Identity, Organization e catálogo
 
-Há self-service de organizações, mas não há selecção de organização activa, memberships administráveis, convites, alteração de roles ou branches. Work creation e confirmação PORBASE sem `organizationId` usam fallback para a organização OWNER mais antiga. Esse fallback é compatibilidade transitória, não substituto para contexto tenant explícito.
+Há self-service de organizações, mas não há selecção de organização activa, memberships administráveis, convites, alteração de roles ou branches. As rotas de Organizations/Works/Editions/Libraries/Locations/Holdings/Items já seguem contexto explícito ou derivado. O fallback da organização OWNER mais antiga permanece apenas em `POST /catalogues/import`, ainda não migrado, além do helper usado no onboarding pessoal.
 
 PORBASE aceita variantes de pesquisa no DTO, mas implementa só ISBN. O preview não persiste. A confirmação envia o payload editável completo e não usa snapshot server-side nem repesquisa. Campos de metadata de contribuições (`sourceTag`, indicadores e source parts) continuam aceites no DTO de confirmação; a origem é marcada pelo servidor, mas a estrutura de origem apresentada pelo cliente não é autenticada contra o raw record. A rota manual de Contribution tem validação mais estrita. Esta fronteira merece decisão de segurança própria.
 
@@ -109,7 +114,7 @@ Estas medidas reduzem riscos, mas não removem limitações identificadas na int
 
 ### Prioridade de produto/tenancy
 
-Sem organização activa, requests não identificam explicitamente o contexto tenant. Fallback para a primeira/mais antiga membership OWNER pode seleccionar contexto não pretendido quando um utilizador tem várias organizações. É o principal checkpoint arquitectural próximo.
+Não há organização activa no JWT/servidor. As rotas root bibliográficas e de inventário migradas exigem contexto explícito; outras áreas ainda mantêm as próprias regras e precisam de migração incremental. O fallback OWNER permanece na confirmação PORBASE, fora desta fatia.
 
 ### Integridade catalográfica e proveniência
 
@@ -138,16 +143,7 @@ O repositório contém migrations, mas estado aplicado depende de cada ambiente.
 
 ### Contexto organizacional explícito
 
-Formalizar em `1L-DEC.0` e implementar depois. Proposta para decisão, não contrato aprovado:
-
-- contexto tenant explícito em cada request, possivelmente `X-Folio-Organization-Id`;
-- membership sempre verificada no servidor;
-- organização activa fora do JWT;
-- preferência cliente não é autoridade;
-- nenhuma selecção implícita da primeira organização;
-- mudança de contexto invalida estado scoped no cliente.
-
-Nome final do header e códigos de erro ainda requerem decisão formal. A componente Flutter é dependência de contrato e está fora do escopo deste repositório.
+`1L-DEC.0` está aprovada e o header `X-Folio-Organization-Id` e respectivos códigos estáveis estão implementados nas áreas migradas. A migração backend continua parcial; o selector/invalidação de contexto no cliente é dependência de contrato fora do escopo deste repositório.
 
 ### Busca local
 
@@ -163,40 +159,32 @@ Adicionar auditoria de acções sem event sourcing completo. Na iteração `1M`,
 
 ## 8. Roadmap acordado — ordem actualizada
 
-Estado nesta revisão: `1J-API.1` está implementada e validada; `1J-FLUTTER.1`
-é a próxima dependência; `1L-DEC.0` continua futuro.
+Estado nesta revisão: `1J-API.1` e `1L-DEC.0` estão implementadas/aprovadas; Organizations, Works, Editions e a cadeia de inventário físico estão migradas. Os restantes grupos de tenancy continuam pendentes.
 
-### Próxima iteração
+### Próximas iterações
 
-1. `1J-API.1` — completar a associação automática `CoverAsset → EditionCover`,
-	garantir idempotência, coerência de tenancy e servir a capa adquirida.
-
-2. `1J-FLUTTER.1` — proteger a `CoverCache` contra respostas tardias de pedidos
+1. `1J-FLUTTER.1` — proteger a `CoverCache` contra respostas tardias de pedidos
 	iniciados antes do logout ou mudança de geração de sessão.
 
-### Depois da estabilização das capas
+2. Continuar `1L-API.0` — migrar Catalogue import, identifiers, contributions,
+	bibliographic records, covers e exports conforme as decisões aprovadas.
 
-3. `1L-DEC.0` — decisão formal sobre contexto organizacional explícito.
-
-4. `1L-API.0` — resolução explícita do contexto da organização e isolamento de
-	tenancy.
-
-5. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;
+3. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;
 	dependência de contrato e fora do repositório `folio-api`.
 
-6. `1K-API.0` — contrato de listagem, pesquisa e ordenação da biblioteca.
+4. `1K-API.0` — contrato de listagem, pesquisa e ordenação da biblioteca.
 
-7. `1K-API.1` — pesquisa local PostgreSQL.
+5. `1K-API.1` — pesquisa local PostgreSQL.
 
-8. `1K-FLUTTER.0` — paginação/infinite loading; dependência de contrato.
+6. `1K-FLUTTER.0` — paginação/infinite loading; dependência de contrato.
 
-9. `1K-FLUTTER.1` — pesquisa e ordenação; dependência de contrato.
+7. `1K-FLUTTER.1` — pesquisa e ordenação; dependência de contrato.
 
-10. `1L-API.1` — memberships, convites e roles.
+8. `1L-API.1` — memberships, convites e roles.
 
-11. `1L-FLUTTER.1` — gestão de membros; dependência de contrato.
+9. `1L-FLUTTER.1` — gestão de membros; dependência de contrato.
 
-12. `1M` — captura, qualidade catalográfica, tarefas de revisão e auditoria como
+10. `1M` — captura, qualidade catalográfica, tarefas de revisão e auditoria como
 	 conceitos separados.
 
 ## 9. Não-objectivos
@@ -212,7 +200,7 @@ Estado nesta revisão: `1J-API.1` está implementada e validada; `1J-FLUTTER.1`
 
 ## 10. Decisões imediatas
 
-1. Formalizar contexto organizacional e contrato tenant em `1L-DEC.0`; não cristalizar header antes da decisão.
+1. Continuar a migração tenant dos grupos ainda não migrados; não reintroduzir fallback OWNER nem listas multi-organização nas rotas migradas.
 2. Fechar a associação do asset adquirido à Edition e a política de capa activa antes de prometer disponibilidade via `coverUrl`.
 3. Decidir como autenticar os dados de contribuição de origem na confirmação do catálogo (snapshot do preview ou rederivação server-side).
 4. Definir estratégia de recuperação para candidatos ACQUIRING após falha de processo e coordenação se houver múltiplas réplicas.

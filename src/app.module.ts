@@ -9,6 +9,9 @@ import { CataloguesModule } from './catalogues/catalogues.module.js';
 import { ExportsModule } from './exports/exports.module.js';
 import { OrganizationsModule } from './organizations/organizations.module.js';
 import { StorageModule } from './storage/storage.module.js';
+import { LibrariesModule } from './libraries/libraries.module.js';
+import { LocationsModule } from './locations/locations.module.js';
+import { HoldingsModule } from './holdings/holdings.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { THROTTLE_LIMIT, THROTTLE_TTL_MS } from './common/throttling.config.js';
@@ -27,6 +30,9 @@ import { THROTTLE_LIMIT, THROTTLE_TTL_MS } from './common/throttling.config.js';
     ExportsModule,
     OrganizationsModule,
     StorageModule,
+    LibrariesModule,
+    LocationsModule,
+    HoldingsModule,
   ],
   controllers: [AppController],
   providers: [

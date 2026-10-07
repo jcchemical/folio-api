@@ -1,6 +1,6 @@
 # Decision: Organization, Library and Location
 
-**Status:** Proposed for implementation  
+**Status:** Approved for implementation
 **Date:** 2026-10-06  
 **Scope:** Domain model, Prisma schema, API contracts, authorization boundaries, future circulation support
 
@@ -105,7 +105,7 @@ Esses defaults podem ser criados automaticamente ou via onboarding, mas essa dec
 
 ### 4.1 Recursos físicos e de inventário
 
-Recursos que representem posse, localização ou circulação devem ser ligados a `Library` e/ou `Location` quando fizer sentido. Isso inclui, no mínimo, o futuro modelo de `Holding` e os futuros domínios de circulação.[web:76][web:78]
+Recursos que representem posse ou localização devem ligar-se a `Library` e/ou `Location` quando fizer sentido. O modelo `Holding` está implementado entre `Edition` e `Item`; circulação permanece fora do âmbito desta decisão e desta implementação.[web:76][web:78]
 
 ### 4.2 Recursos bibliográficos
 

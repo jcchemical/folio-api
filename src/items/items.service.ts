@@ -7,57 +7,67 @@ import {
   paginationArgs,
   type PaginationInput,
 } from '../common/pagination.js';
-import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
+import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
+import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
+import { requireHoldingOrganization } from '../holdings/holding-ownership.js';
 
-export interface ItemInput {
+export interface CreateItemInput {
   label?: string | null;
-  status?: string | null;
+  status?: string;
   notes?: string | null;
   holdingId: string;
 }
+
+export type UpdateItemInput = Omit<Partial<CreateItemInput>, 'holdingId'>;
+
+const itemRelations = {
+  holding: {
+    include: {
+      edition: { include: { work: { include: { organization: true } } } },
+      location: { include: { library: { include: { organization: true } } } },
+    },
+  },
+};
 
 @Injectable()
 export class ItemsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly organizationMemberships: OrganizationMembershipService,
+    private readonly contexts: OrganizationContextResolver,
   ) {}
 
-  async findAllByUser(userId: string, query: PaginationInput = {}) {
+  async findAllByUser(
+    userId: string,
+    headerValue: OrganizationHeaderValue,
+    query: PaginationInput = {},
+  ) {
+    const context = await this.contexts.resolveRequiredRootContext({
+      userId,
+      headerValue,
+    });
     const { limit, prisma } = paginationArgs(query);
     const rows = await this.prisma.item.findMany({
       where: {
         holding: {
-          edition: {
-            work: { organization: { memberships: { some: { userId } } } },
-          },
+          edition: { work: { organizationId: context.organizationId } },
+          location: { library: { organizationId: context.organizationId } },
         },
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      include: {
-        holding: {
-          include: {
-            edition: true,
-            location: { include: { library: true } },
-          },
-        },
-      },
+      include: itemRelations,
       ...prisma,
     });
     return paginate(rows, limit);
   }
 
-  async findById(id: string, userId: string) {
+  async findById(
+    id: string,
+    userId: string,
+    headerValue?: OrganizationHeaderValue,
+  ) {
     const item = await this.prisma.item.findUnique({
       where: { id },
-      include: {
-        holding: {
-          include: {
-            edition: { include: { work: true } },
-            location: { include: { library: true } },
-          },
-        },
-      },
+      include: itemRelations,
     });
     if (!item)
       throw new ApiException(
@@ -65,16 +75,26 @@ export class ItemsService {
         API_ERROR_CODES.RESOURCE_NOT_FOUND,
         'Item not found.',
       );
-    await this.organizationMemberships.assertOrganizationAccess(
+    const organizationId = requireHoldingOrganization(item.holding);
+    await this.contexts.resolveDerivedContext({
       userId,
-      item.holding.edition.work.organizationId,
-    );
+      headerValue,
+      derivedOrganizationId: organizationId,
+    });
     return item;
   }
 
-  async create(userId: string, data: ItemInput) {
+  async create(
+    userId: string,
+    data: CreateItemInput,
+    headerValue?: OrganizationHeaderValue,
+  ) {
+    const holding = await this.requireWritableHolding(
+      data.holdingId,
+      userId,
+      headerValue,
+    );
     validateStatus(data.status);
-    const holding = await this.requireWritableHolding(data.holdingId, userId);
     return this.prisma.item.create({
       data: {
         label: data.label,
@@ -82,16 +102,24 @@ export class ItemsService {
         notes: data.notes,
         holdingId: holding.id,
       },
+      include: itemRelations,
     });
   }
 
-  async update(id: string, userId: string, data: Partial<ItemInput>) {
-    const item = await this.findById(id, userId);
-    await this.organizationMemberships.assertRole(
+  async update(
+    id: string,
+    userId: string,
+    data: UpdateItemInput,
+    headerValue?: OrganizationHeaderValue,
+  ) {
+    const item = await this.requireItem(id);
+    const organizationId = requireHoldingOrganization(item.holding);
+    await this.contexts.resolveDerivedContext({
       userId,
-      item.holding.edition.work.organizationId,
-      OrganizationRole.STAFF,
-    );
+      headerValue,
+      derivedOrganizationId: organizationId,
+      requiredRole: OrganizationRole.STAFF,
+    });
     validateStatus(data.status);
     return this.prisma.item.update({
       where: { id },
@@ -100,25 +128,50 @@ export class ItemsService {
         status: data.status ?? undefined,
         notes: data.notes,
       },
+      include: itemRelations,
     });
   }
 
-  async remove(id: string, userId: string) {
-    const item = await this.findById(id, userId);
-    await this.organizationMemberships.assertRole(
+  async remove(
+    id: string,
+    userId: string,
+    headerValue?: OrganizationHeaderValue,
+  ) {
+    const item = await this.requireItem(id);
+    const organizationId = requireHoldingOrganization(item.holding);
+    await this.contexts.resolveDerivedContext({
       userId,
-      item.holding.edition.work.organizationId,
-      OrganizationRole.STAFF,
-    );
-    return this.prisma.item.delete({ where: { id } });
+      headerValue,
+      derivedOrganizationId: organizationId,
+      requiredRole: OrganizationRole.STAFF,
+    });
+    return this.prisma.item.delete({ where: { id }, include: itemRelations });
   }
 
-  private async requireWritableHolding(holdingId: string, userId: string) {
+  private async requireItem(id: string) {
+    const item = await this.prisma.item.findUnique({
+      where: { id },
+      include: itemRelations,
+    });
+    if (!item)
+      throw new ApiException(
+        HttpStatus.NOT_FOUND,
+        API_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'Item not found.',
+      );
+    return item;
+  }
+
+  private async requireWritableHolding(
+    holdingId: string,
+    userId: string,
+    headerValue?: OrganizationHeaderValue,
+  ) {
     const holding = await this.prisma.holding.findUnique({
       where: { id: holdingId },
       include: {
-        edition: { include: { work: true } },
-        location: { include: { library: true } },
+        edition: { include: { work: { include: { organization: true } } } },
+        location: { include: { library: { include: { organization: true } } } },
       },
     });
     if (!holding)
@@ -127,16 +180,19 @@ export class ItemsService {
         API_ERROR_CODES.RESOURCE_NOT_FOUND,
         'Holding not found.',
       );
-    await this.organizationMemberships.assertWorkWriteAccess(
+    const organizationId = requireHoldingOrganization(holding);
+    await this.contexts.resolveDerivedContext({
       userId,
-      holding.edition.work,
-    );
+      headerValue,
+      derivedOrganizationId: organizationId,
+      requiredRole: OrganizationRole.STAFF,
+    });
     return holding;
   }
 }
 
 function validateStatus(status: string | null | undefined): void {
-  if (status !== undefined && status !== null && !status.trim()) {
+  if (status !== undefined && (typeof status !== 'string' || !status.trim())) {
     throw new ApiException(
       HttpStatus.BAD_REQUEST,
       API_ERROR_CODES.INVALID_REQUEST_DATA,

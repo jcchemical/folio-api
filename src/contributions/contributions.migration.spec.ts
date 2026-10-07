@@ -22,6 +22,7 @@ describe('Tomos domain baseline', () => {
     expect(schema).toContain('@@unique([organizationId, name])');
     expect(schema).toContain('@@unique([libraryId, name])');
     const itemModel = schema.match(/model Item \{([\s\S]*?)\n\}/)?.[1];
+    const holdingModel = schema.match(/model Holding \{([\s\S]*?)\n\}/)?.[1];
     const identifierModel = schema.match(
       /model ExternalIdentifier \{([\s\S]*?)\n\}/,
     )?.[1];
@@ -33,6 +34,10 @@ describe('Tomos domain baseline', () => {
     expect(itemModel).not.toMatch(
       /\b(organizationId|editionId|libraryId|locationId)\b/,
     );
+    expect(holdingModel).toBeDefined();
+    expect(holdingModel).toContain('editionId  String');
+    expect(holdingModel).toContain('locationId String');
+    expect(holdingModel).not.toMatch(/\b(organizationId|libraryId)\b/);
     expect(identifierModel).toBeDefined();
     expect(identifierModel).not.toContain('organizationId');
     expect(identifierModel).toContain('@@unique([editionId, type, value])');
@@ -59,6 +64,9 @@ describe('Tomos domain baseline', () => {
     expect(sql).toContain('CONSTRAINT "BibliographicNote_exactly_one_target"');
     expect(sql).toContain('assert_holding_organization_consistency');
     expect(sql).toContain('Holding_same_organization');
+    expect(sql).toContain('Holding_same_organization_from_location');
+    expect(sql).toContain('Holding_same_organization_from_library');
+    expect(sql).toContain('w."organizationId" <> lib."organizationId"');
     expect(sql).toContain('assert_contribution_agent_organization');
     expect(sql).toContain('Contribution_agent_same_organization');
     expect(sql).toContain('assert_edition_cover_organization_consistency');
