@@ -364,12 +364,15 @@ describe('PorbaseImportService', () => {
     const transactions = organizationIds.map((organizationId) =>
       createTransactionMock(organizationId),
     );
-    const persistPolicy = {
-      assertWorkWriteAccess: vi.fn().mockResolvedValue(undefined),
+    const contexts = {
+      resolveDerivedContext: vi.fn().mockResolvedValue({
+        organizationId: organizationIds[0],
+        role: 'STAFF',
+      }),
     };
     const contributionsService = new ContributionsService(
       {} as never,
-      persistPolicy as never,
+      contexts as never,
     );
 
     for (const [index, organizationId] of organizationIds.entries()) {
@@ -424,7 +427,7 @@ describe('PorbaseImportService', () => {
         data: expect.objectContaining({ agentId: 'agent-organization-a' }),
       }),
     );
-    expect(persistPolicy.assertWorkWriteAccess).toHaveBeenCalledTimes(2);
+    expect(contexts.resolveDerivedContext).toHaveBeenCalledTimes(2);
   });
 
   it('projects Work/Edition scalars from MAIN titles instead of the legacy scalar fields', async () => {

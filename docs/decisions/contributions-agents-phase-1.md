@@ -20,19 +20,18 @@ O fluxo PORBASE da Phase 1 preservava um subset de 700/701/702, indicadores e `C
 
 A implementação deixou intencionalmente as tabelas Contributor antigas e usava as relações canónicas quando presentes, recorrendo às relações legacy caso contrário. Essa escolha foi justificada originalmente por compatibilidade e migração gradual. **Essa justificação foi substituída pelo modelo greenfield aprovado:** não preservar tabelas ou fallbacks por causa de código, dados de teste ou consumidores inexistentes.
 
-## Rechecks obrigatórios durante schema/API work
+## Verificação do estado actual — 2026-10-07
 
-Antes de considerar a remoção concluída, rever e actualizar:
+A remoção do Contributor legacy está concluída na baseline actual:
 
-- `prisma/schema.prisma` e a migration de Agents/Contributions, retirando `Contributor`, `WorkContributor` e `EditionContributor` do schema final e reescrevendo/recriando a baseline de migrations conforme o modelo aprovado;
-- `src/contributors/**` e o registo do módulo/controller, removendo as rotas CRUD legacy;
-- leituras/projecções em Works, Editions e importação de catálogo que incluem Contributors ou escolhem legacy como fallback;
-- `src/catalogues/porbase-import.service.ts`, parser/preview e DTOs, garantindo que participações persistidas usam o modelo canónico e que o cliente não controla metadata de proveniência que deve ser definida/reconstruída no servidor;
-- `src/bibliography/mappers/unimarc-local.mapper.ts` e fixtures de export, removendo aliases e projections de `LocalContributorLink`, `editionContributors` e `workContributors`;
-- export/import e respostas API, confirmando que o caminho canónico preserva, na medida suportada, tags, indicadores, ordem, repetição e literais de source parts;
-- testes unitários/e2e e testes de migration. Em particular, `src/contributions/contributions.migration.spec.ts` contém uma expectativa histórica de que as tabelas Contributor não sejam removidas; substituir essa expectativa por verificações do schema/baseline final e da ausência dos modelos legacy.
+- `prisma/schema.prisma` e `20261006150000_tomos_domain_baseline` contêm `Agent + Contribution`, XOR Work/Edition e trigger de igualdade de Organization; não contêm `Contributor`, `WorkContributor` ou `EditionContributor`.
+- Não existe `src/contributors/**`, controller/rota `/contributors`, DTO ou service legacy.
+- Works, Editions, import PORBASE, mapper UNIMARC e export projectam apenas Contributions canónicas; o mapper usa source parts persistidas e não sintetiza Contributions a partir de `Agent.displayName`.
+- `POST /contributions` resolve Work/Edition persistido, valida Organization derivada, Agent do mesmo tenant, membership/STAFF e header opcional antes da escrita. A rota define `source=MANUAL`; não aceita fonte, tag 7XX, indicadores nem source parts do cliente.
+- O import PORBASE usa Contributions canónicas e fixa `source=PORBASE` no servidor; preserva o subset de source parts suportado.
+- Os testes de baseline confirmam ausência dos modelos/tabelas legacy e as constraints XOR/Agent-Organization.
 
-Verificar também que cada `Contribution` continua a ter exactamente um alvo, que `Agent` e alvo pertencem à mesma `Organization`, e que operações root/child seguem as regras de contexto de DECISION-1L-DEC-0. Não inferir âmbito Work/Edition a partir da tag 7XX, `$4` ou texto de role.
+Não inferir âmbito Work/Edition a partir da tag 7XX, `$4` ou texto de role. A existência de source metadata editável no contrato de confirmação PORBASE continua registada como uma limitação separada de proveniência; não reintroduzir Contributor para a resolver.
 
 ## Decisões históricas substituídas
 

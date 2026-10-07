@@ -1,81 +1,245 @@
-import { ForbiddenException, HttpStatus } from '@nestjs/common';
-import { AgentKind } from '@prisma/client';
+import { ForbiddenException } from '@nestjs/common';
+import { AgentKind, OrganizationRole } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
+import type { PrismaService } from '../prisma/prisma.service.js';
+import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
 import { ContributionsService } from './contributions.service.js';
 
-function transactionMock() {
-  return {
-    work: { findUnique: vi.fn().mockResolvedValue({ id: 'work-1', organizationId: 'org-1' }) },
-    edition: { findUnique: vi.fn() },
-    agent: {
-      findUnique: vi.fn(), findMany: vi.fn().mockResolvedValue([]),
-      create: vi.fn().mockResolvedValue({ id: 'agent-new', organizationId: 'org-1' }),
+const workA = { id: 'work-a', organizationId: 'org-a' };
+const workB = { id: 'work-b', organizationId: 'org-b' };
+const editionA = { id: 'edition-a', workId: workA.id, work: workA };
+const agentA = { id: 'agent-a', organizationId: 'org-a' };
+
+function createService() {
+  const tx = {
+    work: {
+      findUnique: vi
+        .fn()
+        .mockImplementation(({ where }: { where: { id: string } }) =>
+          Promise.resolve(
+            where.id === workB.id
+              ? workB
+              : where.id === workA.id
+                ? workA
+                : null,
+          ),
+        ),
     },
-    contribution: { create: vi.fn().mockResolvedValue({ id: 'contribution-1' }) },
+    edition: {
+      findUnique: vi.fn().mockResolvedValue(editionA),
+    },
+    agent: {
+      findUnique: vi.fn().mockResolvedValue(agentA),
+      findMany: vi.fn().mockResolvedValue([]),
+      create: vi.fn().mockResolvedValue(agentA),
+    },
+    contribution: {
+      create: vi.fn().mockResolvedValue({ id: 'contribution-a' }),
+    },
+  };
+  const prisma = {
+    $transaction: vi.fn((callback: (transaction: typeof tx) => unknown) =>
+      callback(tx),
+    ),
+  } as unknown as PrismaService;
+  const contexts = {
+    resolveDerivedContext: vi.fn().mockResolvedValue({
+      organizationId: 'org-a',
+      role: OrganizationRole.STAFF,
+    }),
+  } as unknown as OrganizationContextResolver;
+  return {
+    tx,
+    prisma,
+    contexts,
+    service: new ContributionsService(prisma, contexts),
   };
 }
 
-describe('ContributionsService', () => {
-  it('creates a MANUAL contribution with a same-organization Agent draft', async () => {
-    const tx = transactionMock();
-    const prisma = { $transaction: vi.fn((callback) => callback(tx)) };
-    const memberships = { assertWorkWriteAccess: vi.fn().mockResolvedValue(undefined) };
-    const service = new ContributionsService(prisma as never, memberships as never);
+const agentDraft = { kind: AgentKind.PERSON, displayName: 'Doe, Jane' };
 
-    await service.createManual('user-1', { workId: 'work-1', agent: { kind: 'PERSON', displayName: 'Doe, Jane' } });
+describe('ContributionsService canonical target and tenant rules', () => {
+  it('creates a manual Work Contribution with server-controlled MANUAL source', async () => {
+    const { tx, contexts, service } = createService();
 
-    expect(tx.agent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ organizationId: 'org-1', kind: AgentKind.PERSON, normalizedDisplayName: 'doe, jane' }) });
-    expect(tx.contribution.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ source: 'MANUAL', workId: 'work-1' }) }));
-  });
-
-  it('rejects an Agent from another organization with the stable conflict', async () => {
-    const tx = transactionMock();
-    tx.agent.findUnique.mockResolvedValue({ id: 'agent-2', organizationId: 'org-2' });
-    const service = new ContributionsService({ $transaction: vi.fn((callback) => callback(tx)) } as never, { assertWorkWriteAccess: vi.fn().mockResolvedValue(undefined) } as never);
-
-    await expect(service.createManual('user-1', { workId: 'work-1', agentId: 'agent-2' })).rejects.toMatchObject({
-      status: HttpStatus.CONFLICT,
-      response: expect.objectContaining({ code: 'CONFLICT_AGENT_ORGANIZATION_MISMATCH' }),
+    await service.createManual('user-a', {
+      workId: workA.id,
+      agent: agentDraft,
     });
+
+    expect(contexts.resolveDerivedContext).toHaveBeenCalledWith({
+      userId: 'user-a',
+      headerValue: undefined,
+      derivedOrganizationId: workA.organizationId,
+      requiredRole: OrganizationRole.STAFF,
+    });
+    expect(tx.agent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organizationId: workA.organizationId,
+        kind: AgentKind.PERSON,
+        displayName: 'Doe, Jane',
+        normalizedDisplayName: 'doe, jane',
+      }),
+    });
+    expect(tx.contribution.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          workId: workA.id,
+          source: 'MANUAL',
+          agentId: agentA.id,
+        }),
+      }),
+    );
   });
 
-  it('checks target authorization before attaching a contribution', async () => {
-    const tx = transactionMock();
-    const service = new ContributionsService({ $transaction: vi.fn((callback) => callback(tx)) } as never, { assertWorkWriteAccess: vi.fn().mockRejectedValue(new ForbiddenException()) } as never);
-    await expect(service.createManual('user-1', { workId: 'work-1', agent: { kind: 'PERSON', displayName: 'Doe, Jane' } })).rejects.toBeInstanceOf(ForbiddenException);
+  it('creates an Edition Contribution by deriving its tenant through Edition to Work', async () => {
+    const { tx, contexts, service } = createService();
+
+    await service.createManual(
+      'user-a',
+      {
+        editionId: editionA.id,
+        agent: agentDraft,
+      },
+      'org-a',
+    );
+
+    expect(contexts.resolveDerivedContext).toHaveBeenCalledWith({
+      userId: 'user-a',
+      headerValue: 'org-a',
+      derivedOrganizationId: workA.organizationId,
+      requiredRole: OrganizationRole.STAFF,
+    });
+    expect(tx.contribution.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          editionId: editionA.id,
+          source: 'MANUAL',
+        }),
+      }),
+    );
   });
 
-  it('creates another Agent when exact-name reuse is ambiguous', async () => {
-    const tx = transactionMock();
-    tx.agent.findMany.mockResolvedValue([{ id: 'agent-1' }, { id: 'agent-2' }]);
-    const service = new ContributionsService({ $transaction: vi.fn((callback) => callback(tx)) } as never, { assertWorkWriteAccess: vi.fn().mockResolvedValue(undefined) } as never);
-    await service.createManual('user-1', { workId: 'work-1', agent: { kind: 'PERSON', displayName: 'Doe, Jane' } });
-    expect(tx.agent.create).toHaveBeenCalledTimes(1);
+  it('rejects missing and competing Work/Edition targets before writes', async () => {
+    const missing = createService();
+    await expect(
+      missing.service.createManual('user-a', { agent: agentDraft }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(missing.tx.contribution.create).not.toHaveBeenCalled();
+
+    const both = createService();
+    await expect(
+      both.service.createManual('user-a', {
+        workId: workA.id,
+        editionId: editionA.id,
+        agent: agentDraft,
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(both.tx.contribution.create).not.toHaveBeenCalled();
   });
 
-  it('reuses an exact Agent only within the resolved target organization', async () => {
-    const tx = transactionMock();
-    tx.agent.findMany
-      .mockResolvedValueOnce([{ id: 'agent-org-1', organizationId: 'org-1' }])
-      .mockResolvedValueOnce([]);
-    tx.work.findUnique
-      .mockResolvedValueOnce({ id: 'work-1', organizationId: 'org-1' })
-      .mockResolvedValueOnce({ id: 'work-2', organizationId: 'org-2' });
-    const service = new ContributionsService({ $transaction: vi.fn((callback) => callback(tx)) } as never, { assertWorkWriteAccess: vi.fn().mockResolvedValue(undefined) } as never);
+  it('rejects an Agent from another Organization', async () => {
+    const { tx, service } = createService();
+    tx.agent.findUnique.mockResolvedValue({
+      id: 'agent-b',
+      organizationId: 'org-b',
+    });
 
-    await service.createManual('user-1', { workId: 'work-1', agent: { kind: 'PERSON', displayName: 'Doe, Jane' } });
-    await service.createManual('user-1', { workId: 'work-2', agent: { kind: 'PERSON', displayName: 'Doe, Jane' } });
-
-    expect(tx.agent.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({ where: { organizationId: 'org-1', kind: AgentKind.PERSON, normalizedDisplayName: 'doe, jane' } }));
-    expect(tx.agent.findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({ where: { organizationId: 'org-2', kind: AgentKind.PERSON, normalizedDisplayName: 'doe, jane' } }));
-    expect(tx.agent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ organizationId: 'org-2' }) });
+    await expect(
+      service.createManual('user-a', { workId: workA.id, agentId: 'agent-b' }),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: { code: 'CONFLICT_AGENT_ORGANIZATION_MISMATCH' },
+    });
+    expect(tx.contribution.create).not.toHaveBeenCalled();
   });
 
-  it('rejects malformed PORBASE source metadata', async () => {
-    const tx = transactionMock();
-    const service = new ContributionsService({} as never, { assertWorkWriteAccess: vi.fn().mockResolvedValue(undefined) } as never);
-    await expect(service.persistPorbase(tx as never, 'user-1', 'work-1', [{
-      targetScope: 'WORK', kind: AgentKind.PERSON, displayName: 'Doe, Jane', sourceTag: '700', indicator1: '', indicator2: ' ', sourceParts: [], sortOrder: 0,
-    }])).rejects.toThrow('PORBASE contribution source metadata is invalid');
+  it('rejects a target from another Organization before creating or attaching an Agent', async () => {
+    const { tx, contexts, service } = createService();
+    vi.mocked(contexts.resolveDerivedContext).mockRejectedValueOnce(
+      new ForbiddenException(),
+    );
+
+    await expect(
+      service.createManual('user-a', { workId: workB.id, agent: agentDraft }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(tx.agent.create).not.toHaveBeenCalled();
+    expect(tx.contribution.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a mismatching optional header before creating an Agent or Contribution', async () => {
+    const { tx, contexts, service } = createService();
+    vi.mocked(contexts.resolveDerivedContext).mockRejectedValueOnce({
+      status: 409,
+      response: { code: 'ORGANIZATION_CONTEXT_CONFLICT' },
+    });
+
+    await expect(
+      service.createManual(
+        'user-a',
+        { workId: workA.id, agent: agentDraft },
+        'org-b',
+      ),
+    ).rejects.toMatchObject({
+      response: { code: 'ORGANIZATION_CONTEXT_CONFLICT' },
+    });
+    expect(tx.agent.create).not.toHaveBeenCalled();
+    expect(tx.contribution.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects READER role before mutation', async () => {
+    const { tx, contexts, service } = createService();
+    vi.mocked(contexts.resolveDerivedContext).mockRejectedValueOnce({
+      status: 403,
+      response: { code: 'ORGANIZATION_ROLE_INSUFFICIENT' },
+    });
+
+    await expect(
+      service.createManual('reader', { workId: workA.id, agent: agentDraft }),
+    ).rejects.toMatchObject({
+      response: { code: 'ORGANIZATION_ROLE_INSUFFICIENT' },
+    });
+    expect(tx.agent.create).not.toHaveBeenCalled();
+    expect(tx.contribution.create).not.toHaveBeenCalled();
+  });
+
+  it('preserves PORBASE source parts in their supplied order and fixes source on the server', async () => {
+    const { tx, contexts, service } = createService();
+    const parts = [
+      { code: 'a', value: 'Doe, Jane', sortOrder: 0 },
+      { code: '4', value: '070', sortOrder: 1 },
+      { code: 'a', value: 'Repeated literal', sortOrder: 2 },
+    ];
+
+    await service.persistPorbase(tx as never, 'user-a', workA.id, [
+      {
+        targetScope: 'WORK',
+        kind: AgentKind.PERSON,
+        displayName: 'Doe, Jane',
+        sourceTag: '700',
+        indicator1: '1',
+        indicator2: ' ',
+        sourceParts: parts,
+        sortOrder: 0,
+      },
+    ]);
+
+    expect(contexts.resolveDerivedContext).toHaveBeenCalledWith({
+      userId: 'user-a',
+      headerValue: undefined,
+      derivedOrganizationId: workA.organizationId,
+      requiredRole: OrganizationRole.STAFF,
+    });
+    expect(tx.contribution.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          source: 'PORBASE',
+          sourceTag: '700',
+          indicator1: '1',
+          indicator2: ' ',
+          sourceParts: { create: parts },
+        }),
+      }),
+    );
   });
 });

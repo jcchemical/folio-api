@@ -58,7 +58,7 @@ Organization é a fronteira única de acesso do catálogo e inventário; User é
 
 ### Modelo canónico e perfis de intercâmbio
 
-Literais, ordem, repetição, indicadores e partes suportadas devem manter-se independentes do formato externo. Mappers devem declarar campos não mapeados e perdas; não preencher diferenças de perfil inventando dados. Dados legados mantêm fallback por alvo, sem misturar sets canónicos e legados.
+Literais, ordem, repetição, indicadores e partes suportadas devem manter-se independentes do formato externo. Mappers devem declarar campos não mapeados e perdas; não preencher diferenças de perfil inventando dados. Participações usam apenas `Agent + Contribution`; não existe fallback para Contributor legacy.
 
 ### PostgreSQL e monólito modular
 
@@ -72,7 +72,7 @@ Empréstimo, devolução, reserva, políticas e multas são conceitos próprios.
 
 ### Identity, Organization e catálogo
 
-Há self-service de organizações, mas não há selecção de organização activa, memberships administráveis, convites, alteração de roles ou branches. As rotas de Organizations/Works/Editions/Libraries/Locations/Holdings/Items/External Identifiers e a confirmação de import usam contexto explícito ou derivado. `POST /catalogues/import` exige header e STAFF+; o Work recebe Organization apenas do header e Editions derivam do Work. `POST /catalogues/search` permanece externo/context-free. `getDefaultOrganization()` permanece usado pelo onboarding pessoal, não pela importação.
+Há self-service de organizações, mas não há selecção de organização activa, memberships administráveis, convites, alteração de roles ou branches. As rotas de Organizations/Works/Editions/Libraries/Locations/Holdings/Items/External Identifiers/Contributions e a confirmação de import usam contexto explícito ou derivado. `POST /contributions` deriva tenant do único Work/Edition target; Agent tem de estar na mesma Organization e `source=MANUAL` é atribuído pelo servidor. As rotas e modelos Contributor legacy foram removidos. `POST /catalogues/import` exige header e STAFF+; o Work recebe Organization apenas do header e Editions derivam do Work. `POST /catalogues/search` permanece externo/context-free. `getDefaultOrganization()` permanece usado pelo onboarding pessoal, não por estas rotas.
 
 PORBASE aceita variantes de pesquisa no DTO, mas implementa só ISBN. O preview não persiste. A confirmação envia o payload editável completo e não usa snapshot server-side nem repesquisa. Campos de metadata de contribuições (`sourceTag`, indicadores e source parts) continuam aceites no DTO de confirmação; a origem é marcada pelo servidor, mas a estrutura de origem apresentada pelo cliente não é autenticada contra o raw record. A rota manual de Contribution tem validação mais estrita. Esta fronteira merece decisão de segurança própria.
 
@@ -166,8 +166,8 @@ Estado nesta revisão: `1J-API.1` e `1L-DEC.0` estão implementadas/aprovadas; O
 1. `1J-FLUTTER.1` — proteger a `CoverCache` contra respostas tardias de pedidos
 	iniciados antes do logout ou mudança de geração de sessão.
 
-2. Continuar `1L-API.0` — migrar contributions, bibliographic
-	records, covers e exports conforme as decisões aprovadas.
+2. Continuar `1L-API.0` — migrar bibliographic records, covers e exports
+	conforme as decisões aprovadas.
 
 3. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;
 	dependência de contrato e fora do repositório `folio-api`.

@@ -63,7 +63,7 @@ Quando uma decisão nova substituir uma decisão antiga, actualizar schema, cód
 - A Contribution targets exactly one Work or Edition; preserve the SQL XOR invariant.
 - Never accept client-controlled source, normalized name, 7XX tag, indicators or source parts through public contribution DTOs.
 - Trusted PORBASE paths preserve 700/701/702 tags, indicators, source-part order, repeated codes and literal values.
-- Do not merge canonical and legacy contribution sets in Phase 1; choose canonical per target only when present.
+- Use only canonical `Agent + Contribution`; never merge or fall back to legacy `Contributor` sets. The legacy Contributor models/routes/projections are removed.
 - Do not infer Work versus Edition scope from a 7XX tag, `$4`, or role text.
 - Keep authority control and other 7XX families out of scope unless explicitly requested.
 

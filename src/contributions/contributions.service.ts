@@ -6,10 +6,12 @@ import {
 import {
   AgentKind,
   ContributionSource,
+  OrganizationRole,
   type PrismaClient,
 } from '@prisma/client';
 import { conflictAgentOrganizationMismatch } from '../common/api-errors.js';
-import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
+import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
+import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateContributionDto } from './contributions.dto.js';
 
@@ -42,20 +44,26 @@ export type PorbaseContributionInput = {
 export class ContributionsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly organizationMemberships: OrganizationMembershipService,
+    private readonly contexts: OrganizationContextResolver,
   ) {}
 
-  async createManual(userId: string, data: CreateContributionDto) {
+  async createManual(
+    userId: string,
+    data: CreateContributionDto,
+    headerValue?: OrganizationHeaderValue,
+  ) {
     return this.prisma.$transaction(async (transaction) => {
       const target = await this.resolveTarget(
         transaction,
         data.workId,
         data.editionId,
       );
-      await this.organizationMemberships.assertWorkWriteAccess(
+      await this.contexts.resolveDerivedContext({
         userId,
-        target.work,
-      );
+        headerValue,
+        derivedOrganizationId: target.organizationId,
+        requiredRole: OrganizationRole.STAFF,
+      });
       if (Boolean(data.agentId) === Boolean(data.agent)) {
         throw new BadRequestException(
           'Provide exactly one of agentId or agent.',
@@ -99,10 +107,12 @@ export class ContributionsService {
   ) {
     if (!inputs.length) return [];
     const target = await this.resolveTarget(transaction, workId, undefined);
-    await this.organizationMemberships.assertWorkWriteAccess(
+    await this.contexts.resolveDerivedContext({
       userId,
-      target.work,
-    );
+      headerValue: undefined,
+      derivedOrganizationId: target.organizationId,
+      requiredRole: OrganizationRole.STAFF,
+    });
     const persisted = [];
     for (const input of inputs) {
       this.validatePorbaseInput(input);

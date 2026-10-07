@@ -56,7 +56,7 @@ O código de aplicação está em `src/`; testes unitários junto aos módulos e
 Módulos/capacidades actuais incluem:
 
 - `auth`, `users`, `organizations` e `prisma`;
-- `works`, `editions`, `items`, `contributors`, `contributions`, `external-identifiers` e `bibliographic-records`;
+- `works`, `editions`, `items`, `contributions`, `external-identifiers` e `bibliographic-records`;
 - `catalogues` (contratos genéricos e adapter PORBASE);
 - `bibliography` (mappers e serializers MARC);
 - `exports`, `storage`, `health` e `common`.
@@ -102,6 +102,7 @@ A hierarquia implementada é `READER < STAFF < ADMIN < OWNER`. Leituras protegid
 - `GET /holdings` exige header e filtra tanto por `Edition → Work → Organization` como por `Location → Library → Organization`; filtros Edition/Location apenas refinam. `POST /holdings` deriva de Edition e Location persistidas, exige que pertençam à mesma Organization e requer `STAFF`; operações por ID verificam a mesma invariável e derivam por `Holding → Edition → Work`.
 - `GET /items` exige header e filtra por `Item → Holding → Edition → Work` e `Item → Holding → Location → Library`, ambas na Organization seleccionada; `POST /items` deriva de `holdingId` persistido sem exigir header; operações por ID derivam pela mesma cadeia. Escritas exigem `STAFF`; respostas projectam Edition, Work, Location, Library e Organization das relações persistidas.
 - `GET /external-identifiers` exige header e filtra pela Organization de `Edition → Work`; `editionId` refina apenas dentro desse tenant. `POST` deriva da Edition persistida, com header opcional de consistência; `GET/PUT/DELETE :id` derivam do identificador persistido. Leituras requerem membership e escritas STAFF+. Update não reatribui Edition.
+- `POST /contributions` aceita exactamente um target persistido `workId` ou `editionId`; Organization deriva desse target e header opcional só confirma igualdade. Agent/target têm de pertencer à mesma Organization; escrita exige STAFF+. `Contribution.source` é definido pelo servidor (`MANUAL` nesta rota), e os campos trusted MARC não pertencem ao DTO manual.
 - `POST /catalogues/import` exige JWT, `X-Folio-Organization-Id` e role `STAFF` ou superior. O guard resolve contexto e autorização antes das pipes de payload; Work é criado apenas na Organization resolvida, Editions derivam do Work na mesma transacção e `work.organizationId`/ownership concorrente são rejeitados. `POST /catalogues/search` continua global ao tenant e apenas consulta o provider externo.
 - Listagens de inventário rejeitam query fields de tenant/parent que tentem substituir ou competir com o header e as relações persistidas. DTOs de inventário rejeitam ownership redundante com `VALIDATION_INVALID_BODY`; não dependem apenas de whitelist/strip.
 - `Item.status` é não-null no contrato de escrita: ausência preserva o default/valor existente; `null` é rejeitado. O schema ainda guarda este campo como String, sem enum de estados aprovado; não representa empréstimo nem disponibilidade de circulação.
@@ -115,7 +116,7 @@ A hierarquia implementada é `READER < STAFF < ADMIN < OWNER`. Leituras protegid
 - Não há endpoints de administração de memberships, convites ou alteração de roles.
 - Não há Branch, políticas por Library/Location, Campus, ServicePoint ou circulação. `Library`, `Location` e `Holding` já estão implementados no schema e API.
 - `getDefaultOrganization()` permanece para o onboarding de organização pessoal; não é usado pela confirmação de import nem pelos handlers de Organizations, Works, Editions ou inventário físico.
-- Ainda não foram migrados para contexto explícito root os restantes grupos scoped: Contributors/Contributions, capas, bibliographic records e exports mantêm as regras próprias actuais.
+- Ainda não foram migrados para contexto explícito root os restantes grupos scoped: capas, bibliographic records e exports mantêm as regras próprias actuais.
 - `ExternalIdentifier` não persiste `organizationId`; a Organization é derivada de Edition → Work.
 - `BibliographicRecord` pode apontar simultaneamente para Work e Edition; o schema não garante que ambos pertençam ao mesmo Work/organização.
 
@@ -162,11 +163,8 @@ Organizações e catálogo local:
 - `/holdings` — CRUD; lista root exige header; criação deriva de `editionId` + `locationId` e valida organização comum; operações por ID derivam do Holding. Escritas exigem STAFF+.
 - `/items` — CRUD; lista root exige header; criação deriva de `holdingId`; operações por ID derivam de `Item → Holding → Edition → Work`. Escritas exigem STAFF+.
 - `/external-identifiers` — `GET` root exige header e filtra por Edition → Work; `editionId` só refina. `POST` deriva da Edition; `GET/PUT/DELETE :id` derivam da relação persistida. Escritas STAFF+; update não altera Edition.
-- `/contributors` — CRUD legado, sujeito a tenancy/autorização do service.
-- `/contributions` — apenas `POST` manual; agente/role e exactamente um alvo
-  Work ou Edition; não aceita metadata MARC de origem nesta rota.
-- `/external-identifiers` — listagem e operações de gestão, scoped a
-  organização e Edition.
+- Não existe `/contributors`; os modelos `Contributor`, `WorkContributor` e `EditionContributor` não fazem parte do schema/baseline.
+- `/contributions` — `POST` manual canónico; exactamente um `workId`/`editionId`, Organization derivada do target, Agent no mesmo tenant, header opcional de consistência e STAFF+. `source=MANUAL` é atribuído pelo servidor.
 - `/bibliographic-records/:id` — `GET` read-only; não há CRUD público destes
   registos.
 
@@ -237,7 +235,7 @@ MARCXchange e MARCXML são serializers/endpoints separados. O export actual é a
 - `PhysicalDescription` por ocorrência e `PhysicalDescriptionPart` por subcampo ordenado.
 - `Agent`, `Contribution` e `ContributionSourcePart`; `Contribution` tem XOR Work/Edition reforçado por check SQL. Agent é scoped a Organization; `displayName` não é forma de autoridade.
 - `BibliographicNote` pode apontar a Work ou Edition, com XOR SQL.
-- `Contributor`, `WorkContributor` e `EditionContributor` legados continuam no schema.
+- Não existem modelos `Contributor`, `WorkContributor` ou `EditionContributor` no schema nem fallback para esses dados.
 - `BibliographicRecord` guarda `rawContent` e proveniência básica (`source`, `remoteId`, `sourceId`, `format`), e tem relações opcionais para Work e Edition.
 - `UnmappedSourceField` e `UnmappedSourceSubfield` preservam campos de origem não mapeados, além do raw payload.
 
@@ -246,7 +244,7 @@ MARCXchange e MARCXML são serializers/endpoints separados. O export actual é a
 - PORBASE parser/preview extrai títulos, responsabilidade, línguas, publicação, descrição física, série, declarações de edição, notas, classificações, identificadores, contribuições e campos não mapeados dos campos actualmente suportados.
 - Cobertura concreta do parser: `001`, `003`, `010$a`, `021$a/$b`, `035$a`, `101$a/$c`, `102$a`, `200$a/$b/$d/$e/$f/$g/$h/$i`, `205$a/$b/$f`, `210$a..$g`, `215` completo, `225$a/$e/$v/$x`, títulos variantes de `500`, `510–545` e `560` (`$a/$e`), notas `300/317/320/327/328/330$a`, classificações `675/676/680/686`, contribuições `700–713` e identificadores de origem `003/021/035`. `856` é tratado pelo extractor de candidatos de capa (`$u`, com `$q/$y/$z` como metadados auxiliares), não como mapeamento bibliográfico canónico.
 - Confirmação de importação persiste muitas dessas estruturas numa transacção. `UnmappedSourceField` é recalculado no servidor a partir do `rawContent` confirmado, best-effort.
-- Import grava contribuições canónicas PORBASE; leituras/exportações escolhem Contributions por alvo quando existem e recorrem ao conjunto legado exclusivo quando não existem. Não misturam os dois conjuntos.
+- Import grava contribuições canónicas PORBASE; leituras de Work/Edition e export lêem apenas Contributions canónicas, preservando source parts persistidas quando suportadas.
 - `EditionsService` lê as estruturas canónicas para Edition e mapeia `coverUrl`; `WorksService` inclui Editions aninhadas sem projectar `coverUrl`.
 - Export local usa relações estruturadas suportadas, com fallback escalar/legado quando aplicável; mapper produz warnings, mas o endpoint actual devolve apenas XML.
 
@@ -310,13 +308,13 @@ O endpoint devolve apenas XML. Warnings do mapper não são persistidos nem expo
 
 `PaginationQueryDto`: cursor CUID opcional, `limit` default 25, intervalo 1–100. Helper consulta `limit + 1` e devolve `{ items, nextCursor, hasMore }`; cursor continua por `id` com `skip: 1`.
 
-Listas de Works, Editions, Libraries, Locations, Holdings, Items, ExternalIdentifiers, Users e Contributors usam helper partilhado. Listas root tenant-scoped de bibliografia e inventário exigem `X-Folio-Organization-Id` e filtram um único tenant. Pesquisa PORBASE é um resultado individual, não lista paginada.
+Listas de Works, Editions, Libraries, Locations, Holdings, Items, ExternalIdentifiers e Users usam helper partilhado. Listas root tenant-scoped de bibliografia e inventário exigem `X-Folio-Organization-Id` e filtram um único tenant. Pesquisa PORBASE é um resultado individual, não lista paginada.
 
 O pool `pg` usa `DATABASE_POOL_MAX` default 10, conexão 5 s, idle 10 s e query 10 s. HTTP usa request 15 s, headers 20 s e keep-alive 5 s. Valores ambientais inválidos/não positivos recaem em defaults.
 
 Índices efectivos relevantes do schema incluem `Work(organizationId, createdAt, id)`, `Edition(workId, createdAt, id)`, `Library(organizationId, createdAt, id)`, `Location(libraryId, createdAt, id)`, `Holding(editionId|locationId, createdAt, id)`, `Item(holdingId, createdAt, id)`, `OrganizationMembership(userId, organizationId)` único, relações de contribuição por alvo e ordem, títulos/declarações/notas por owner e ordem, e `BibliographicRecord(editionId, createdAt, id)`. Capas têm `CoverCandidate(status)`, `CoverCandidate(nextAttemptAt)`, unicidade `(bibliographicRecordId, urlHash)`, `CoverAsset(organizationId, contentHash)` único e índices de `EditionCover`.
 
-Lacunas observáveis: Contributor ordena por nome/id, mas o índice apresentado no schema é createdAt/id; fanout aninhado de Editions em listas de Works não tem paginação própria. São observações de schema/query, não resultados de benchmark; medir antes de alterar índices.
+Lacunas observáveis: fanout aninhado de Editions em listas de Works não tem paginação própria. São observações de schema/query, não resultados de benchmark; medir antes de alterar índices.
 
 ### Throttling
 
@@ -345,8 +343,8 @@ Os comandos são procedimentos de validação, não afirmação de que foram cor
 
 ## Limitações conhecidas consolidadas
 
-1. A migração do contexto é parcial: Organizations/Works/Editions/Libraries/Locations/Holdings/Items e catalogue import usam o contrato explícito/derivado; outros grupos ainda não. `getDefaultOrganization()` permanece apenas usado pelo onboarding pessoal.
-2. Sem gestão de memberships/convites/roles, branches, Campus, ServicePoint, auditoria ou circulação; Item não representa empréstimos nem estado de circulação.
+1. A migração do contexto é parcial: Organizations/Works/Editions/Libraries/Locations/Holdings/Items, catalogue import e `POST /contributions` usam contexto explícito ou derivado; bibliographic records, covers e exports ainda não. `getDefaultOrganization()` permanece apenas usado pelo onboarding pessoal.
+2. Sem gestão de memberships/convites/roles, branches, Campus, ServicePoint, auditoria ou circulação; Item não representa empréstimos nem estado de circulação. O CRUD administrativo de Agents permanece fora do âmbito.
 3. Confirmação de import sem preview snapshot; campos de contribuição de origem do import são editáveis pelo cliente.
 4. CRUD regular de Work/Edition ainda não mantém sempre relações de títulos/línguas canónicas; `$h/$i` parseados não são persistidos estruturadamente.
 5. Proveniência limitada; inconsistência Work/Edition em BibliographicRecord não é constraint.
@@ -358,9 +356,10 @@ Os comandos são procedimentos de validação, não afirmação de que foram cor
 ## Roadmap acordado — ordem actualizada
 
 Estado nesta revisão: `1J-API.1` e `1L-DEC.0` estão implementadas/aprovadas;
-Organizations/Works/Editions e a fatia de inventário físico
-(Libraries/Locations/Holdings/Items) usam contexto explícito ou derivado. A
-migração de tenancy global continua incompleta.
+Organizations/Works/Editions, a fatia de inventário físico
+(Libraries/Locations/Holdings/Items), catalogue import e `POST /contributions`
+usam contexto explícito ou derivado. A migração de tenancy global continua
+incompleta.
 
 ### Próxima iteração
 
@@ -369,7 +368,7 @@ migração de tenancy global continua incompleta.
 
 ### Próxima migração backend
 
-2. Continuar `1L-API.0`: migrar contributions, bibliographic records, covers e exports.
+2. Continuar `1L-API.0`: migrar bibliographic records, covers e exports.
 
 3. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;
    dependência de contrato e fora do repositório `folio-api`.

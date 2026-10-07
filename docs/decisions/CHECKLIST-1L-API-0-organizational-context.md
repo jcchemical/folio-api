@@ -73,9 +73,9 @@ Do **not** require a header merely because an operation creates a scoped row. In
 | Root `/external-identifiers` list | Explicit root context | **Implemented 2026-10-07:** require header; filter by `Edition → Work → Organization`; optional `editionId` only refines within the selected tenant. |
 | External identifier create under an Edition | Child create under persisted Edition | **Implemented 2026-10-07:** derive tenant through Edition → Work; no header required, validate it if supplied; STAFF+ write role. |
 | External identifier detail/update/delete | Persisted identifier | **Implemented 2026-10-07:** derive tenant through persisted identifier → Edition → Work; validate membership/role and optional header equality. Update does not reassign Edition. |
-| `POST /contributions` | Child association to exactly one persisted Work or Edition | Derive Organization from target; validate Agent belongs to same Organization. Header is optional and must match if supplied. Keep client from controlling trusted provenance/source fields. |
+| `POST /contributions` | Child association to exactly one persisted Work or Edition | **Implemented 2026-10-07:** derive Organization from target; validate Agent belongs to same Organization; optional header must match; STAFF+ required; source is server-assigned MANUAL. |
 | Contribution reads, where exposed | Persisted Work/Edition target | Derive and validate target Organization. |
-| `/contributors` legacy routes | Remove | Remove public legacy CRUD/list paths with the legacy model; expose canonical `Agent + Contribution` behavior only where required. |
+| `/contributors` legacy routes | Remove | **Implemented:** no Contributor routes/models remain; use canonical `Agent + Contribution`. |
 | `GET /bibliographic-records/:id` | Persisted record target | Resolve one unambiguous Work/Edition owner and derive Organization; inconsistent or ownerless local records must not authorize via only one of multiple targets. |
 | Cover read/acquisition | Edition/record-derived | Derive tenant through Edition/Work or the unambiguous BibliographicRecord target; constrain CoverAsset/EditionCover to the same Organization. Background acquisition does not use a request header. |
 | `GET /exports/marcxchange/edition/:editionId` | Persisted Edition | Derive Organization through Edition → Work and validate membership. |
@@ -106,7 +106,7 @@ Before coding controllers, enumerate every existing and new route and record met
 - Make BibliographicRecord's ownership unambiguous (Work or Edition target, or an explicitly modeled external-import record); prevent conflicting Work/Edition targets and derive tenant consistently.
 - Keep CoverAsset organization-scoped only if required for dedup/storage policy; constrain EditionCover asset and Edition to same organization. Ensure CoverCandidate's record/asset path cannot cross tenants.
 - Enforce Agent/Contribution target Organization equality at persistence boundary where feasible; keep Contribution's exactly-one Work-or-Edition invariant.
-- Remove Contributor, WorkContributor, EditionContributor from Prisma schema, services, DTOs, output projections, imports, exports/mappers and tests. Do not retain legacy fallback projections.
+- Remove Contributor, WorkContributor, EditionContributor from Prisma schema, services, DTOs, output projections, imports, exports/mappers and tests. **Implemented:** baseline/schema and code use only canonical `Agent + Contribution`; no legacy fallback projections remain.
 - Re-baseline/rewrite migrations from the final schema; development database reset is allowed. Do not add a compatibility migration chain for old ownership models.
 
 **Done when:** schema expresses the approved chains; no duplicate ownership can disagree; invalid cross-organization parent combinations are rejected by the database or an explicit transaction invariant where a composite constraint is not practical.
@@ -127,7 +127,7 @@ Before coding controllers, enumerate every existing and new route and record met
 ### 4.4 Context resolution and authorization — P1
 
 - Implement one reusable explicit-context resolver for required root operations: header presence, identifier format, Organization existence, current membership, effective role.
-- Implement consistent resource/parent resolvers for Organization, Library, Location, Work, Edition, Holding, Item, ExternalIdentifier, Contribution target, BibliographicRecord, and cover/export ownership.
+- Implement consistent resource/parent resolvers for Organization, Library, Location, Work, Edition, Holding, Item, ExternalIdentifier, Contribution target, BibliographicRecord, and cover/export ownership. **Implemented for manual Contributions:** shared resolver derives tenant through target and checks optional header before write.
 - **Implemented for ExternalIdentifier:** required root context, persisted-Edition child context, and persisted-identifier context all use the shared `OrganizationContextResolver`.
 - Enforce optional header equality on resource-derived and child-create operations.
 - Standardize order: authentication → persisted resource or explicit context resolution → membership → role → domain authorization → operation. **Catalogue import guard resolves required context and STAFF role before payload pipes or persistence.**
