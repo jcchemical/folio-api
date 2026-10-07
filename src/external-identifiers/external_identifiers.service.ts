@@ -1,17 +1,15 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { API_ERROR_CODES, ApiException } from '../common/api-errors.js';
 import {
   paginate,
   paginationArgs,
   type PaginationInput,
 } from '../common/pagination.js';
-import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
+import { OrganizationRole } from '@prisma/client';
+import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
+import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 
 export interface ExternalIdentifierInput {
   type: string;
@@ -20,101 +18,148 @@ export interface ExternalIdentifierInput {
   editionId: string;
 }
 
+export type ExternalIdentifierUpdateInput = Partial<
+  Omit<ExternalIdentifierInput, 'editionId'>
+>;
+
+type ExternalIdentifierWithOwnership = {
+  id: string;
+  type: string;
+  value: string;
+  source: string | null;
+  editionId: string;
+  edition: { id: string; work: { organizationId: string } };
+};
+
 @Injectable()
 export class ExternalIdentifiersService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly organizationMemberships: OrganizationMembershipService,
+    private readonly contexts: OrganizationContextResolver,
   ) {}
 
-  async findAllByUser(userId: string, query: PaginationInput = {}) {
+  async findAll(
+    userId: string,
+    headerValue: OrganizationHeaderValue,
+    query: PaginationInput & { editionId?: string } = {},
+  ) {
+    const context = await this.contexts.resolveRequiredRootContext({
+      userId,
+      headerValue,
+    });
     const { limit, prisma } = paginationArgs(query);
     const rows = await this.prisma.externalIdentifier.findMany({
       where: {
         edition: {
-          work: { organization: { memberships: { some: { userId } } } },
+          work: { organizationId: context.organizationId },
         },
+        ...(query.editionId ? { editionId: query.editionId } : {}),
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       ...prisma,
     });
     return paginate(rows, limit);
   }
 
-  async create(userId: string, data: ExternalIdentifierInput) {
-    const edition = await this.assertEditionOwnership(data.editionId, userId);
+  async create(
+    userId: string,
+    data: ExternalIdentifierInput,
+    headerValue?: OrganizationHeaderValue,
+  ) {
+    const edition = await this.requireEdition(data.editionId);
+    await this.contexts.resolveDerivedContext({
+      userId,
+      headerValue,
+      derivedOrganizationId: edition.work.organizationId,
+      requiredRole: OrganizationRole.STAFF,
+    });
     try {
       return await this.prisma.externalIdentifier.create({
-        data,
+        data: {
+          type: data.type,
+          value: data.value,
+          source: data.source,
+          editionId: edition.id,
+        },
       });
     } catch (error: unknown) {
       throw this.mapUniqueViolation(error, data.type, data.value);
     }
   }
 
+  async findById(
+    id: string,
+    userId: string,
+    headerValue?: OrganizationHeaderValue,
+  ) {
+    const identifier = await this.requireIdentifier(id);
+    await this.contexts.resolveDerivedContext({
+      userId,
+      headerValue,
+      derivedOrganizationId: identifier.edition.work.organizationId,
+    });
+    return identifier;
+  }
+
   async update(
     id: string,
     userId: string,
-    data: Partial<ExternalIdentifierInput>,
+    data: ExternalIdentifierUpdateInput,
+    headerValue?: OrganizationHeaderValue,
   ) {
-    const identifier = await this.assertIdentifierOwnership(id, userId);
-    const { editionId, ...changes } = data;
-    const edition = editionId
-      ? await this.assertEditionOwnership(editionId, userId)
-      : identifier.edition;
-    if (
-      edition.work.organizationId !== identifier.edition.work.organizationId
-    ) {
-      throw new BadRequestException(
-        'External identifiers cannot be reassigned across organizations',
-      );
-    }
+    const identifier = await this.requireIdentifier(id);
+    await this.contexts.resolveDerivedContext({
+      userId,
+      headerValue,
+      derivedOrganizationId: identifier.edition.work.organizationId,
+      requiredRole: OrganizationRole.STAFF,
+    });
     try {
       return await this.prisma.externalIdentifier.update({
         where: { id },
-        data: {
-          ...changes,
-          ...(editionId ? { editionId } : {}),
-        },
+        data,
       });
     } catch (error: unknown) {
       throw this.mapUniqueViolation(
         error,
-        changes.type ?? identifier.type,
-        changes.value ?? identifier.value,
+        data.type ?? identifier.type,
+        data.value ?? identifier.value,
       );
     }
   }
 
-  async remove(id: string, userId: string) {
-    await this.assertIdentifierOwnership(id, userId);
+  async remove(
+    id: string,
+    userId: string,
+    headerValue?: OrganizationHeaderValue,
+  ) {
+    const identifier = await this.requireIdentifier(id);
+    await this.contexts.resolveDerivedContext({
+      userId,
+      headerValue,
+      derivedOrganizationId: identifier.edition.work.organizationId,
+      requiredRole: OrganizationRole.STAFF,
+    });
     return this.prisma.externalIdentifier.delete({ where: { id } });
   }
 
-  private async assertEditionOwnership(editionId: string, userId: string) {
+  private async requireEdition(editionId: string) {
     const edition = await this.prisma.edition.findUnique({
       where: { id: editionId },
       include: { work: true },
     });
-    if (!edition) throw new NotFoundException('Edition not found');
-    await this.organizationMemberships.assertWorkWriteAccess(
-      userId,
-      edition.work,
-    );
+    if (!edition) throw resourceNotFound('Edition');
     return edition;
   }
 
-  private async assertIdentifierOwnership(id: string, userId: string) {
+  private async requireIdentifier(
+    id: string,
+  ): Promise<ExternalIdentifierWithOwnership> {
     const identifier = await this.prisma.externalIdentifier.findUnique({
       where: { id },
       include: { edition: { include: { work: true } } },
     });
-    if (!identifier)
-      throw new NotFoundException('External identifier not found');
-    await this.organizationMemberships.assertWorkWriteAccess(
-      userId,
-      identifier.edition.work,
-    );
+    if (!identifier) throw resourceNotFound('External identifier');
     return identifier;
   }
 
@@ -129,4 +174,12 @@ export class ExternalIdentifiersService {
     }
     return error;
   }
+}
+
+function resourceNotFound(resource: string): ApiException {
+  return new ApiException(
+    HttpStatus.NOT_FOUND,
+    API_ERROR_CODES.RESOURCE_NOT_FOUND,
+    `${resource} not found.`,
+  );
 }

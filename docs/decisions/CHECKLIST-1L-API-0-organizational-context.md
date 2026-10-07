@@ -70,9 +70,9 @@ Do **not** require a header merely because an operation creates a scoped row. In
 | Location creation under Library | Child create under persisted Library | Derive through Library → Organization; if header supplied, require equality. |
 | `POST /catalogues/search` | Global external-provider preview | No Organization context; it does not read or persist local tenant data. This is not local catalogue search. |
 | `POST /catalogues/import` | Root operation creating local Work/Edition data | **Implemented 2026-10-07:** require header + JWT + STAFF; remove nested `work.organizationId`; reject competing ownership/provenance input; create all imported records transactionally in that context. Nested Edition derives from the newly created Work. External `POST /catalogues/search` stays global and context-free. |
-| Root `/external-identifiers` list | Explicit root context | Require header and return only identifiers whose Edition's Work belongs to that Organization. |
-| External identifier create under an Edition | Child create under persisted Edition | Derive tenant through Edition → Work; no header required, but validate it if supplied. |
-| External identifier detail/update/delete | Persisted identifier | Derive tenant through Edition → Work; validate membership/role and optional header equality. |
+| Root `/external-identifiers` list | Explicit root context | **Implemented 2026-10-07:** require header; filter by `Edition → Work → Organization`; optional `editionId` only refines within the selected tenant. |
+| External identifier create under an Edition | Child create under persisted Edition | **Implemented 2026-10-07:** derive tenant through Edition → Work; no header required, validate it if supplied; STAFF+ write role. |
+| External identifier detail/update/delete | Persisted identifier | **Implemented 2026-10-07:** derive tenant through persisted identifier → Edition → Work; validate membership/role and optional header equality. Update does not reassign Edition. |
 | `POST /contributions` | Child association to exactly one persisted Work or Edition | Derive Organization from target; validate Agent belongs to same Organization. Header is optional and must match if supplied. Keep client from controlling trusted provenance/source fields. |
 | Contribution reads, where exposed | Persisted Work/Edition target | Derive and validate target Organization. |
 | `/contributors` legacy routes | Remove | Remove public legacy CRUD/list paths with the legacy model; expose canonical `Agent + Contribution` behavior only where required. |
@@ -118,6 +118,7 @@ Before coding controllers, enumerate every existing and new route and record met
 - Derive context for child creates from persisted Organization/Library/Work/Edition/Holding parents as applicable; validate cross-parent equality for Holding's Edition and Location.
 - Keep resource-specific operations derived from persisted resources; when header is present, compare and fail on mismatch.
 - Remove `organizationId` from Work and catalogue-import bodies and remove any redundant tenant fields/params/query inputs. Remove Item's direct Edition target in favor of Holding. **Implemented:** Work/Edition/inventory/import request contracts no longer accept competing tenant ownership.
+- Remove tenant authority from External Identifier requests; `organizationId` is derived through Edition → Work and is not persisted on the model. **Implemented:** create requires persisted `editionId`; update changes only identifier fields; list/refinement and raw body/query guards enforce the root/derived contract.
 - Keep external search, auth, users, health, root and Swagger context-free; classify Organizations routes according to §4.1.
 - Update Swagger header parameters, request/response DTOs and examples to match the final route matrix.
 
@@ -127,6 +128,7 @@ Before coding controllers, enumerate every existing and new route and record met
 
 - Implement one reusable explicit-context resolver for required root operations: header presence, identifier format, Organization existence, current membership, effective role.
 - Implement consistent resource/parent resolvers for Organization, Library, Location, Work, Edition, Holding, Item, ExternalIdentifier, Contribution target, BibliographicRecord, and cover/export ownership.
+- **Implemented for ExternalIdentifier:** required root context, persisted-Edition child context, and persisted-identifier context all use the shared `OrganizationContextResolver`.
 - Enforce optional header equality on resource-derived and child-create operations.
 - Standardize order: authentication → persisted resource or explicit context resolution → membership → role → domain authorization → operation. **Catalogue import guard resolves required context and STAFF role before payload pipes or persistence.**
 - Remove `getDefaultOrganization`, OWNER-first selection, service-level tenant guessing, all-membership aggregation for tenant lists, and post-mutation authorization checks.

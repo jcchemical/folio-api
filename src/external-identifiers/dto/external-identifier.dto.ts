@@ -1,5 +1,11 @@
-import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional,
+  OmitType,
+  PartialType,
+} from '@nestjs/swagger';
 import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 
 export class CreateExternalIdentifierDto {
   @ApiProperty({ example: 'ISBN-13' })
@@ -24,5 +30,13 @@ export class CreateExternalIdentifierDto {
 }
 
 export class UpdateExternalIdentifierDto extends PartialType(
-  CreateExternalIdentifierDto,
+  OmitType(CreateExternalIdentifierDto, ['editionId'] as const),
 ) {}
+
+export class ExternalIdentifierListQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ example: 'edition_cuid' })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  editionId?: string;
+}

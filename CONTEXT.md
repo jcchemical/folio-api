@@ -101,6 +101,7 @@ A hierarquia implementada é `READER < STAFF < ADMIN < OWNER`. Leituras protegid
 - `GET /locations` exige header e filtra através de `Location → Library → Organization`; `POST /locations` deriva de `libraryId` persistido sem exigir header; header opcional tem de coincidir. Operações por ID derivam via Library; escritas exigem `STAFF`.
 - `GET /holdings` exige header e filtra tanto por `Edition → Work → Organization` como por `Location → Library → Organization`; filtros Edition/Location apenas refinam. `POST /holdings` deriva de Edition e Location persistidas, exige que pertençam à mesma Organization e requer `STAFF`; operações por ID verificam a mesma invariável e derivam por `Holding → Edition → Work`.
 - `GET /items` exige header e filtra por `Item → Holding → Edition → Work` e `Item → Holding → Location → Library`, ambas na Organization seleccionada; `POST /items` deriva de `holdingId` persistido sem exigir header; operações por ID derivam pela mesma cadeia. Escritas exigem `STAFF`; respostas projectam Edition, Work, Location, Library e Organization das relações persistidas.
+- `GET /external-identifiers` exige header e filtra pela Organization de `Edition → Work`; `editionId` refina apenas dentro desse tenant. `POST` deriva da Edition persistida, com header opcional de consistência; `GET/PUT/DELETE :id` derivam do identificador persistido. Leituras requerem membership e escritas STAFF+. Update não reatribui Edition.
 - `POST /catalogues/import` exige JWT, `X-Folio-Organization-Id` e role `STAFF` ou superior. O guard resolve contexto e autorização antes das pipes de payload; Work é criado apenas na Organization resolvida, Editions derivam do Work na mesma transacção e `work.organizationId`/ownership concorrente são rejeitados. `POST /catalogues/search` continua global ao tenant e apenas consulta o provider externo.
 - Listagens de inventário rejeitam query fields de tenant/parent que tentem substituir ou competir com o header e as relações persistidas. DTOs de inventário rejeitam ownership redundante com `VALIDATION_INVALID_BODY`; não dependem apenas de whitelist/strip.
 - `Item.status` é não-null no contrato de escrita: ausência preserva o default/valor existente; `null` é rejeitado. O schema ainda guarda este campo como String, sem enum de estados aprovado; não representa empréstimo nem disponibilidade de circulação.
@@ -114,8 +115,8 @@ A hierarquia implementada é `READER < STAFF < ADMIN < OWNER`. Leituras protegid
 - Não há endpoints de administração de memberships, convites ou alteração de roles.
 - Não há Branch, políticas por Library/Location, Campus, ServicePoint ou circulação. `Library`, `Location` e `Holding` já estão implementados no schema e API.
 - `getDefaultOrganization()` permanece para o onboarding de organização pessoal; não é usado pela confirmação de import nem pelos handlers de Organizations, Works, Editions ou inventário físico.
-- Ainda não foram migrados para contexto explícito root os restantes grupos scoped, incluindo ExternalIdentifiers; Contributors, Contributions, capas, bibliographic records e exports mantêm as regras próprias actuais.
-- `ExternalIdentifier` é scoped à organização e a Edition; a igualdade entre `ExternalIdentifier.organizationId` e a organização da Edition é validada no service, não representada por uma constraint relacional composta.
+- Ainda não foram migrados para contexto explícito root os restantes grupos scoped: Contributors/Contributions, capas, bibliographic records e exports mantêm as regras próprias actuais.
+- `ExternalIdentifier` não persiste `organizationId`; a Organization é derivada de Edition → Work.
 - `BibliographicRecord` pode apontar simultaneamente para Work e Edition; o schema não garante que ambos pertençam ao mesmo Work/organização.
 
 ## Autenticação, sessão e segurança
@@ -160,6 +161,7 @@ Organizações e catálogo local:
 - `/locations` — CRUD; lista root exige header; criação deriva de `libraryId`; operações por ID derivam de `Location → Library`. Escritas exigem STAFF+.
 - `/holdings` — CRUD; lista root exige header; criação deriva de `editionId` + `locationId` e valida organização comum; operações por ID derivam do Holding. Escritas exigem STAFF+.
 - `/items` — CRUD; lista root exige header; criação deriva de `holdingId`; operações por ID derivam de `Item → Holding → Edition → Work`. Escritas exigem STAFF+.
+- `/external-identifiers` — `GET` root exige header e filtra por Edition → Work; `editionId` só refina. `POST` deriva da Edition; `GET/PUT/DELETE :id` derivam da relação persistida. Escritas STAFF+; update não altera Edition.
 - `/contributors` — CRUD legado, sujeito a tenancy/autorização do service.
 - `/contributions` — apenas `POST` manual; agente/role e exactamente um alvo
   Work ou Edition; não aceita metadata MARC de origem nesta rota.
@@ -308,13 +310,13 @@ O endpoint devolve apenas XML. Warnings do mapper não são persistidos nem expo
 
 `PaginationQueryDto`: cursor CUID opcional, `limit` default 25, intervalo 1–100. Helper consulta `limit + 1` e devolve `{ items, nextCursor, hasMore }`; cursor continua por `id` com `skip: 1`.
 
-Listas de Works, Editions, Libraries, Locations, Holdings, Items, Users, Contributors e ExternalIdentifiers usam helper partilhado. Listas root tenant-scoped de bibliografia e inventário exigem `X-Folio-Organization-Id` e filtram um único tenant. Pesquisa PORBASE é um resultado individual, não lista paginada.
+Listas de Works, Editions, Libraries, Locations, Holdings, Items, ExternalIdentifiers, Users e Contributors usam helper partilhado. Listas root tenant-scoped de bibliografia e inventário exigem `X-Folio-Organization-Id` e filtram um único tenant. Pesquisa PORBASE é um resultado individual, não lista paginada.
 
 O pool `pg` usa `DATABASE_POOL_MAX` default 10, conexão 5 s, idle 10 s e query 10 s. HTTP usa request 15 s, headers 20 s e keep-alive 5 s. Valores ambientais inválidos/não positivos recaem em defaults.
 
 Índices efectivos relevantes do schema incluem `Work(organizationId, createdAt, id)`, `Edition(workId, createdAt, id)`, `Library(organizationId, createdAt, id)`, `Location(libraryId, createdAt, id)`, `Holding(editionId|locationId, createdAt, id)`, `Item(holdingId, createdAt, id)`, `OrganizationMembership(userId, organizationId)` único, relações de contribuição por alvo e ordem, títulos/declarações/notas por owner e ordem, e `BibliographicRecord(editionId, createdAt, id)`. Capas têm `CoverCandidate(status)`, `CoverCandidate(nextAttemptAt)`, unicidade `(bibliographicRecordId, urlHash)`, `CoverAsset(organizationId, contentHash)` único e índices de `EditionCover`.
 
-Lacunas observáveis: ExternalIdentifier lista ordena por `createdAt` sem desempate explícito `id`; Contributor ordena por nome/id, mas o índice apresentado no schema é createdAt/id; há índice simples e índice único redundantes em `(organizationId, type, value)` para ExternalIdentifier; fanout aninhado de Editions em listas de Works não tem paginação própria. São observações de schema/query, não resultados de benchmark; medir antes de alterar índices.
+Lacunas observáveis: Contributor ordena por nome/id, mas o índice apresentado no schema é createdAt/id; fanout aninhado de Editions em listas de Works não tem paginação própria. São observações de schema/query, não resultados de benchmark; medir antes de alterar índices.
 
 ### Throttling
 
@@ -367,7 +369,7 @@ migração de tenancy global continua incompleta.
 
 ### Próxima migração backend
 
-2. Continuar `1L-API.0`: migrar identifiers, contributions, bibliographic records, covers e exports.
+2. Continuar `1L-API.0`: migrar contributions, bibliographic records, covers e exports.
 
 3. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;
    dependência de contrato e fora do repositório `folio-api`.
