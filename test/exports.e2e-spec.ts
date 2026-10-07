@@ -33,9 +33,31 @@ const parser = new XMLParser({
 const memberId = 'export-member-user';
 const outsiderId = 'export-outsider-user';
 const password = 'integration-test-password';
+const secondOrganizationId = `c${'b'.repeat(24)}`;
+const secondEditionId = `c${'d'.repeat(24)}`;
+const organizationHeader = 'X-Folio-Organization-Id';
+const secondOrganizationEdition = {
+  ...canonicalExportEdition,
+  id: secondEditionId,
+  workId: 'export-work-2',
+  titles: canonicalExportEdition.titles.map((title) => ({
+    ...title,
+    value: title.type === 'MAIN' ? 'Tenant B Canonical Title' : title.value,
+  })),
+  work: {
+    ...canonicalExportEdition.work,
+    id: 'export-work-2',
+    organizationId: secondOrganizationId,
+    titles: canonicalExportEdition.work.titles.map((title) => ({
+      ...title,
+      value: 'Tenant B Canonical Work Title',
+    })),
+  },
+};
 const editions = new Map<string, unknown>([
   [canonicalExportEditionId, canonicalExportEdition],
   [legacyFallbackEditionId, legacyFallbackEdition],
+  [secondEditionId, secondOrganizationEdition],
 ]);
 
 function asArray<T>(value: T | T[] | undefined): T[] {
@@ -108,20 +130,51 @@ describe('Local canonical MARCXchange export (e2e)', () => {
           };
         }) => {
           const key = where.userId_organizationId;
-          if (
-            key.userId !== memberId ||
-            key.organizationId !== canonicalExportOrganizationId
-          )
-            return null;
+          const memberOrganization =
+            key.userId === memberId &&
+            [canonicalExportOrganizationId, secondOrganizationId].includes(
+              key.organizationId,
+            );
+          const secondMemberOrganization =
+            key.userId === outsiderId &&
+            key.organizationId === secondOrganizationId;
+          if (!memberOrganization && !secondMemberOrganization) return null;
           return {
-            role: 'OWNER',
-            organization: { id: canonicalExportOrganizationId },
+            role: key.userId === memberId ? 'OWNER' : 'READER',
+            organization: { id: key.organizationId },
           };
         },
       },
-      edition: {
+      organization: {
         findUnique: async ({ where }: { where: { id: string } }) =>
-          editions.get(where.id) ?? null,
+          [canonicalExportOrganizationId, secondOrganizationId].includes(
+            where.id,
+          )
+            ? { id: where.id, name: where.id }
+            : null,
+      },
+      edition: {
+        findUnique: async ({
+          where,
+          select,
+        }: {
+          where: { id: string };
+          select?: unknown;
+        }) => {
+          const edition = editions.get(where.id);
+          if (!edition) return null;
+          if (select) {
+            const selected = edition as {
+              id: string;
+              work: { organizationId: string };
+            };
+            return {
+              id: selected.id,
+              work: { organizationId: selected.work.organizationId },
+            };
+          }
+          return edition;
+        },
       },
       $connect: async () => undefined,
       $disconnect: async () => undefined,
@@ -331,21 +384,86 @@ describe('Local canonical MARCXchange export (e2e)', () => {
     expect(values(fieldsByTag(fields, '215')[0], 'a')).toEqual(['100 p.']);
   }, 30_000);
 
-  it('requires authentication, organization membership, and an existing Edition', async () => {
+  it('accepts a matching optional organization header and rejects a mismatch', async () => {
+    const token = await accessToken('export-member@example.test');
+
+    await request(app.getHttpServer())
+      .get(`/exports/marcxchange/edition/${canonicalExportEditionId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .set(organizationHeader, canonicalExportOrganizationId)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`/exports/marcxchange/edition/${canonicalExportEditionId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .set(organizationHeader, secondOrganizationId)
+      .expect(409)
+      .expect(({ body }) =>
+        expect(body.code).toBe('ORGANIZATION_CONTEXT_CONFLICT'),
+      );
+  }, 30_000);
+
+  it('exports only the requested Edition even for a user with memberships in both organizations', async () => {
+    const token = await accessToken('export-member@example.test');
+    const organizationAResponse = await request(app.getHttpServer())
+      .get(`/exports/marcxchange/edition/${canonicalExportEditionId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const organizationBResponse = await request(app.getHttpServer())
+      .get(`/exports/marcxchange/edition/${secondEditionId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(organizationAResponse.text).toContain('Canonical Edition Title');
+    expect(organizationAResponse.text).not.toContain(
+      'Tenant B Canonical Title',
+    );
+    expect(organizationBResponse.text).toContain('Tenant B Canonical Title');
+    expect(organizationBResponse.text).not.toContain('Canonical Edition Title');
+  }, 30_000);
+
+  it('does not allow a user in Organization B to export Organization A Editions', async () => {
+    const token = await accessToken('export-outsider@example.test');
+
+    const inaccessibleEdition = await request(app.getHttpServer())
+      .get(`/exports/marcxchange/edition/${canonicalExportEditionId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(404);
+
+    const missingEdition = await request(app.getHttpServer())
+      .get(`/exports/marcxchange/edition/${`c${'0'.repeat(24)}`}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(404);
+
+    expect(inaccessibleEdition.body).toMatchObject({
+      code: 'RESOURCE_NOT_FOUND',
+      message: missingEdition.body.message,
+    });
+    expect(inaccessibleEdition.body.message).toBe(missingEdition.body.message);
+
+    await request(app.getHttpServer())
+      .get(`/exports/marcxchange/edition/${secondEditionId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+  }, 30_000);
+
+  it('requires authentication and returns RESOURCE_NOT_FOUND for a missing Edition', async () => {
     await request(app.getHttpServer())
       .get(`/exports/marcxchange/edition/${canonicalExportEditionId}`)
       .expect(401);
 
     const outsiderToken = await accessToken('export-outsider@example.test');
     await request(app.getHttpServer())
-      .get(`/exports/marcxchange/edition/${canonicalExportEditionId}`)
+      .get(`/exports/marcxchange/edition/${`c${'0'.repeat(24)}`}`)
       .set('Authorization', `Bearer ${outsiderToken}`)
-      .expect(403);
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
 
     const memberToken = await accessToken('export-member@example.test');
     await request(app.getHttpServer())
       .get(`/exports/marcxchange/edition/${`c${'0'.repeat(24)}`}`)
       .set('Authorization', `Bearer ${memberToken}`)
-      .expect(404);
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
   }, 30_000);
 });

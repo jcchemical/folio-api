@@ -116,7 +116,7 @@ A hierarquia implementada é `READER < STAFF < ADMIN < OWNER`. Leituras protegid
 - Não há endpoints de administração de memberships, convites ou alteração de roles.
 - Não há Branch, políticas por Library/Location, Campus, ServicePoint ou circulação. `Library`, `Location` e `Holding` já estão implementados no schema e API.
 - `getDefaultOrganization()` permanece para o onboarding de organização pessoal; não é usado pela confirmação de import nem pelos handlers de Organizations, Works, Editions ou inventário físico.
-- Ainda não foram migrados para contexto explícito root os restantes grupos scoped: exports mantêm as regras próprias actuais.
+- Exports por Edition usam contexto derivado; não existe export root nem agregação multi-organização.
 - `ExternalIdentifier` não persiste `organizationId`; a Organization é derivada de Edition → Work.
 - `BibliographicRecord` pertence exclusivamente a uma Edition; Organization deriva de `Edition → Work → Organization`. Não tem `workId` nem `organizationId` duplicados.
 
@@ -179,8 +179,12 @@ Catálogo externo, capas e exportação:
 - `POST /catalogues/import` — confirmação editável persistida transaccionalmente; exige `X-Folio-Organization-Id` e STAFF+; não refaz pesquisa externa. Tenant de Work vem exclusivamente do header; `Edition` deriva do Work criado.
 - `GET /editions/:id/cover` — capa activa, autorização de membership, `ETag` e
   `If-None-Match`.
-- `GET /exports/marcxchange/edition/:editionId` — export local MARCXchange; não
-  usa `rawContent`.
+- `GET /exports/marcxchange/edition/:editionId` — export local MARCXchange;
+  Organization deriva de `Edition → Work`; header opcional só confirma igualdade;
+  membership Reader+ é obrigatória. Edition ausente ou sem membership devolve
+  `RESOURCE_NOT_FOUND` para não revelar existência cross-tenant; membro com
+  header divergente recebe `ORGANIZATION_CONTEXT_CONFLICT`. Serializa XML em
+  memória, sem ficheiro/job, e não usa `rawContent`.
 - `/docs` — Swagger UI.
 
 Não existem rotas antigas específicas PORBASE para pesquisa/import. Não existe endpoint MARCXML, ISO 2709, exportação de `rawContent` ou pesquisa local de catálogo.
@@ -309,9 +313,9 @@ Retries usam `nextAttemptAt` e backoff de 1 min, 5 min, 15 min e 1 h; o fallback
 
 ## Exportação
 
-`GET /exports/marcxchange/edition/:editionId` exige JWT, permite CUID e UUID, valida membership, carrega dados locais, usa mapper UNIMARC e serializer MARCXchange. Não lê `BibliographicRecord.rawContent`.
+`GET /exports/marcxchange/edition/:editionId` exige JWT, permite CUID e UUID, deriva Organization por `Edition → Work`, compara o header opcional via `OrganizationContextResolver` e valida membership (Reader+). Edições ausentes e acesso sem membership devolvem o mesmo `RESOURCE_NOT_FOUND`, sem revelar existência cross-tenant; para membros, header divergente devolve `ORGANIZATION_CONTEXT_CONFLICT`. Só depois de resolver contexto carrega o grafo, com filtro pela organização derivada, e usa o mapper UNIMARC e serializer MARCXchange. Não lê `BibliographicRecord.rawContent`, Records, Covers ou assets.
 
-O endpoint devolve apenas XML. Warnings do mapper não são persistidos nem expostos. Não existem endpoints MARCXML, ISO 2709 ou exportação original.
+O endpoint devolve apenas XML em memória (`application/xml; charset=utf-8`) como attachment `folio-{editionId}.marcxchange.xml`; não cria ficheiro temporário nem job. Warnings do mapper não são persistidos nem expostos. Não existem endpoints MARCXML, ISO 2709, root/batch export ou exportação original. O mapper preserva fallbacks de campos escalares quando relações canónicas estão vazias e produz warnings internos; não há fallback Contributor nem por `Agent.displayName`.
 
 ## Paginação, performance e throttling
 
@@ -354,7 +358,7 @@ Os comandos são procedimentos de validação, não afirmação de que foram cor
 
 ## Limitações conhecidas consolidadas
 
-1. A migração do contexto é parcial: Organizations/Works/Editions/Libraries/Locations/Holdings/Items, catalogue import, `POST /contributions` e leitura de Bibliographic Records/Covers usam contexto explícito ou derivado; exports ainda não. `getDefaultOrganization()` permanece apenas usado pelo onboarding pessoal.
+1. A migração do contexto é parcial: Organizations/Works/Editions/Libraries/Locations/Holdings/Items, catalogue import, `POST /contributions`, leitura de Bibliographic Records/Covers e export por Edition usam contexto explícito ou derivado. `getDefaultOrganization()` permanece apenas usado pelo onboarding pessoal.
 2. Sem gestão de memberships/convites/roles, branches, Campus, ServicePoint, auditoria ou circulação; Item não representa empréstimos nem estado de circulação. O CRUD administrativo de Agents permanece fora do âmbito.
 3. Confirmação de import sem preview snapshot; campos de contribuição de origem do import são editáveis pelo cliente.
 4. CRUD regular de Work/Edition ainda não mantém sempre relações de títulos/línguas canónicas; `$h/$i` parseados não são persistidos estruturadamente.
@@ -379,25 +383,22 @@ incompleta.
 
 ### Próxima migração backend
 
-2. Continuar `1L-API.0`: migrar exports.
-
-3. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;
+2. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;
    dependência de contrato e fora do repositório `folio-api`.
 
-4. `1K-API.0` — contrato de listagem, pesquisa e ordenação da biblioteca.
+3. `1K-API.0` — contrato de listagem, pesquisa e ordenação da biblioteca.
 
-5. `1K-API.1` — pesquisa local PostgreSQL.
+4. `1K-API.1` — pesquisa local PostgreSQL.
 
-6. `1K-FLUTTER.0` — paginação/infinite loading; dependência de contrato.
+5. `1K-FLUTTER.0` — paginação/infinite loading; dependência de contrato.
 
-7. `1K-FLUTTER.1` — pesquisa e ordenação; dependência de contrato.
+6. `1K-FLUTTER.1` — pesquisa e ordenação; dependência de contrato.
 
-8. `1L-API.1` — memberships, convites e roles.
+7. `1L-API.1` — memberships, convites e roles.
 
-9. `1L-FLUTTER.1` — gestão de membros; dependência de contrato.
+8. `1L-FLUTTER.1` — gestão de membros; dependência de contrato.
 
-10. `1M` — captura, qualidade catalográfica, tarefas de revisão e auditoria como
-    conceitos separados.
+9. `1M` — separar captura, qualidade, revisão e auditoria.
 
 Direcção futura de pesquisa local: pesquisa Folio distinta de providers externos; extensão controlada de `GET /works`; PostgreSQL full-text (`tsvector`, ranking e GIN), cursor compatível com ordenação; trigramas só com justificação medida. Sem Elasticsearch/Redis nesta fase.
 

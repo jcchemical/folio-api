@@ -12,7 +12,8 @@ import type { Request, Response } from 'express';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
-  ApiForbiddenResponse,
+  ApiConflictResponse,
+  ApiHeader,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -21,6 +22,7 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
+import { FOLIO_ORGANIZATION_HEADER } from '../organizations/organization-context.resolver.js';
 import { ExportsService } from './exports.service.js';
 
 /**
@@ -57,28 +59,44 @@ export class ExportsController {
   constructor(private readonly exportsService: ExportsService) {}
 
   @Get('marcxchange/edition/:editionId')
-  @ApiOperation({ summary: 'Export a local edition as MARCXchange XML' })
+  @ApiHeader({
+    name: FOLIO_ORGANIZATION_HEADER,
+    required: false,
+    description:
+      'Optional consistency check; Organization is derived from Edition → Work.',
+  })
+  @ApiOperation({
+    summary: 'Export a local Edition as MARCXchange XML',
+    description:
+      'The export is scoped to the persisted Edition → Work organization. If X-Folio-Organization-Id is supplied, it must match.',
+  })
   @ApiOkResponse({ description: 'MARCXchange XML export' })
   @ApiBadRequestResponse({ description: 'The edition ID is invalid.' })
-  @ApiForbiddenResponse({
+  @ApiConflictResponse({
     description:
-      "The authenticated user is not a member of the Edition's organization.",
+      'The supplied organization header does not match the Edition organization.',
   })
-  @ApiNotFoundResponse({ description: 'Edition not found.' })
+  @ApiNotFoundResponse({
+    description:
+      'Edition not found or not accessible to the authenticated user.',
+  })
   async exportEdition(
     @Param('editionId', EditionIdValidationPipe) editionId: string,
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<string> {
+    const xml = await this.exportsService.exportMarcXchange(
+      editionId,
+      (request.user as AuthenticatedUser).id,
+      request.headers[FOLIO_ORGANIZATION_HEADER],
+    );
+
     response.setHeader('Content-Type', 'application/xml; charset=utf-8');
     response.setHeader(
       'Content-Disposition',
       `attachment; filename="folio-${editionId}.marcxchange.xml"`,
     );
 
-    return this.exportsService.exportMarcXchange(
-      editionId,
-      (request.user as AuthenticatedUser).id,
-    );
+    return xml;
   }
 }

@@ -1,14 +1,16 @@
 import { XMLParser } from 'fast-xml-parser';
 import {
   BadRequestException,
-  ForbiddenException,
+  HttpStatus,
   InternalServerErrorException,
-  NotFoundException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
+import { API_ERROR_CODES, ApiException } from '../common/api-errors.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
+import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
+import { FOLIO_ORGANIZATION_HEADER } from '../organizations/organization-context.resolver.js';
 import * as unimarcLocalMapper from '../bibliography/mappers/unimarc-local.mapper.js';
 import {
   EditionIdValidationPipe,
@@ -47,19 +49,41 @@ function createEdition(overrides: Record<string, unknown> = {}) {
 }
 
 function createService(edition: unknown, allowed = true) {
+  const organizationId =
+    (edition as { work?: { organizationId?: string } } | null)?.work
+      ?.organizationId ?? 'organization-1';
+  const target = edition
+    ? {
+        id: (edition as { id: string }).id,
+        work: { organizationId },
+      }
+    : null;
   const prisma = {
     edition: {
-      findUnique: vi.fn().mockResolvedValue(edition),
+      findUnique: vi
+        .fn()
+        .mockResolvedValueOnce(target)
+        .mockResolvedValueOnce(edition),
     },
   } as unknown as PrismaService;
+  const contexts = {
+    resolveDerivedContext: allowed
+      ? vi.fn().mockResolvedValue({ organizationId })
+      : vi
+          .fn()
+          .mockRejectedValue(
+            new ApiException(
+              HttpStatus.FORBIDDEN,
+              API_ERROR_CODES.ORGANIZATION_MEMBERSHIP_REQUIRED,
+              'You do not have access to this organization.',
+            ),
+          ),
+  } as unknown as OrganizationContextResolver;
 
   return {
     prisma,
-    service: new ExportsService(prisma, {
-      assertWorkAccess: allowed
-        ? vi.fn().mockResolvedValue(undefined)
-        : vi.fn().mockRejectedValue(new ForbiddenException()),
-    } as never),
+    contexts,
+    service: new ExportsService(prisma, contexts),
   };
 }
 
@@ -84,19 +108,52 @@ describe('ExportsService', () => {
   });
 
   it('returns 404 when the edition does not exist', async () => {
-    const { service } = createService(null);
+    const { prisma, service } = createService(null);
 
     await expect(
       service.exportMarcXchange(editionId, ownerId),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toMatchObject({
+      status: HttpStatus.NOT_FOUND,
+      response: { code: API_ERROR_CODES.RESOURCE_NOT_FOUND },
+    });
+    expect(prisma.edition.findUnique).toHaveBeenCalledOnce();
   });
 
-  it('returns 403 when the edition belongs to another user', async () => {
-    const { service } = createService(createEdition(), false);
+  it('returns RESOURCE_NOT_FOUND before loading the export graph for a non-member', async () => {
+    const { prisma, contexts, service } = createService(createEdition(), false);
 
     await expect(
       service.exportMarcXchange(editionId, ownerId),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toMatchObject({
+      status: HttpStatus.NOT_FOUND,
+      response: { code: API_ERROR_CODES.RESOURCE_NOT_FOUND },
+    });
+    expect(contexts.resolveDerivedContext).toHaveBeenCalledWith({
+      userId: ownerId,
+      headerValue: undefined,
+      derivedOrganizationId: 'organization-1',
+    });
+    expect(prisma.edition.findUnique).toHaveBeenCalledOnce();
+    expect(contexts.resolveDerivedContext).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects an organization header mismatch before loading the export graph', async () => {
+    const { prisma, contexts, service } = createService(createEdition());
+    vi.mocked(contexts.resolveDerivedContext).mockRejectedValueOnce(
+      new ApiException(
+        HttpStatus.CONFLICT,
+        API_ERROR_CODES.ORGANIZATION_CONTEXT_CONFLICT,
+        'The selected organization does not match the requested resource.',
+      ),
+    );
+
+    await expect(
+      service.exportMarcXchange(editionId, ownerId, 'organization-2'),
+    ).rejects.toMatchObject({
+      status: HttpStatus.CONFLICT,
+      response: { code: API_ERROR_CODES.ORGANIZATION_CONTEXT_CONFLICT },
+    });
+    expect(prisma.edition.findUnique).toHaveBeenCalledOnce();
   });
 
   it('returns 500 when local serialization fails', async () => {
@@ -113,11 +170,17 @@ describe('ExportsService', () => {
     );
 
     const xml = await service.exportMarcXchange(editionId, ownerId);
-    const query = vi.mocked(prisma.edition.findUnique).mock.calls[0][0];
+    const [targetQuery, exportQuery] = vi
+      .mocked(prisma.edition.findUnique)
+      .mock.calls.map(([query]) => query);
 
-    expect(query).toEqual(
+    expect(targetQuery).toEqual({
+      where: { id: editionId },
+      select: { id: true, work: { select: { organizationId: true } } },
+    });
+    expect(exportQuery).toEqual(
       expect.objectContaining({
-        where: { id: editionId },
+        where: { id: editionId, work: { organizationId: 'organization-1' } },
         include: expect.objectContaining({
           work: expect.objectContaining({
             include: expect.objectContaining({
@@ -136,14 +199,16 @@ describe('ExportsService', () => {
 
     await service.exportMarcXchange(editionId, ownerId);
 
-    const query = vi.mocked(prisma.edition.findUnique).mock.calls[0][0];
+    const query = vi.mocked(prisma.edition.findUnique).mock.calls[1][0];
     const ordered = [{ sortOrder: 'asc' }, { id: 'asc' }];
     const include = query?.include as Record<string, unknown>;
     const work = include.work as { include: Record<string, unknown> };
     const workInclude = work.include;
 
     expect(query).toEqual(
-      expect.objectContaining({ where: { id: editionId } }),
+      expect.objectContaining({
+        where: { id: editionId, work: { organizationId: 'organization-1' } },
+      }),
     );
     for (const relation of [
       'titles',
@@ -304,6 +369,7 @@ describe('ExportsController', () => {
         name: null,
         roles: [],
       } satisfies AuthenticatedUser,
+      headers: { [FOLIO_ORGANIZATION_HEADER]: 'organization-1' },
     } as never;
 
     const result = await controller.exportEdition(editionId, request, response);
@@ -317,7 +383,28 @@ describe('ExportsController', () => {
       'Content-Disposition',
       `attachment; filename="folio-${editionId}.marcxchange.xml"`,
     );
-    expect(exportMarcXchange).toHaveBeenCalledWith(editionId, ownerId);
+    expect(exportMarcXchange).toHaveBeenCalledWith(
+      editionId,
+      ownerId,
+      'organization-1',
+    );
+  });
+
+  it('does not set download headers when export authorization fails', async () => {
+    const exportMarcXchange = vi
+      .fn()
+      .mockRejectedValue(new Error('authorization failed'));
+    const controller = new ExportsController({ exportMarcXchange } as never);
+    const response = { setHeader: vi.fn() } as unknown as Response;
+    const request = {
+      user: { id: ownerId },
+      headers: {},
+    } as never;
+
+    await expect(
+      controller.exportEdition(editionId, request, response),
+    ).rejects.toThrow('authorization failed');
+    expect(response.setHeader).not.toHaveBeenCalled();
   });
 
   it('rejects an invalid edition ID with 400', () => {

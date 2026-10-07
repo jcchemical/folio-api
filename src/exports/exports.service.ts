@@ -1,26 +1,55 @@
 import {
+  HttpException,
+  HttpStatus,
   Injectable,
   InternalServerErrorException,
-  NotFoundException,
 } from '@nestjs/common';
+import {
+  API_ERROR_CODES,
+  ApiException,
+  responseWithCode,
+} from '../common/api-errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   mapLocalEditionToUnimarc,
   type UnimarcLocalEditionInput,
 } from '../bibliography/mappers/unimarc-local.mapper.js';
 import { serializeMarcXchange } from '../bibliography/serializers/marcxchange.serializer.js';
-import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
+import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
+import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 
 @Injectable()
 export class ExportsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly organizationMemberships: OrganizationMembershipService,
+    private readonly contexts: OrganizationContextResolver,
   ) {}
 
-  async exportMarcXchange(editionId: string, userId: string): Promise<string> {
-    const edition = await this.prisma.edition.findUnique({
+  async exportMarcXchange(
+    editionId: string,
+    userId: string,
+    headerValue?: OrganizationHeaderValue,
+  ): Promise<string> {
+    const target = await this.prisma.edition.findUnique({
       where: { id: editionId },
+      select: {
+        id: true,
+        work: { select: { organizationId: true } },
+      },
+    });
+    if (!target) throw resourceNotFound();
+
+    await this.resolveExportContext({
+      userId,
+      headerValue,
+      derivedOrganizationId: target.work.organizationId,
+    });
+
+    const edition = await this.prisma.edition.findUnique({
+      where: {
+        id: editionId,
+        work: { organizationId: target.work.organizationId },
+      },
       include: {
         work: {
           include: {
@@ -72,11 +101,7 @@ export class ExportsService {
       },
     });
 
-    if (!edition) {
-      throw new NotFoundException('Edition not found');
-    }
-
-    await this.organizationMemberships.assertWorkAccess(userId, edition.work);
+    if (!edition) throw resourceNotFound();
 
     try {
       const legacyProjection = {
@@ -128,4 +153,39 @@ export class ExportsService {
       );
     }
   }
+
+  private async resolveExportContext(input: {
+    userId: string;
+    headerValue: OrganizationHeaderValue;
+    derivedOrganizationId: string;
+  }): Promise<void> {
+    try {
+      await this.contexts.resolveDerivedContext(input);
+    } catch (contextError) {
+      try {
+        await this.contexts.resolveDerivedContext({
+          ...input,
+          headerValue: undefined,
+        });
+      } catch (membershipError) {
+        if (
+          membershipError instanceof HttpException &&
+          responseWithCode(membershipError)?.code ===
+            API_ERROR_CODES.ORGANIZATION_MEMBERSHIP_REQUIRED
+        ) {
+          throw resourceNotFound();
+        }
+        throw membershipError;
+      }
+      throw contextError;
+    }
+  }
+}
+
+function resourceNotFound(): ApiException {
+  return new ApiException(
+    HttpStatus.NOT_FOUND,
+    API_ERROR_CODES.RESOURCE_NOT_FOUND,
+    'Edition not found.',
+  );
 }

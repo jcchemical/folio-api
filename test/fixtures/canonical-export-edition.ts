@@ -1,6 +1,6 @@
 export const canonicalExportEditionId = `c${'e'.repeat(24)}`;
 export const legacyFallbackEditionId = `c${'f'.repeat(24)}`;
-export const canonicalExportOrganizationId = 'export-organization-1';
+export const canonicalExportOrganizationId = `c${'a'.repeat(24)}`;
 
 const sourceParts = (parts: Array<[string, string]>) =>
   parts.map(([code, value], sortOrder) => ({ code, value, sortOrder }));
