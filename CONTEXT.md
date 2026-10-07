@@ -101,6 +101,7 @@ A hierarquia implementada é `READER < STAFF < ADMIN < OWNER`. Leituras protegid
 - `GET /locations` exige header e filtra através de `Location → Library → Organization`; `POST /locations` deriva de `libraryId` persistido sem exigir header; header opcional tem de coincidir. Operações por ID derivam via Library; escritas exigem `STAFF`.
 - `GET /holdings` exige header e filtra tanto por `Edition → Work → Organization` como por `Location → Library → Organization`; filtros Edition/Location apenas refinam. `POST /holdings` deriva de Edition e Location persistidas, exige que pertençam à mesma Organization e requer `STAFF`; operações por ID verificam a mesma invariável e derivam por `Holding → Edition → Work`.
 - `GET /items` exige header e filtra por `Item → Holding → Edition → Work` e `Item → Holding → Location → Library`, ambas na Organization seleccionada; `POST /items` deriva de `holdingId` persistido sem exigir header; operações por ID derivam pela mesma cadeia. Escritas exigem `STAFF`; respostas projectam Edition, Work, Location, Library e Organization das relações persistidas.
+- `POST /catalogues/import` exige JWT, `X-Folio-Organization-Id` e role `STAFF` ou superior. O guard resolve contexto e autorização antes das pipes de payload; Work é criado apenas na Organization resolvida, Editions derivam do Work na mesma transacção e `work.organizationId`/ownership concorrente são rejeitados. `POST /catalogues/search` continua global ao tenant e apenas consulta o provider externo.
 - Listagens de inventário rejeitam query fields de tenant/parent que tentem substituir ou competir com o header e as relações persistidas. DTOs de inventário rejeitam ownership redundante com `VALIDATION_INVALID_BODY`; não dependem apenas de whitelist/strip.
 - `Item.status` é não-null no contrato de escrita: ausência preserva o default/valor existente; `null` é rejeitado. O schema ainda guarda este campo como String, sem enum de estados aprovado; não representa empréstimo nem disponibilidade de circulação.
 - Contexto root e contexto derivado usam `OrganizationContextResolver` e os códigos estáveis `ORGANIZATION_CONTEXT_REQUIRED`, `ORGANIZATION_ID_INVALID`, `ORGANIZATION_NOT_FOUND`, `ORGANIZATION_MEMBERSHIP_REQUIRED`, `ORGANIZATION_ROLE_INSUFFICIENT` e `ORGANIZATION_CONTEXT_CONFLICT`.
@@ -112,8 +113,8 @@ A hierarquia implementada é `READER < STAFF < ADMIN < OWNER`. Leituras protegid
 - Não há organização activa por pedido nem selector de organização no contrato de autenticação. `GET /auth/me` devolve `roles: []`; não projecta roles de memberships.
 - Não há endpoints de administração de memberships, convites ou alteração de roles.
 - Não há Branch, políticas por Library/Location, Campus, ServicePoint ou circulação. `Library`, `Location` e `Holding` já estão implementados no schema e API.
-- O import de catálogo ainda aceita `work.organizationId` opcional e, se omitido, usa a organização OWNER mais antiga. Este fallback permanece apenas nessa rota não migrada; não é usado pelos handlers de Organizations, Works, Editions ou inventário físico.
-- Ainda não foram migrados para contexto explícito root os restantes grupos scoped, incluindo ExternalIdentifiers e Catalogue import; Contributors, Contributions, capas, bibliographic records e exports mantêm as regras próprias actuais.
+- `getDefaultOrganization()` permanece para o onboarding de organização pessoal; não é usado pela confirmação de import nem pelos handlers de Organizations, Works, Editions ou inventário físico.
+- Ainda não foram migrados para contexto explícito root os restantes grupos scoped, incluindo ExternalIdentifiers; Contributors, Contributions, capas, bibliographic records e exports mantêm as regras próprias actuais.
 - `ExternalIdentifier` é scoped à organização e a Edition; a igualdade entre `ExternalIdentifier.organizationId` e a organização da Edition é validada no service, não representada por uma constraint relacional composta.
 - `BibliographicRecord` pode apontar simultaneamente para Work e Edition; o schema não garante que ambos pertençam ao mesmo Work/organização.
 
@@ -169,9 +170,8 @@ Organizações e catálogo local:
 
 Catálogo externo, capas e exportação:
 
-- `POST /catalogues/search` — pesquisa/preview genérico, provider opcional.
-- `POST /catalogues/import` — confirmação editável, persistida
-  transaccionalmente; não refaz pesquisa externa.
+- `POST /catalogues/search` — pesquisa/preview externo, provider opcional; JWT conforme contrato actual, sem contexto organizacional e sem persistência local.
+- `POST /catalogues/import` — confirmação editável persistida transaccionalmente; exige `X-Folio-Organization-Id` e STAFF+; não refaz pesquisa externa. Tenant de Work vem exclusivamente do header; `Edition` deriva do Work criado.
 - `GET /editions/:id/cover` — capa activa, autorização de membership, `ETag` e
   `If-None-Match`.
 - `GET /exports/marcxchange/edition/:editionId` — export local MARCXchange; não
@@ -195,7 +195,7 @@ Não existem rotas antigas específicas PORBASE para pesquisa/import. Não exist
 
 O DTO rejeita campos que não correspondem ao discriminante. **PORBASE só implementa ISBN**; title, author e keyword devolvem `CATALOGUE_SEARCH_TYPE_UNSUPPORTED`. Search e import aceitam `sourceId` opcional; a identidade `sourceId` de resposta é acrescentada pelo provider.
 
-O preview consulta PORBASE, interpreta XML/MARC text e devolve campos estruturados, warnings e conteúdo original. Preview não persiste. A confirmação exige `POST /catalogues/import` com o payload editável completo; o servidor não volta a PORBASE.
+O preview consulta PORBASE, interpreta XML/MARC text e devolve campos estruturados, warnings e conteúdo original. `POST /catalogues/search` não exige organização e não persiste. A confirmação `POST /catalogues/import` exige contexto organizacional explícito e payload editável; o servidor não volta a PORBASE, e o tenant não é aceite no body.
 
 ### Limitações de confirmação e proveniência
 
@@ -343,7 +343,7 @@ Os comandos são procedimentos de validação, não afirmação de que foram cor
 
 ## Limitações conhecidas consolidadas
 
-1. A migração do contexto é parcial: Organizations/Works/Editions/Libraries/Locations/Holdings/Items usam o contrato explícito/derivado, mas outros grupos ainda não; o fallback OWNER mais antigo permanece no import de catálogo.
+1. A migração do contexto é parcial: Organizations/Works/Editions/Libraries/Locations/Holdings/Items e catalogue import usam o contrato explícito/derivado; outros grupos ainda não. `getDefaultOrganization()` permanece apenas usado pelo onboarding pessoal.
 2. Sem gestão de memberships/convites/roles, branches, Campus, ServicePoint, auditoria ou circulação; Item não representa empréstimos nem estado de circulação.
 3. Confirmação de import sem preview snapshot; campos de contribuição de origem do import são editáveis pelo cliente.
 4. CRUD regular de Work/Edition ainda não mantém sempre relações de títulos/línguas canónicas; `$h/$i` parseados não são persistidos estruturadamente.
@@ -367,9 +367,7 @@ migração de tenancy global continua incompleta.
 
 ### Próxima migração backend
 
-2. Continuar `1L-API.0` — migrar por iterações os restantes grupos, incluindo
-   catalogue import, identifiers, contributions, bibliographic records, covers
-   e exports conforme decisão aprovada.
+2. Continuar `1L-API.0`: migrar identifiers, contributions, bibliographic records, covers e exports.
 
 3. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;
    dependência de contrato e fora do repositório `folio-api`.

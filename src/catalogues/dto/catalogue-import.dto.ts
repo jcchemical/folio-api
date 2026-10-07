@@ -228,11 +228,6 @@ export class CatalogueImportWorkDto {
   @IsString()
   subtitle?: string | null;
 
-  @ApiPropertyOptional({ example: null, nullable: true })
-  @IsOptional()
-  @IsString()
-  organizationId?: string | null;
-
   @ApiPropertyOptional({ type: [CatalogueTitleInputDto] })
   @IsOptional()
   @IsArray()

@@ -50,7 +50,7 @@ function createTransactionMock(organizationId = 'organization-1') {
       findUnique: vi.fn().mockResolvedValue({ ...work, organizationId }),
       findUniqueOrThrow: vi.fn().mockResolvedValue({
         id: work.id,
-        organization: { id: 'organization-1' },
+        organization: { id: organizationId },
         titles: [],
         editions: [
           {
@@ -129,14 +129,14 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
 
-    const result = await service.import('jwt-user-1', baseInput);
+    const result = await service.import(
+      'jwt-user-1',
+      baseInput,
+      'organization-1',
+    );
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(tx.work.create).toHaveBeenCalledWith({
@@ -180,11 +180,7 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
     const input: CatalogueImportDto = {
       ...baseInput,
@@ -203,7 +199,7 @@ describe('PorbaseImportService', () => {
       },
     };
 
-    await service.import('jwt-user-1', input);
+    await service.import('jwt-user-1', input, 'organization-1');
 
     expect(tx.edition.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -224,21 +220,17 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
 
-    await expect(service.import('jwt-user-1', baseInput)).rejects.toMatchObject(
-      {
-        status: 409,
-        response: expect.objectContaining({
-          code: 'CONFLICT_DUPLICATE_EDITION',
-        }),
-      },
-    );
+    await expect(
+      service.import('jwt-user-1', baseInput, 'organization-1'),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({
+        code: 'CONFLICT_DUPLICATE_EDITION',
+      }),
+    });
     expect(tx.work.create).not.toHaveBeenCalled();
   });
 
@@ -251,15 +243,11 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-b' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
 
     await expect(
-      service.import('jwt-user-b', baseInput),
+      service.import('jwt-user-b', baseInput, 'organization-b'),
     ).resolves.toBeDefined();
     expect(tx.work.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ organizationId: 'organization-b' }),
@@ -278,11 +266,7 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
     const input = {
       ...baseInput,
@@ -290,7 +274,9 @@ describe('PorbaseImportService', () => {
       externalIdentifiers: [],
     };
 
-    await expect(service.import('jwt-user-1', input)).resolves.toBeDefined();
+    await expect(
+      service.import('jwt-user-1', input, 'organization-1'),
+    ).resolves.toBeDefined();
     expect(tx.edition.findFirst).not.toHaveBeenCalled();
   });
 
@@ -298,20 +284,16 @@ describe('PorbaseImportService', () => {
     const prisma = { $transaction: vi.fn() };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
     const input = {
       ...baseInput,
       edition: { ...baseInput.edition, isbn13: '9789724426496' },
     };
 
-    await expect(service.import('jwt-user-1', input)).rejects.toThrow(
-      'not a valid ISBN',
-    );
+    await expect(
+      service.import('jwt-user-1', input, 'organization-1'),
+    ).rejects.toThrow('not a valid ISBN');
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
@@ -327,16 +309,12 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
 
-    await expect(service.import('jwt-user-1', baseInput)).rejects.toThrow(
-      'identifier failure',
-    );
+    await expect(
+      service.import('jwt-user-1', baseInput, 'organization-1'),
+    ).rejects.toThrow('identifier failure');
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
@@ -349,14 +327,14 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
 
-    const result = await service.import('jwt-user-1', baseInput);
+    const result = await service.import(
+      'jwt-user-1',
+      baseInput,
+      'organization-1',
+    );
 
     expect(result).not.toHaveProperty('item');
     expect(tx).not.toHaveProperty('item');
@@ -403,15 +381,14 @@ describe('PorbaseImportService', () => {
       };
       const importService = new PorbaseImportService(
         prisma as never,
-        {
-          getDefaultOrganization: vi
-            .fn()
-            .mockResolvedValue({ id: organizationId }),
-        } as never,
         contributionsService,
       );
 
-      await importService.import(`user-${organizationId}`, input);
+      await importService.import(
+        `user-${organizationId}`,
+        input,
+        organizationId,
+      );
 
       expect(tx.agent.findMany).toHaveBeenCalledWith({
         where: {
@@ -459,11 +436,7 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
     const input: CatalogueImportDto = {
       ...baseInput,
@@ -484,7 +457,7 @@ describe('PorbaseImportService', () => {
       },
     };
 
-    await service.import('jwt-user-1', input);
+    await service.import('jwt-user-1', input, 'organization-1');
 
     expect(tx.work.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -528,11 +501,7 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
     const input: CatalogueImportDto = {
       ...baseInput,
@@ -546,7 +515,7 @@ describe('PorbaseImportService', () => {
       },
     };
 
-    await service.import('jwt-user-1', input);
+    await service.import('jwt-user-1', input, 'organization-1');
 
     expect(tx.edition.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -570,11 +539,7 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
     const input: CatalogueImportDto = {
       ...baseInput,
@@ -605,7 +570,7 @@ describe('PorbaseImportService', () => {
       },
     };
 
-    await service.import('jwt-user-1', input);
+    await service.import('jwt-user-1', input, 'organization-1');
 
     expect(tx.edition.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -663,11 +628,6 @@ describe('PorbaseImportService', () => {
     const persistPorbase = vi.fn().mockResolvedValue([]);
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
       { persistPorbase } as never,
     );
     const input: CatalogueImportDto = {
@@ -687,7 +647,7 @@ describe('PorbaseImportService', () => {
       ],
     };
 
-    await service.import('jwt-user-1', input);
+    await service.import('jwt-user-1', input, 'organization-1');
 
     expect(persistPorbase).toHaveBeenCalledWith(
       tx,
@@ -712,51 +672,51 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
 
-    await service.import('jwt-user-1', {
-      ...baseInput,
-      edition: {
-        ...baseInput.edition,
-        titles: [
-          {
-            type: 'MAIN',
-            value: 'Canonical title',
-            subtitle: 'Canonical subtitle',
-            sortOrder: 0,
-          },
-        ],
-        languages: [{ code: 'por', role: 'TEXT', sortOrder: 0 }],
-        editionStatements: [
-          {
-            value: '2.ª ed.',
-            kind: 'EDITION',
-            label: null,
-            sortOrder: 0,
-            sourceTag: '205',
-          },
-          {
-            value: 'revista',
-            kind: 'OTHER',
-            label: null,
-            sortOrder: 1,
-            sourceTag: '205',
-          },
-          {
-            value: 'com prefácio',
-            kind: 'RESPONSIBILITY',
-            label: 'responsibility',
-            sortOrder: 2,
-            sourceTag: '205',
-          },
-        ],
+    await service.import(
+      'jwt-user-1',
+      {
+        ...baseInput,
+        edition: {
+          ...baseInput.edition,
+          titles: [
+            {
+              type: 'MAIN',
+              value: 'Canonical title',
+              subtitle: 'Canonical subtitle',
+              sortOrder: 0,
+            },
+          ],
+          languages: [{ code: 'por', role: 'TEXT', sortOrder: 0 }],
+          editionStatements: [
+            {
+              value: '2.ª ed.',
+              kind: 'EDITION',
+              label: null,
+              sortOrder: 0,
+              sourceTag: '205',
+            },
+            {
+              value: 'revista',
+              kind: 'OTHER',
+              label: null,
+              sortOrder: 1,
+              sourceTag: '205',
+            },
+            {
+              value: 'com prefácio',
+              kind: 'RESPONSIBILITY',
+              label: 'responsibility',
+              sortOrder: 2,
+              sourceTag: '205',
+            },
+          ],
+        },
       },
-    });
+      'organization-1',
+    );
 
     expect(tx.edition.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -788,41 +748,40 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
       { persistPorbase } as never,
     );
 
-    await service.import('jwt-user-1', {
-      ...baseInput,
-      contributions: [
-        {
-          targetScope: 'WORK',
-          kind: 'PERSON',
-          displayName: 'Jane Doe',
-          authorityId: 'person-authority-1',
-          sourceTag: '700',
-          indicator1: '1',
-          indicator2: ' ',
-          sortOrder: 0,
-          sourceParts: [{ code: 'a', value: 'Doe, Jane', sortOrder: 0 }],
-        },
-        {
-          targetScope: 'WORK',
-          kind: 'CORPORATE_BODY',
-          displayName: 'Portugal. Ministério da Cultura',
-          authorityId: 'corp-authority-1',
-          sourceTag: '710',
-          indicator1: '2',
-          indicator2: ' ',
-          sortOrder: 1,
-          sourceParts: [{ code: 'a', value: 'Portugal.', sortOrder: 0 }],
-        },
-      ],
-    });
+    await service.import(
+      'jwt-user-1',
+      {
+        ...baseInput,
+        contributions: [
+          {
+            targetScope: 'WORK',
+            kind: 'PERSON',
+            displayName: 'Jane Doe',
+            authorityId: 'person-authority-1',
+            sourceTag: '700',
+            indicator1: '1',
+            indicator2: ' ',
+            sortOrder: 0,
+            sourceParts: [{ code: 'a', value: 'Doe, Jane', sortOrder: 0 }],
+          },
+          {
+            targetScope: 'WORK',
+            kind: 'CORPORATE_BODY',
+            displayName: 'Portugal. Ministério da Cultura',
+            authorityId: 'corp-authority-1',
+            sourceTag: '710',
+            indicator1: '2',
+            indicator2: ' ',
+            sortOrder: 1,
+            sourceParts: [{ code: 'a', value: 'Portugal.', sortOrder: 0 }],
+          },
+        ],
+      },
+      'organization-1',
+    );
 
     expect(persistPorbase).toHaveBeenCalledWith(
       tx,
@@ -850,11 +809,7 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
     const input: CatalogueImportDto = {
       ...baseInput,
@@ -865,7 +820,7 @@ describe('PorbaseImportService', () => {
       },
     };
 
-    await service.import('jwt-user-1', input);
+    await service.import('jwt-user-1', input, 'organization-1');
 
     expect(tx.bibliographicRecord.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -901,11 +856,7 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
     const forgedInput = {
       ...baseInput,
@@ -918,7 +869,12 @@ describe('PorbaseImportService', () => {
       },
     } as unknown as CatalogueImportDto;
 
-    await service.import('jwt-user-1', forgedInput, 'porbase');
+    await service.import(
+      'jwt-user-1',
+      forgedInput,
+      'organization-1',
+      'porbase',
+    );
 
     expect(tx.bibliographicRecord.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -941,11 +897,7 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
     const rawContent = [
       '200 $a Edition title',
@@ -954,10 +906,14 @@ describe('PorbaseImportService', () => {
       '856 40 $uhttps://example.org/catalogue/record-1 $qtext/html',
     ].join('\n');
 
-    await service.import('jwt-user-1', {
-      ...baseInput,
-      bibliographicRecord: { ...baseInput.bibliographicRecord, rawContent },
-    });
+    await service.import(
+      'jwt-user-1',
+      {
+        ...baseInput,
+        bibliographicRecord: { ...baseInput.bibliographicRecord, rawContent },
+      },
+      'organization-1',
+    );
 
     expect(tx.bibliographicRecord.create).toHaveBeenCalled();
     expect(tx.$executeRawUnsafe).toHaveBeenNthCalledWith(
@@ -1026,22 +982,22 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
 
     await expect(
-      service.import('jwt-user-1', {
-        ...baseInput,
-        bibliographicRecord: {
-          ...baseInput.bibliographicRecord,
-          rawContent:
-            '856 40 $uhttps://covers.example.org/cover.jpg $qimage/jpeg',
+      service.import(
+        'jwt-user-1',
+        {
+          ...baseInput,
+          bibliographicRecord: {
+            ...baseInput.bibliographicRecord,
+            rawContent:
+              '856 40 $uhttps://covers.example.org/cover.jpg $qimage/jpeg',
+          },
         },
-      }),
+        'organization-1',
+      ),
     ).resolves.toBeDefined();
 
     expect(tx.$executeRawUnsafe).toHaveBeenCalledWith(
@@ -1059,14 +1015,10 @@ describe('PorbaseImportService', () => {
     };
     const service = new PorbaseImportService(
       prisma as never,
-      {
-        getDefaultOrganization: vi
-          .fn()
-          .mockResolvedValue({ id: 'organization-1' }),
-      } as never,
+      { persistPorbase: vi.fn().mockResolvedValue([]) } as never,
     );
 
-    await service.import('jwt-user-1', baseInput, 'porbase');
+    await service.import('jwt-user-1', baseInput, 'organization-1', 'porbase');
 
     expect(tx.bibliographicRecord.create).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -6,7 +6,10 @@ import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { hashPassword } from '../src/auth/password.utils.js';
 import { ApiExceptionFilter } from '../src/common/api-exception.filter.js';
+import { FOLIO_ORGANIZATION_HEADER } from '../src/organizations/organization-context.resolver.js';
 import { vi } from 'vitest';
+
+const organizationA = `c${'a'.repeat(24)}`;
 
 // This suite exercises the real CatalogueService -> PorbaseCatalogueProvider
 // -> PorbaseImportService chain end-to-end over HTTP, with only PrismaService
@@ -17,6 +20,16 @@ import { vi } from 'vitest';
 describe('Catalogue import persistence (e2e)', () => {
   let app: INestApplication<App>;
   let tx: ReturnType<typeof createTransactionMock>['tx'];
+  let createdOrganizationIds: string[];
+  let attemptedWrites: string[];
+  let committedWrites: string[];
+  let activeTransactionWrites: string[] | null;
+  let failAfterWrites: boolean;
+
+  function recordWrite(resource: string) {
+    attemptedWrites.push(resource);
+    activeTransactionWrites?.push(resource);
+  }
 
   function createTransactionMock() {
     const work = { id: 'work-1' };
@@ -24,129 +37,170 @@ describe('Catalogue import persistence (e2e)', () => {
     const t = {
       edition: {
         findFirst: async () => null,
-        create: async () => edition,
+        create: vi.fn(async () => {
+          recordWrite('Edition');
+          return edition;
+        }),
       },
       work: {
-        create: async () => work,
-        findUniqueOrThrow: async () => ({
+        create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          recordWrite('Work');
+          createdOrganizationIds.push(data.organizationId as string);
+          return work;
+        }),
+        findUnique: async () => ({
           id: work.id,
-          title: 'Canonical work title',
-          subtitle: null,
-          organization: { id: 'organization-1', name: 'Personal' },
-          titles: [
-            {
-              id: 'wt-1',
-              type: 'MAIN',
-              value: 'Canonical work title',
-              subtitle: null,
-              language: null,
-              partNumber: null,
-              partName: null,
-              sortOrder: 0,
-            },
-          ],
-          editions: [
-            {
-              ...edition,
-              title: 'Canonical edition title',
-              subtitle: null,
-              isbn10: null,
-              isbn13: '9789724426495',
-              publisher: null,
-              publicationDate: null,
-              language: 'por',
-              country: null,
-              format: null,
-              pageCount: null,
-              externalIdentifiers: [],
-              bibliographicRecords: [
-                {
-                  id: 'record-1',
-                  format: 'MARC_TEXT',
-                  source: 'PORBASE',
-                  sourceId: 'porbase',
-                  remoteId: 'record-1',
-                  rawContent:
-                    '200 $a Canonical edition title\n966 $l BN $s Shelf 1',
-                  unmappedSourceFields: [
-                    {
-                      id: 'unmapped-1',
-                      tag: '966',
-                      indicator1: ' ',
-                      indicator2: ' ',
-                      occurrence: 0,
-                      reason: 'LOCAL',
-                      subfields: [
-                        { id: 'sub-1', code: 'l', value: 'BN', sortOrder: 0 },
-                        {
-                          id: 'sub-2',
-                          code: 's',
-                          value: 'Shelf 1',
-                          sortOrder: 1,
-                        },
-                      ],
-                    },
-                  ],
-                },
-              ],
-              titles: [
-                {
-                  id: 'et-1',
-                  type: 'MAIN',
-                  value: 'Canonical edition title',
-                  subtitle: null,
-                  language: null,
-                  partNumber: null,
-                  partName: null,
-                  sortOrder: 0,
-                },
-              ],
-              responsibilityStatements: [],
-              languages: [
-                { id: 'el-1', code: 'por', role: 'TEXT', sortOrder: 0 },
-              ],
-              series: [],
-              notes: [],
-              classifications: [],
-              physicalDescriptions: [],
-              publicationStatements: [],
-              contributions: [],
-            },
-          ],
-          contributions: [],
-          bibliographicRecords: [],
+          organizationId: organizationA,
         }),
+        findUniqueOrThrow: async () => {
+          if (failAfterWrites)
+            throw new Error('final import response read failed');
+          return {
+            id: work.id,
+            title: 'Canonical work title',
+            subtitle: null,
+            organization: { id: organizationA, name: 'Organization A' },
+            titles: [
+              {
+                id: 'wt-1',
+                type: 'MAIN',
+                value: 'Canonical work title',
+                subtitle: null,
+                language: null,
+                partNumber: null,
+                partName: null,
+                sortOrder: 0,
+              },
+            ],
+            editions: [
+              {
+                ...edition,
+                title: 'Canonical edition title',
+                subtitle: null,
+                isbn10: null,
+                isbn13: '9789724426495',
+                publisher: null,
+                publicationDate: null,
+                language: 'por',
+                country: null,
+                format: null,
+                pageCount: null,
+                externalIdentifiers: [],
+                bibliographicRecords: [
+                  {
+                    id: 'record-1',
+                    format: 'MARC_TEXT',
+                    source: 'PORBASE',
+                    sourceId: 'porbase',
+                    remoteId: 'record-1',
+                    rawContent:
+                      '200 $a Canonical edition title\n966 $l BN $s Shelf 1',
+                    unmappedSourceFields: [
+                      {
+                        id: 'unmapped-1',
+                        tag: '966',
+                        indicator1: ' ',
+                        indicator2: ' ',
+                        occurrence: 0,
+                        reason: 'LOCAL',
+                        subfields: [
+                          { id: 'sub-1', code: 'l', value: 'BN', sortOrder: 0 },
+                          {
+                            id: 'sub-2',
+                            code: 's',
+                            value: 'Shelf 1',
+                            sortOrder: 1,
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+                titles: [
+                  {
+                    id: 'et-1',
+                    type: 'MAIN',
+                    value: 'Canonical edition title',
+                    subtitle: null,
+                    language: null,
+                    partNumber: null,
+                    partName: null,
+                    sortOrder: 0,
+                  },
+                ],
+                responsibilityStatements: [],
+                languages: [
+                  { id: 'el-1', code: 'por', role: 'TEXT', sortOrder: 0 },
+                ],
+                series: [],
+                notes: [],
+                classifications: [],
+                physicalDescriptions: [],
+                publicationStatements: [],
+                contributions: [],
+              },
+            ],
+            contributions: [],
+            bibliographicRecords: [],
+          };
+        },
       },
-      externalIdentifier: { create: async () => ({}) },
+      agent: {
+        findMany: async () => [],
+        create: async () => {
+          recordWrite('Agent');
+          return { id: 'agent-1', organizationId: organizationA };
+        },
+      },
+      contribution: {
+        create: async () => {
+          recordWrite('Contribution');
+          return { id: 'contribution-1' };
+        },
+      },
+      externalIdentifier: {
+        create: async () => {
+          recordWrite('ExternalIdentifier');
+          return {};
+        },
+      },
       bibliographicRecord: {
-        create: async () => ({
-          id: 'record-1',
-          format: 'MARC_TEXT',
-          source: 'PORBASE',
-          sourceId: 'porbase',
-          remoteId: 'record-1',
-          rawContent: [
-            '200 $a Canonical edition title',
-            '856 40 $uhttps://covers.example.org/cover.jpg $qimage/jpeg $yCover $zFront cover',
-            '966 $l BN $s Shelf 1',
-          ].join('\n'),
-          unmappedSourceFields: [
-            {
-              id: 'unmapped-1',
-              tag: '966',
-              indicator1: ' ',
-              indicator2: ' ',
-              occurrence: 0,
-              reason: 'LOCAL',
-              subfields: [
-                { id: 'sub-1', code: 'l', value: 'BN', sortOrder: 0 },
-                { id: 'sub-2', code: 's', value: 'Shelf 1', sortOrder: 1 },
-              ],
-            },
-          ],
+        create: async () => {
+          recordWrite('BibliographicRecord');
+          return {
+            id: 'record-1',
+            format: 'MARC_TEXT',
+            source: 'PORBASE',
+            sourceId: 'porbase',
+            remoteId: 'record-1',
+            rawContent: [
+              '200 $a Canonical edition title',
+              '856 40 $uhttps://covers.example.org/cover.jpg $qimage/jpeg $yCover $zFront cover',
+              '966 $l BN $s Shelf 1',
+            ].join('\n'),
+            unmappedSourceFields: [
+              {
+                id: 'unmapped-1',
+                tag: '966',
+                indicator1: ' ',
+                indicator2: ' ',
+                occurrence: 0,
+                reason: 'LOCAL',
+                subfields: [
+                  { id: 'sub-1', code: 'l', value: 'BN', sortOrder: 0 },
+                  { id: 'sub-2', code: 's', value: 'Shelf 1', sortOrder: 1 },
+                ],
+              },
+            ],
+          };
+        },
+      },
+      coverCandidate: {
+        upsert: vi.fn(async () => {
+          recordWrite('CoverCandidate');
+          return {};
         }),
       },
-      coverCandidate: { upsert: vi.fn().mockResolvedValue({}) },
       $executeRawUnsafe: vi.fn().mockResolvedValue(0),
     };
     return { tx: t };
@@ -164,6 +218,11 @@ describe('Catalogue import persistence (e2e)', () => {
     };
     const created = createTransactionMock();
     tx = created.tx;
+    createdOrganizationIds = [];
+    attemptedWrites = [];
+    committedWrites = [];
+    activeTransactionWrites = null;
+    failAfterWrites = false;
     const prisma = {
       user: {
         findUnique: async () => user,
@@ -171,11 +230,40 @@ describe('Catalogue import persistence (e2e)', () => {
           Object.assign(user, data),
       },
       organizationMembership: {
-        findFirst: async () => ({
-          organization: { id: 'organization-1', name: 'Personal' },
-        }),
+        findUnique: async ({
+          where,
+        }: {
+          where: {
+            userId_organizationId: { userId: string; organizationId: string };
+          };
+        }) => {
+          const key = where.userId_organizationId;
+          return key.userId === 'e2e-user' &&
+            key.organizationId === organizationA
+            ? {
+                ...key,
+                role: 'OWNER',
+                organization: { id: organizationA, name: 'Organization A' },
+              }
+            : null;
+        },
       },
-      $transaction: async (callback: (t: typeof tx) => unknown) => callback(tx),
+      organization: {
+        findUnique: async ({ where }: { where: { id: string } }) =>
+          where.id === organizationA
+            ? { id: organizationA, name: 'Organization A' }
+            : null,
+      },
+      $transaction: async (callback: (t: typeof tx) => unknown) => {
+        activeTransactionWrites = [];
+        try {
+          const result = await callback(tx);
+          committedWrites.push(...activeTransactionWrites);
+          return result;
+        } finally {
+          activeTransactionWrites = null;
+        }
+      },
       $connect: async () => undefined,
       $disconnect: async () => undefined,
     };
@@ -209,6 +297,7 @@ describe('Catalogue import persistence (e2e)', () => {
     const response = await request(app.getHttpServer())
       .post('/catalogues/import')
       .set('Authorization', `Bearer ${token}`)
+      .set(FOLIO_ORGANIZATION_HEADER, organizationA)
       .send({
         work: {
           title: 'Legacy work title',
@@ -236,15 +325,16 @@ describe('Catalogue import persistence (e2e)', () => {
             '856 40 $uhttps://covers.example.org/cover.jpg $qimage/jpeg $yCover $zFront cover',
             '966 $l BN $s Shelf 1',
           ].join('\n'),
-          // Forged provenance attempt; must never survive to persistence.
-          source: 'FORGED',
-          schema: 'FORGED',
-          sourceId: 'forged-provider',
         },
       })
       .expect(201);
 
     expect(response.body.sourceId).toBe('porbase');
+    expect(response.body.work.organization.id).toBe(organizationA);
+    expect(createdOrganizationIds).toEqual([organizationA]);
+    expect(tx.edition.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ workId: 'work-1' }),
+    });
     expect(response.body.work.title).toBe('Canonical work title');
     expect(response.body.edition.title).toBe('Canonical edition title');
     expect(response.body.edition.titles).toEqual(
@@ -292,5 +382,66 @@ describe('Catalogue import persistence (e2e)', () => {
         }),
       }),
     );
+  });
+
+  it('rolls back Work, Edition, Agent, Contribution, identifiers, record, and cover candidates after a late transaction failure', async () => {
+    failAfterWrites = true;
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'e2e-persist@example.com', password: 'password' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/catalogues/import')
+      .set('Authorization', `Bearer ${login.body.accessToken as string}`)
+      .set(FOLIO_ORGANIZATION_HEADER, organizationA)
+      .send({
+        work: { title: 'Transactional work' },
+        edition: {
+          title: 'Transactional edition',
+          isbn13: '9789724426495',
+        },
+        contributions: [
+          {
+            targetScope: 'WORK',
+            kind: 'PERSON',
+            displayName: 'Jane Doe',
+            sourceTag: '700',
+            indicator1: '1',
+            indicator2: ' ',
+            sortOrder: 0,
+            sourceParts: [{ code: 'a', value: 'Doe, Jane', sortOrder: 0 }],
+          },
+        ],
+        externalIdentifiers: [{ type: 'ISBN-13', value: '9789724426495' }],
+        bibliographicRecord: {
+          format: 'MARC_TEXT',
+          remoteId: 'rollback-record',
+          rawContent:
+            '200 $a Transactional edition\n856 40 $uhttps://covers.example.org/cover.jpg $qimage/jpeg',
+        },
+      })
+      .expect(500)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          statusCode: 500,
+          error: 'Internal Server Error',
+          code: 'INTERNAL_ERROR',
+          message: 'An unexpected error occurred.',
+        });
+      });
+
+    expect(attemptedWrites).toEqual(
+      expect.arrayContaining([
+        'Work',
+        'Edition',
+        'Agent',
+        'Contribution',
+        'ExternalIdentifier',
+        'BibliographicRecord',
+        'CoverCandidate',
+      ]),
+    );
+    expect(committedWrites).toEqual([]);
   });
 });

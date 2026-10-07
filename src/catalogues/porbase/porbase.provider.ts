@@ -49,10 +49,12 @@ export class PorbaseCatalogueProvider implements CatalogueProvider {
   async import(
     userId: string,
     input: CatalogueImportDto,
+    organizationId: string,
   ): Promise<CatalogueImportResponseDto> {
     const result = await this.porbaseImportService.import(
       userId,
       input,
+      organizationId,
       this.id,
     );
     return { ...result, sourceId: this.id };

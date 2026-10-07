@@ -13,8 +13,6 @@ import type {
   CatalogueTitleInputDto,
 } from './dto/catalogue-import.dto.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
-import { OrganizationRole } from '@prisma/client';
 import { ContributionsService } from '../contributions/contributions.service.js';
 import {
   derivePublicationProjection,
@@ -40,7 +38,6 @@ export class PorbaseImportService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly organizationMemberships: OrganizationMembershipService,
     private readonly contributionsService: ContributionsService,
     private readonly coverCandidateExtractor: PorbaseCoverCandidateExtractor = new PorbaseCoverCandidateExtractor(),
   ) {}
@@ -48,28 +45,17 @@ export class PorbaseImportService {
   async import(
     userId: string,
     input: CatalogueImportDto,
+    organizationId: string,
     providerId = 'porbase',
   ): Promise<Omit<CatalogueImportResponseDto, 'sourceId'>> {
     const isbn10 = normalizeOptionalIsbn(input.edition.isbn10);
     const isbn13 = normalizeOptionalIsbn(input.edition.isbn13);
     this.validateIsbn(isbn10, 'edition.isbn10');
     this.validateIsbn(isbn13, 'edition.isbn13');
-    const organization = input.work.organizationId
-      ? await this.organizationMemberships
-          .assertRole(userId, input.work.organizationId, OrganizationRole.STAFF)
-          .then((membership) => membership.organization)
-      : await this.organizationMemberships.getDefaultOrganization(userId);
-    if (!organization)
-      throw new ApiException(
-        HttpStatus.NOT_FOUND,
-        API_ERROR_CODES.ORGANIZATION_NOT_FOUND,
-        'Personal organization not found.',
-      );
-
     return this.prisma.$transaction(async (transaction) => {
       await this.assertNoDuplicateEdition(
         transaction,
-        organization.id,
+        organizationId,
         isbn10,
         isbn13,
       );
@@ -83,7 +69,7 @@ export class PorbaseImportService {
         data: {
           title: workTitleProjection.title,
           subtitle: workTitleProjection.subtitle,
-          organizationId: organization.id,
+          organizationId,
           titles: input.work.titles?.length
             ? { create: input.work.titles.map(toTitleCreate) }
             : undefined,

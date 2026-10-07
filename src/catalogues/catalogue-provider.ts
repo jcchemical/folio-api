@@ -25,6 +25,7 @@ export interface CatalogueProvider {
   import(
     userId: string,
     input: CatalogueImportDto,
+    organizationId: string,
   ): Promise<CatalogueImportResponseDto>;
   supportsSearchType(type: SearchType): boolean;
   supportsFormat(format: MarcFormat): boolean;

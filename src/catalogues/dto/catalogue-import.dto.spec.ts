@@ -8,7 +8,7 @@ import {
 } from './catalogue-import.dto.js';
 
 describe('CatalogueImportBibliographicRecordDto security', () => {
-  it('strips client-supplied source/schema/sourceId provenance fields', async () => {
+  it('rejects client-supplied source/schema/sourceId provenance fields', async () => {
     const instance = plainToInstance(CatalogueImportBibliographicRecordDto, {
       format: 'MARCXCHANGE',
       remoteId: '3664836',
@@ -19,11 +19,12 @@ describe('CatalogueImportBibliographicRecordDto security', () => {
       sourceId: 'forged-provider',
     });
 
-    await validate(instance, { whitelist: true });
+    const errors = await validate(instance, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
 
-    expect(instance).not.toHaveProperty('source');
-    expect(instance).not.toHaveProperty('schema');
-    expect(instance).not.toHaveProperty('sourceId');
+    expect(errors).not.toEqual([]);
   });
 
   it('rejects a format outside the supported enum', async () => {
@@ -92,6 +93,24 @@ describe('CatalogueImportDto client-editable Phase 1 fields', () => {
     format: 'MARCXCHANGE',
     rawContent: '<collection />',
   };
+
+  it('does not accept organization ownership on the Work or import body', async () => {
+    const instance = plainToInstance(CatalogueImportDto, {
+      organizationId: 'forged-top-level-organization',
+      work: { ...baseWork, organizationId: 'forged-work-organization' },
+      edition: baseEdition,
+      externalIdentifiers: [],
+      bibliographicRecord: baseBibliographicRecord,
+    });
+
+    const errors = await validate(instance, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      forbidUnknownValues: false,
+    });
+
+    expect(errors).not.toEqual([]);
+  });
 
   it('accepts multiple titles, languages, series, notes and classifications', async () => {
     const instance = plainToInstance(CatalogueImportDto, {

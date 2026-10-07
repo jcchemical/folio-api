@@ -18,13 +18,20 @@ describe('PorbaseCatalogueProvider', () => {
     await expect(
       provider.searchPreview({ type: 'isbn', isbn: '9789724426495' }),
     ).resolves.toEqual({ preview: true, sourceId: 'porbase' });
-    await expect(provider.import('user-1', input)).resolves.toEqual({
+    await expect(
+      provider.import('user-1', input, 'organization-1'),
+    ).resolves.toEqual({
       id: 'work-1',
       sourceId: 'porbase',
     });
 
     expect(previews.createPreview).toHaveBeenCalledWith('9789724426495');
-    expect(imports.import).toHaveBeenCalledWith('user-1', input, 'porbase');
+    expect(imports.import).toHaveBeenCalledWith(
+      'user-1',
+      input,
+      'organization-1',
+      'porbase',
+    );
   });
 
   it('supports only ISBN searches and UNIMARC', async () => {
