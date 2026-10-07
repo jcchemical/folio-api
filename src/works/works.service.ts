@@ -1,17 +1,14 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { OrganizationRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { API_ERROR_CODES, ApiException } from '../common/api-errors.js';
 import {
   paginate,
   paginationArgs,
   type PaginationInput,
 } from '../common/pagination.js';
-import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
+import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
+import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 import type { PhysicalDescriptionInput } from '../editions/dto/physical-description.dto.js';
 import type { PublicationStatementInput } from '../editions/dto/publication-statement.dto.js';
 import {
@@ -37,7 +34,6 @@ export interface EditionInput {
 export interface WorkInput {
   title: string;
   subtitle?: string | null;
-  organizationId?: string;
   editions?: EditionInput[];
 }
 
@@ -50,18 +46,21 @@ export interface WorkUpdateInput {
 export class WorksService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly organizationMemberships: OrganizationMembershipService,
+    private readonly contexts: OrganizationContextResolver,
   ) {}
 
-  async findAllByUser(userId: string, query: PaginationInput = {}) {
+  async findAllByUser(
+    userId: string,
+    headerValue: OrganizationHeaderValue,
+    query: PaginationInput = {},
+  ) {
+    const context = await this.contexts.resolveRequiredRootContext({
+      userId,
+      headerValue,
+    });
     const { limit, prisma } = paginationArgs(query);
-    const organizations =
-      await this.organizationMemberships.getOrganizations(userId);
-    const organizationIds = organizations.map(
-      ({ organization }) => organization.id,
-    );
     const rows = await this.prisma.work.findMany({
-      where: { organizationId: { in: organizationIds } },
+      where: { organizationId: context.organizationId },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       include: {
         organization: true,
@@ -99,7 +98,11 @@ export class WorksService {
     return paginate(rows, limit);
   }
 
-  async findById(id: string, userId: string) {
+  async findById(
+    id: string,
+    userId: string,
+    headerValue?: OrganizationHeaderValue,
+  ) {
     const work = await this.prisma.work.findUnique({
       where: { id },
       include: {
@@ -142,8 +145,12 @@ export class WorksService {
       },
     });
 
-    if (!work) throw new NotFoundException('Work not found');
-    await this.organizationMemberships.assertWorkAccess(userId, work);
+    if (!work) throw resourceNotFound('Work');
+    await this.contexts.resolveDerivedContext({
+      userId,
+      headerValue,
+      derivedOrganizationId: work.organizationId,
+    });
     return {
       ...work,
       contributions: (work.contributions ?? []).map((contribution) => ({
@@ -153,65 +160,66 @@ export class WorksService {
     };
   }
 
-  async create(userId: string, data: WorkInput) {
-    const { editions, organizationId, ...workData } = data;
-    if (organizationId === null) {
-      throw new BadRequestException('organizationId cannot be null');
-    }
-    if (organizationId) {
-      await this.organizationMemberships.assertRole(
-        userId,
-        organizationId,
-        OrganizationRole.STAFF,
-      );
-    }
-    const organization = organizationId
-      ? { id: organizationId }
-      : await this.organizationMemberships.getDefaultOrganization(userId);
-    if (!organization) {
-      throw new ForbiddenException('User has no personal organization');
-    }
-    const work = await this.prisma.work.create({
-      data: { ...workData, organizationId: organization.id },
+  async create(
+    userId: string,
+    headerValue: OrganizationHeaderValue,
+    data: WorkInput,
+  ) {
+    const context = await this.contexts.resolveRequiredRootContext({
+      userId,
+      headerValue,
+      requiredRole: OrganizationRole.STAFF,
+    });
+    const { editions, ...workData } = data;
+    const work = await this.prisma.$transaction(async (transaction) => {
+      const createdWork = await transaction.work.create({
+        data: { ...workData, organizationId: context.organizationId },
+      });
+
+      for (const editionInput of editions ?? []) {
+        const { physicalDescriptions, publicationStatements, ...edition } =
+          editionInput;
+        await transaction.edition.create({
+          data: {
+            ...edition,
+            ...projectionData(publicationStatements),
+            workId: createdWork.id,
+            pageCount: derivePageCount(physicalDescriptions),
+            physicalDescriptions: physicalDescriptions?.length
+              ? {
+                  create: physicalDescriptions.map(toPhysicalDescriptionCreate),
+                }
+              : undefined,
+            publicationStatements: publicationStatements?.length
+              ? {
+                  create: publicationStatements.map(
+                    toPublicationStatementCreate,
+                  ),
+                }
+              : undefined,
+          },
+        });
+      }
+      return createdWork;
     });
 
-    if (editions?.length) {
-      await Promise.all(
-        editions.map(
-          ({ physicalDescriptions, publicationStatements, ...edition }) =>
-            this.prisma.edition.create({
-              data: {
-                ...edition,
-                ...projectionData(publicationStatements),
-                workId: work.id,
-                pageCount: derivePageCount(physicalDescriptions),
-                physicalDescriptions: physicalDescriptions?.length
-                  ? {
-                      create: physicalDescriptions.map(
-                        toPhysicalDescriptionCreate,
-                      ),
-                    }
-                  : undefined,
-                publicationStatements: publicationStatements?.length
-                  ? {
-                      create: publicationStatements.map(
-                        toPublicationStatementCreate,
-                      ),
-                    }
-                  : undefined,
-              },
-            }),
-        ),
-      );
-    }
-
-    return this.findById(work.id, userId);
+    return this.findById(work.id, userId, context.organizationId);
   }
 
-  async update(id: string, userId: string, data: WorkUpdateInput) {
+  async update(
+    id: string,
+    userId: string,
+    data: WorkUpdateInput,
+    headerValue?: OrganizationHeaderValue,
+  ) {
     const work = await this.prisma.work.findUnique({ where: { id } });
-    if (!work) throw new NotFoundException('Work not found');
-    await this.organizationMemberships.assertWorkWriteAccess(userId, work);
+    if (!work) throw resourceNotFound('Work');
+    await this.contexts.resolveDerivedContext({
+      userId,
+      headerValue,
+      derivedOrganizationId: work.organizationId,
+      requiredRole: OrganizationRole.STAFF,
+    });
     await this.prisma.work.update({
       where: { id },
       data: {
@@ -220,19 +228,36 @@ export class WorksService {
       },
     });
 
-    return this.findById(id, userId);
+    return this.findById(id, userId, headerValue);
   }
 
-  async remove(id: string, userId: string) {
+  async remove(
+    id: string,
+    userId: string,
+    headerValue?: OrganizationHeaderValue,
+  ) {
     const work = await this.prisma.work.findUnique({ where: { id } });
-    if (!work) throw new NotFoundException('Work not found');
-    await this.organizationMemberships.assertWorkWriteAccess(userId, work);
+    if (!work) throw resourceNotFound('Work');
+    await this.contexts.resolveDerivedContext({
+      userId,
+      headerValue,
+      derivedOrganizationId: work.organizationId,
+      requiredRole: OrganizationRole.STAFF,
+    });
 
     return this.prisma.work.delete({
       where: { id },
       include: { organization: true, editions: true },
     });
   }
+}
+
+function resourceNotFound(resource: string): ApiException {
+  return new ApiException(
+    HttpStatus.NOT_FOUND,
+    API_ERROR_CODES.RESOURCE_NOT_FOUND,
+    `${resource} not found.`,
+  );
 }
 
 function toPhysicalDescriptionCreate(

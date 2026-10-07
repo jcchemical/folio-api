@@ -2,6 +2,8 @@ import { BadRequestException, HttpStatus, Injectable } from '@nestjs/common';
 import { OrganizationRole } from '@prisma/client';
 import { API_ERROR_CODES, ApiException } from '../common/api-errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { OrganizationContextResolver } from './organization-context.resolver.js';
+import type { OrganizationHeaderValue } from './organization-context.resolver.js';
 import { OrganizationMembershipService } from './organization-membership.service.js';
 import type { CreateOrganizationDto } from './dto/create-organization.dto.js';
 import type { UpdateOrganizationDto } from './dto/update-organization.dto.js';
@@ -19,6 +21,7 @@ export type OrganizationSummary = {
 export class OrganizationsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly contexts: OrganizationContextResolver,
     private readonly memberships: OrganizationMembershipService,
   ) {}
 
@@ -32,17 +35,19 @@ export class OrganizationsService {
   async findOneByUser(
     userId: string,
     organizationId: string,
+    headerValue?: OrganizationHeaderValue,
   ): Promise<OrganizationSummary> {
     const organization = await this.prisma.organization.findUnique({
       where: { id: organizationId },
     });
     if (!organization) throw organizationNotFound();
 
-    const membership = await this.memberships.requireMembership(
+    const context = await this.contexts.resolveDerivedContext({
       userId,
-      organizationId,
-    );
-    return this.toSummary(organization, membership.role);
+      headerValue,
+      derivedOrganizationId: organizationId,
+    });
+    return this.toSummary(organization, context.role);
   }
 
   async create(
@@ -75,21 +80,18 @@ export class OrganizationsService {
     userId: string,
     organizationId: string,
     input: UpdateOrganizationDto,
+    headerValue?: OrganizationHeaderValue,
   ): Promise<OrganizationSummary> {
     const organization = await this.requireOrganization(organizationId);
-    await this.memberships.assertRole(
+    const context = await this.contexts.resolveDerivedContext({
       userId,
-      organizationId,
-      OrganizationRole.ADMIN,
-    );
+      headerValue,
+      derivedOrganizationId: organizationId,
+      requiredRole: OrganizationRole.ADMIN,
+    });
 
     if (input.name === undefined) {
-      const membership = await this.memberships.requireMembership(
-        userId,
-        organizationId,
-        OrganizationRole.ADMIN,
-      );
-      return this.toSummary(organization, membership.role);
+      return this.toSummary(organization, context.role);
     }
 
     const name = normalizeOrganizationName(input.name);
@@ -99,21 +101,21 @@ export class OrganizationsService {
         data: { name },
       }),
     );
-    const membership = await this.memberships.requireMembership(
-      userId,
-      organizationId,
-      OrganizationRole.ADMIN,
-    );
-    return this.toSummary(updated, membership.role);
+    return this.toSummary(updated, context.role);
   }
 
-  async remove(userId: string, organizationId: string): Promise<never> {
+  async remove(
+    userId: string,
+    organizationId: string,
+    headerValue?: OrganizationHeaderValue,
+  ): Promise<never> {
     await this.requireOrganization(organizationId);
-    await this.memberships.assertRole(
+    await this.contexts.resolveDerivedContext({
       userId,
-      organizationId,
-      OrganizationRole.OWNER,
-    );
+      headerValue,
+      derivedOrganizationId: organizationId,
+      requiredRole: OrganizationRole.OWNER,
+    });
 
     throw new ApiException(
       HttpStatus.CONFLICT,

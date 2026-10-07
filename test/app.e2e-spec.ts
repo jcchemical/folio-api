@@ -43,7 +43,10 @@ describe('AppController (e2e)', () => {
       .options('/')
       .set('Origin', 'https://folio.test')
       .set('Access-Control-Request-Method', 'GET')
-      .set('Access-Control-Request-Headers', 'If-None-Match')
+      .set(
+        'Access-Control-Request-Headers',
+        'If-None-Match, X-Folio-Organization-Id',
+      )
       .expect(204)
       .expect(({ headers }) => {
         expect(headers['access-control-allow-origin']).toBe(
@@ -51,6 +54,9 @@ describe('AppController (e2e)', () => {
         );
         expect(headers['access-control-allow-headers']).toContain(
           'If-None-Match',
+        );
+        expect(headers['access-control-allow-headers']).toContain(
+          'X-Folio-Organization-Id',
         );
         expect(headers['access-control-expose-headers']).toBe('ETag');
         expect(headers['access-control-max-age']).toBe('3600');

@@ -320,7 +320,7 @@ describe('OrganizationContextResolver optional/derived context', () => {
     });
   });
 
-  it('validates a supplied organization before comparing it with derived ownership', async () => {
+  it('returns context conflict before looking up a mismatching supplied organization', async () => {
     const { resolver } = createResolver();
 
     await expect(
@@ -330,8 +330,10 @@ describe('OrganizationContextResolver optional/derived context', () => {
         derivedOrganizationId: organizationA.id,
       }),
     ).rejects.toMatchObject({
-      status: 404,
-      response: expect.objectContaining({ code: 'ORGANIZATION_NOT_FOUND' }),
+      status: 409,
+      response: expect.objectContaining({
+        code: 'ORGANIZATION_CONTEXT_CONFLICT',
+      }),
     });
   });
 

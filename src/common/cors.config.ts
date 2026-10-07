@@ -14,7 +14,12 @@ export function getCorsOptions(environment: NodeJS.ProcessEnv = process.env) {
         ? ['http://localhost:4200']
         : ['https://app.fol.io'],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'If-None-Match'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'If-None-Match',
+      'X-Folio-Organization-Id',
+    ],
     exposedHeaders: ['ETag'],
     credentials: true,
     maxAge: 3600,

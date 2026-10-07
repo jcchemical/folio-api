@@ -15,7 +15,14 @@ import {
 import { pipeline } from 'node:stream/promises';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBadRequestResponse,
+  ApiBearerAuth,
+  ApiForbiddenResponse,
+  ApiHeader,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { EditionsService } from './editions.service.js';
@@ -26,6 +33,7 @@ import {
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 import { THROTTLE_TTL_MS } from '../common/throttling.config.js';
 import { EditionCoverService } from './edition-cover.service.js';
+import { FOLIO_ORGANIZATION_HEADER } from '../organizations/organization-context.resolver.js';
 
 @ApiTags('editions')
 @ApiBearerAuth()
@@ -38,14 +46,30 @@ export class EditionsController {
   ) {}
 
   @Get()
+  @ApiHeader({ name: FOLIO_ORGANIZATION_HEADER, required: true })
+  @ApiBadRequestResponse({
+    description: 'Organization context is missing or invalid.',
+  })
+  @ApiForbiddenResponse({
+    description: 'Membership in the selected organization is required.',
+  })
   @Throttle({ default: { limit: 100, ttl: THROTTLE_TTL_MS } })
   findAll(@Query() query: PaginationQueryDto, @Req() request: Request) {
-    return this.editionsService.findAllByUser(this.getUserId(request), query);
+    return this.editionsService.findAllByUser(
+      this.getUserId(request),
+      request.headers[FOLIO_ORGANIZATION_HEADER],
+      query,
+    );
   }
 
   @Get(':id')
+  @ApiHeader({ name: FOLIO_ORGANIZATION_HEADER, required: false })
   findOne(@Param('id') id: string, @Req() request: Request) {
-    return this.editionsService.findById(id, this.getUserId(request));
+    return this.editionsService.findById(
+      id,
+      this.getUserId(request),
+      request.headers[FOLIO_ORGANIZATION_HEADER],
+    );
   }
 
   @Get(':id/cover')
@@ -92,27 +116,50 @@ export class EditionsController {
   }
 
   @Post()
+  @ApiHeader({
+    name: FOLIO_ORGANIZATION_HEADER,
+    required: false,
+    description:
+      'Optional consistency check; context is derived from the persisted workId.',
+  })
+  @ApiOperation({
+    summary: 'Create an edition under a Work the caller may write',
+    description:
+      'Organization context is derived from workId. If X-Folio-Organization-Id is supplied, it must match the Work organization.',
+  })
   create(@Body() body: CreateEditionRequestDto, @Req() request: Request) {
     const { workId, ...edition } = body;
     return this.editionsService.create(
       this.getUserId(request),
       workId,
       edition,
+      request.headers[FOLIO_ORGANIZATION_HEADER],
     );
   }
 
   @Put(':id')
+  @ApiHeader({ name: FOLIO_ORGANIZATION_HEADER, required: false })
   update(
     @Param('id') id: string,
     @Body() body: UpdateEditionDto,
     @Req() request: Request,
   ) {
-    return this.editionsService.update(id, this.getUserId(request), body);
+    return this.editionsService.update(
+      id,
+      this.getUserId(request),
+      body,
+      request.headers[FOLIO_ORGANIZATION_HEADER],
+    );
   }
 
   @Delete(':id')
+  @ApiHeader({ name: FOLIO_ORGANIZATION_HEADER, required: false })
   remove(@Param('id') id: string, @Req() request: Request) {
-    return this.editionsService.remove(id, this.getUserId(request));
+    return this.editionsService.remove(
+      id,
+      this.getUserId(request),
+      request.headers[FOLIO_ORGANIZATION_HEADER],
+    );
   }
 
   private getUserId(request: Request): string {

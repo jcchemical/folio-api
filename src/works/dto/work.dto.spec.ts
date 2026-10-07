@@ -8,10 +8,12 @@ describe('Work DTO edition boundaries', () => {
     const dto = plainToInstance(CreateWorkDto, {
       title: 'Work title',
       editions: [{ title: 'Edition title' }],
+      organizationId: 'untrusted-organization',
     });
 
     expect(await validate(dto, { whitelist: true })).toEqual([]);
     expect(dto.editions).toHaveLength(1);
+    expect(dto).not.toHaveProperty('organizationId');
   });
 
   it('strips editions and organizationId from Work update', async () => {

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { OrganizationsService } from './organizations.service.js';
 import { OrganizationMembershipService } from './organization-membership.service.js';
+import { OrganizationContextResolver } from './organization-context.resolver.js';
 
 const organization = {
   id: 'organization-1',
@@ -48,12 +49,18 @@ function createService() {
     }),
     assertRole: vi.fn().mockResolvedValue(undefined),
   } as unknown as OrganizationMembershipService;
+  const contexts = {
+    resolveDerivedContext: vi.fn().mockResolvedValue({
+      role: OrganizationRole.OWNER,
+    }),
+  } as unknown as OrganizationContextResolver;
 
   return {
     prisma,
     transaction,
     memberships,
-    service: new OrganizationsService(prisma, memberships),
+    contexts,
+    service: new OrganizationsService(prisma, contexts, memberships),
   };
 }
 
@@ -65,7 +72,13 @@ describe('OrganizationsService', () => {
         .mockResolvedValue([{ organization, role: OrganizationRole.READER }]),
     } as unknown as OrganizationMembershipService;
     const { prisma } = createService();
-    const scoped = new OrganizationsService(prisma, memberships);
+    const scoped = new OrganizationsService(
+      prisma,
+      {
+        resolveDerivedContext: vi.fn(),
+      } as unknown as OrganizationContextResolver,
+      memberships,
+    );
 
     await expect(scoped.findAllByUser('user-1')).resolves.toEqual([
       {
@@ -116,28 +129,28 @@ describe('OrganizationsService', () => {
   });
 
   it('allows a member to read and blocks a non-member', async () => {
-    const { service, memberships } = createService();
+    const { service, contexts } = createService();
 
     await expect(
       service.findOneByUser('user-1', organization.id),
     ).resolves.toMatchObject({ role: OrganizationRole.OWNER });
-    expect(memberships.requireMembership).toHaveBeenCalledWith(
-      'user-1',
-      organization.id,
-    );
-
-    vi.mocked(memberships.requireMembership).mockRejectedValueOnce(
+    expect(contexts.resolveDerivedContext).toHaveBeenCalledWith({
+      userId: 'user-1',
+      headerValue: undefined,
+      derivedOrganizationId: organization.id,
+    });
+    const denied = createService();
+    vi.mocked(denied.contexts.resolveDerivedContext).mockRejectedValueOnce(
       new ForbiddenException('not a member'),
     );
     await expect(
-      service.findOneByUser('external-user', organization.id),
+      denied.service.findOneByUser('external-user', organization.id),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('allows ADMIN to rename but does not pass unknown fields to Prisma', async () => {
-    const { transaction, service, memberships } = createService();
+    const { transaction, service, contexts } = createService();
 
-    vi.mocked(memberships.assertRole).mockResolvedValue(undefined);
     await service.update('admin-user', organization.id, {
       name: '  Biblioteca Nova  ',
       // @ts-expect-error verifies that runtime mapping ignores unknown input fields
@@ -148,24 +161,24 @@ describe('OrganizationsService', () => {
       where: { id: organization.id },
       data: { name: 'Biblioteca Nova' },
     });
-    expect(memberships.assertRole).toHaveBeenCalledWith(
-      'admin-user',
-      organization.id,
-      OrganizationRole.ADMIN,
-    );
+    expect(contexts.resolveDerivedContext).toHaveBeenCalledWith({
+      userId: 'admin-user',
+      headerValue: undefined,
+      derivedOrganizationId: organization.id,
+      requiredRole: OrganizationRole.ADMIN,
+    });
   });
 
   it('blocks READER updates and permits only OWNER to reach deletion policy', async () => {
-    const { service, memberships } = createService();
+    const { service, contexts } = createService();
 
-    vi.mocked(memberships.assertRole).mockRejectedValueOnce(
+    vi.mocked(contexts.resolveDerivedContext).mockRejectedValueOnce(
       new ForbiddenException('reader cannot update'),
     );
     await expect(
       service.update('reader-user', organization.id, { name: 'New name' }),
     ).rejects.toBeInstanceOf(ForbiddenException);
 
-    vi.mocked(memberships.assertRole).mockResolvedValue(undefined);
     await expect(
       service.remove('owner-user', organization.id),
     ).rejects.toMatchObject({
@@ -174,11 +187,12 @@ describe('OrganizationsService', () => {
         code: 'CONFLICT_ORGANIZATION_DELETE',
       }),
     });
-    expect(memberships.assertRole).toHaveBeenLastCalledWith(
-      'owner-user',
-      organization.id,
-      OrganizationRole.OWNER,
-    );
+    expect(contexts.resolveDerivedContext).toHaveBeenLastCalledWith({
+      userId: 'owner-user',
+      headerValue: undefined,
+      derivedOrganizationId: organization.id,
+      requiredRole: OrganizationRole.OWNER,
+    });
   });
 
   it('returns 404 for an unknown organization', async () => {

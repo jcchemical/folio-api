@@ -19,6 +19,7 @@ function membershipPolicy(allowed: boolean) {
     ? vi.fn().mockResolvedValue(undefined)
     : vi.fn().mockRejectedValue(new ForbiddenException());
   return {
+    resolveDerivedContext: access,
     assertWorkAccess: access,
     assertOrganizationAccess: access,
   };

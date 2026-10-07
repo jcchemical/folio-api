@@ -29,14 +29,6 @@ export class OrganizationMembershipService {
     });
   }
 
-  async getOrganizations(userId: string) {
-    const memberships = await this.getMemberships(userId);
-    return memberships.map(({ organization, role }) => ({
-      organization,
-      role,
-    }));
-  }
-
   async getDefaultOrganization(userId: string) {
     const membership = await this.prisma.organizationMembership.findFirst({
       where: { userId, role: OrganizationRole.OWNER },

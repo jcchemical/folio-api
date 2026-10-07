@@ -1,7 +1,7 @@
 import { OrganizationRole } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
+import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
 import { EditionsService } from './editions.service.js';
 
 const userId = 'user-1';
@@ -10,25 +10,43 @@ const edition = {
   work: { id: 'work-1', organizationId: 'organization-1' },
 };
 
+function createContexts(
+  role: OrganizationRole | null = OrganizationRole.STAFF,
+) {
+  return {
+    resolveRequiredRootContext: vi.fn().mockResolvedValue({
+      organizationId: 'organization-1',
+    }),
+    resolveDerivedContext: vi.fn(
+      ({ requiredRole }: { requiredRole?: OrganizationRole }) => {
+        if (!role) {
+          return Promise.reject({
+            status: 403,
+            response: { code: 'ORGANIZATION_MEMBERSHIP_REQUIRED' },
+          });
+        }
+        if (role === OrganizationRole.READER && requiredRole) {
+          return Promise.reject({
+            status: 403,
+            response: { code: 'ORGANIZATION_ROLE_INSUFFICIENT' },
+          });
+        }
+        return Promise.resolve({ organizationId: 'organization-1', role });
+      },
+    ),
+  } as unknown as OrganizationContextResolver;
+}
+
 function createService(role: OrganizationRole | null) {
   const prisma = {
     edition: {
       findUnique: vi.fn().mockResolvedValue(edition),
       delete: vi.fn().mockResolvedValue(edition),
     },
-    organizationMembership: {
-      findUnique: vi
-        .fn()
-        .mockResolvedValue(
-          role
-            ? { role, organization: { id: edition.work.organizationId } }
-            : null,
-        ),
-    },
   } as unknown as PrismaService;
-  const memberships = new OrganizationMembershipService(prisma);
+  const contexts = createContexts(role);
 
-  return { prisma, service: new EditionsService(prisma, memberships) };
+  return { prisma, service: new EditionsService(prisma, contexts) };
 }
 
 describe('EditionsService.remove', () => {
@@ -38,7 +56,7 @@ describe('EditionsService.remove', () => {
     await expect(service.remove(edition.id, userId)).rejects.toMatchObject({
       status: 403,
       response: expect.objectContaining({
-        code: 'AUTHORIZATION_WRITE_ROLE_REQUIRED',
+        code: 'ORGANIZATION_ROLE_INSUFFICIENT',
       }),
     });
     expect(prisma.edition.delete).not.toHaveBeenCalled();
@@ -63,7 +81,7 @@ describe('EditionsService.remove', () => {
     await expect(service.remove(edition.id, userId)).rejects.toMatchObject({
       status: 403,
       response: expect.objectContaining({
-        code: 'AUTHORIZATION_MEMBERSHIP_REQUIRED',
+        code: 'ORGANIZATION_MEMBERSHIP_REQUIRED',
       }),
     });
     expect(prisma.edition.delete).not.toHaveBeenCalled();
@@ -71,6 +89,26 @@ describe('EditionsService.remove', () => {
 });
 
 describe('EditionsService coverUrl output', () => {
+  it('requires root context and filters Editions through Work organization ownership', async () => {
+    const prisma = {
+      edition: { findMany: vi.fn().mockResolvedValue([]) },
+    } as unknown as PrismaService;
+    const contexts = createContexts();
+    const service = new EditionsService(prisma, contexts);
+
+    await service.findAllByUser(userId, 'organization-1');
+
+    expect(prisma.edition.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { work: { organizationId: 'organization-1' } },
+      }),
+    );
+    expect(contexts.resolveRequiredRootContext).toHaveBeenCalledWith({
+      userId,
+      headerValue: 'organization-1',
+    });
+  });
+
   it('returns the relative cover endpoint for active covers and null otherwise', async () => {
     const editions = [
       {
@@ -89,12 +127,9 @@ describe('EditionsService coverUrl output', () => {
         findMany: vi.fn().mockResolvedValue(editions),
       },
     } as unknown as PrismaService;
-    const service = new EditionsService(
-      prisma,
-      new OrganizationMembershipService(prisma),
-    );
+    const service = new EditionsService(prisma, createContexts());
 
-    const result = await service.findAllByUser(userId);
+    const result = await service.findAllByUser(userId, 'organization-1');
 
     expect(result.items).toEqual([
       expect.objectContaining({
@@ -143,10 +178,7 @@ describe('EditionsService physical descriptions', () => {
         }),
       },
     } as unknown as PrismaService;
-    const service = new EditionsService(
-      prisma,
-      new OrganizationMembershipService(prisma),
-    );
+    const service = new EditionsService(prisma, createContexts());
 
     await service.create('user-1', 'work-1', {
       title: 'Edition',
@@ -236,10 +268,7 @@ describe('EditionsService physical descriptions', () => {
           callback(transaction),
       ),
     } as unknown as PrismaService;
-    const service = new EditionsService(
-      prisma,
-      new OrganizationMembershipService(prisma),
-    );
+    const service = new EditionsService(prisma, createContexts());
 
     await service.update('edition-1', userId, {
       physicalDescriptions: [
@@ -301,10 +330,7 @@ describe('EditionsService publication statements update semantics', () => {
       ),
     } as unknown as PrismaService;
     return {
-      service: new EditionsService(
-        prisma,
-        new OrganizationMembershipService(prisma),
-      ),
+      service: new EditionsService(prisma, createContexts()),
       transaction,
     };
   }
@@ -422,7 +448,7 @@ describe('EditionsService Phase 1 canonical read model', () => {
     } as unknown as PrismaService;
     const service = new EditionsService(
       prisma,
-      new OrganizationMembershipService(prisma),
+      createContexts(OrganizationRole.READER),
     );
 
     await expect(service.findById(edition.id, userId)).resolves.toMatchObject({
@@ -465,8 +491,7 @@ describe('EditionsService Phase 1 canonical read model', () => {
         }),
       },
     } as unknown as PrismaService;
-    const memberships = new OrganizationMembershipService(prisma);
-    const service = new EditionsService(prisma, memberships);
+    const service = new EditionsService(prisma, createContexts());
 
     await service.findById(edition.id, userId);
 

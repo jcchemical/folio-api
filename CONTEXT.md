@@ -87,9 +87,16 @@ A hierarquia implementada é `READER < STAFF < ADMIN < OWNER`. Leituras protegid
 - Criar um utilizador cria uma organização pessoal e membership `OWNER` na mesma transacção.
 - `GET /organizations` lista organizações do utilizador e o seu role.
 - `POST /organizations` cria organização e membership `OWNER` na mesma transacção.
-- `GET /organizations/:id` requer membership.
+- `GET /organizations/:id` deriva do ID no path, requer membership; header opcional só confirma consistência.
 - `PUT /organizations/:id` permite renomear com `OWNER` ou `ADMIN`.
-- `DELETE /organizations/:id` requer `OWNER`, mas devolve conflito até existir política de reassociação segura.
+- `DELETE /organizations/:id` deriva do ID no path, requer `OWNER` e devolve conflito até existir política de reassociação segura; header opcional só confirma consistência.
+- `GET /works` requer `X-Folio-Organization-Id` e lista apenas Works da organização escolhida.
+- `POST /works` requer o mesmo header e role `STAFF` ou superior; `organizationId` não é campo do DTO nem autoridade de tenancy. Editions aninhadas derivam do Work criado e são escritas na mesma transacção.
+- `GET /works/:id` e operações de escrita por ID derivam a organização do Work persistido; header opcional tem de coincidir. Leituras requerem membership; escritas requerem `STAFF` ou superior.
+- `GET /editions` requer `X-Folio-Organization-Id` e filtra por `Edition → Work → Organization`.
+- `POST /editions` deriva organização de `workId` persistido; header opcional tem de coincidir; criação exige `STAFF` ou superior.
+- Operações `/editions/:id` derivam organização de `Edition → Work`; header opcional tem de coincidir. Leituras requerem membership e escritas `STAFF` ou superior.
+- Contexto root e contexto derivado usam `OrganizationContextResolver` e os códigos estáveis `ORGANIZATION_CONTEXT_REQUIRED`, `ORGANIZATION_ID_INVALID`, `ORGANIZATION_NOT_FOUND`, `ORGANIZATION_MEMBERSHIP_REQUIRED`, `ORGANIZATION_ROLE_INSUFFICIENT` e `ORGANIZATION_CONTEXT_CONFLICT`.
 - `Organization.defaultCatalogueSource` e `enabledCatalogueSources` expõem configuração de fontes; o default actual é `porbase`.
 - `OrganizationMembershipService` fornece validação de membership e acesso a Work.
 
@@ -98,7 +105,8 @@ A hierarquia implementada é `READER < STAFF < ADMIN < OWNER`. Leituras protegid
 - Não há organização activa por pedido nem selector de organização no contrato de autenticação. `GET /auth/me` devolve `roles: []`; não projecta roles de memberships.
 - Não há endpoints de administração de memberships, convites ou alteração de roles.
 - Não há `Library`/`Branch`, políticas por filial, holdings ou localizações institucionais.
-- `WorksService.create` aceita `organizationId` opcional e verifica membership STAFF; sem valor usa a organização OWNER mais antiga. O import de catálogo também aceita `work.organizationId` opcional com verificação STAFF; se omitido, usa a organização OWNER mais antiga. Isto é fallback de compatibilidade, não uma selecção explícita de contexto.
+- O import de catálogo ainda aceita `work.organizationId` opcional e, se omitido, usa a organização OWNER mais antiga. Este fallback permanece apenas nessa rota não migrada; não é usado pelos handlers de Organizations, Works ou Editions.
+- Ainda não foram migrados para contexto explícito root os restantes grupos scoped, incluindo Items, ExternalIdentifiers e Catalogue import; Contributors, Contributions, capas e exports mantêm as regras próprias actuais.
 - `ExternalIdentifier` é scoped à organização e a Edition; a igualdade entre `ExternalIdentifier.organizationId` e a organização da Edition é validada no service, não representada por uma constraint relacional composta.
 - `BibliographicRecord` pode apontar simultaneamente para Work e Edition; o schema não garante que ambos pertençam ao mesmo Work/organização.
 
@@ -137,11 +145,9 @@ Autenticação:
 
 Organizações e catálogo local:
 
-- `/organizations` — `GET`, `POST`, `GET :id`, `PUT :id`, `DELETE :id`; regras
-  de role descritas acima.
-- `/works` — CRUD; lista/detalhe filtrados por membership.
-- `/editions` — CRUD; acesso autorizado pelo Work associado. Respostas directas
-  incluem `coverUrl`.
+- `/organizations` — `GET` devolve memberships do utilizador; `POST` cria organização e membership OWNER; `GET/PUT/DELETE :id` derivam do path e validam membership/role. Header opcional em `:id` apenas verifica igualdade.
+- `/works` — CRUD; `GET` e `POST` exigem `X-Folio-Organization-Id`; `GET/PUT/DELETE :id` derivam do Work persistido. Escritas requerem STAFF+.
+- `/editions` — `GET` exige `X-Folio-Organization-Id`; `POST` deriva de `workId`; operações `:id` derivam por `Edition → Work`. Escritas requerem STAFF+. Respostas directas incluem `coverUrl`.
 - `/items` — CRUD; organização deriva da Edition e escritas exigem STAFF+.
 - `/contributors` — CRUD legado, sujeito a tenancy/autorização do service.
 - `/contributions` — apenas `POST` manual; agente/role e exactamente um alvo
@@ -308,7 +314,7 @@ Lacunas observáveis: ExternalIdentifier lista ordena por `createdAt` sem desemp
 
 `getCorsOptions` divide `CORS_ORIGIN` por vírgulas e remove espaços. Sem valor, usa `http://localhost:4200` se `NODE_ENV=development`; quando ausente ou diferente de development usa `https://app.fol.io`. Isto é um default da configuração CORS, não define `NODE_ENV` globalmente.
 
-Permite `GET`, `POST`, `PUT`, `DELETE`, `PATCH`; headers `Content-Type`, `Authorization`, `If-None-Match`; expõe `ETag`; credenciais activas e max-age 3600 segundos.
+Permite `GET`, `POST`, `PUT`, `DELETE`, `PATCH`; headers `Content-Type`, `Authorization`, `If-None-Match` e `X-Folio-Organization-Id`; expõe `ETag`; credenciais activas e max-age 3600 segundos.
 
 ## Infraestrutura, CI e validação
 
@@ -327,7 +333,7 @@ Os comandos são procedimentos de validação, não afirmação de que foram cor
 
 ## Limitações conhecidas consolidadas
 
-1. Sem contexto organizacional explícito por pedido; algumas operações usam organização OWNER mais antiga como fallback.
+1. A migração do contexto é parcial: Organizations/Works/Editions usam o contrato explícito/derivado, mas outros grupos ainda não; o fallback OWNER mais antigo permanece no import de catálogo.
 2. Sem gestão de memberships/convites/roles, branches, holdings avançados, auditoria ou circulação.
 3. Confirmação de import sem preview snapshot; campos de contribuição de origem do import são editáveis pelo cliente.
 4. CRUD regular de Work/Edition ainda não mantém sempre relações de títulos/línguas canónicas; `$h/$i` parseados não são persistidos estruturadamente.
@@ -339,8 +345,10 @@ Os comandos são procedimentos de validação, não afirmação de que foram cor
 
 ## Roadmap acordado — ordem actualizada
 
-Estado nesta revisão: `1J-API.1` está implementada e validada; `1J-FLUTTER.1`
-é a próxima dependência; `1L-DEC.0` continua futuro.
+Estado nesta revisão: `1J-API.1` está implementada e validada; `1L-DEC.0` está
+aprovada; a primeira migração HTTP de Organizations/Works/Editions para
+contexto explícito está implementada. A migração de tenancy global continua
+incompleta.
 
 ### Próxima iteração
 
@@ -352,43 +360,36 @@ Estado nesta revisão: `1J-API.1` está implementada e validada; `1J-FLUTTER.1`
 
 ### Depois da estabilização das capas
 
-3. `1L-DEC.0` — decisão formal sobre contexto organizacional explícito.
+3. Continuar `1L-API.0` — migrar por iterações os restantes grupos, incluindo
+  Items, Libraries/Locations/Holdings quando implementados, catalogue import,
+  identifiers, contributions, covers e exports conforme decisão aprovada.
 
-4. `1L-API.0` — resolução explícita do contexto da organização e isolamento de
-   tenancy.
-
-5. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;
+4. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;
    dependência de contrato e fora do repositório `folio-api`.
 
-6. `1K-API.0` — contrato de listagem, pesquisa e ordenação da biblioteca.
+5. `1K-API.0` — contrato de listagem, pesquisa e ordenação da biblioteca.
 
-7. `1K-API.1` — pesquisa local PostgreSQL.
+6. `1K-API.1` — pesquisa local PostgreSQL.
 
-8. `1K-FLUTTER.0` — paginação/infinite loading; dependência de contrato.
+7. `1K-FLUTTER.0` — paginação/infinite loading; dependência de contrato.
 
-9. `1K-FLUTTER.1` — pesquisa e ordenação; dependência de contrato.
+8. `1K-FLUTTER.1` — pesquisa e ordenação; dependência de contrato.
 
-10. `1L-API.1` — memberships, convites e roles.
+9. `1L-API.1` — memberships, convites e roles.
 
-11. `1L-FLUTTER.1` — gestão de membros; dependência de contrato.
+10. `1L-FLUTTER.1` — gestão de membros; dependência de contrato.
 
-12. `1M` — captura, qualidade catalográfica, tarefas de revisão e auditoria como
+11. `1M` — captura, qualidade catalográfica, tarefas de revisão e auditoria como
     conceitos separados.
 
 Direcção futura de pesquisa local: pesquisa Folio distinta de providers externos; extensão controlada de `GET /works`; PostgreSQL full-text (`tsvector`, ranking e GIN), cursor compatível com ordenação; trigramas só com justificação medida. Sem Elasticsearch/Redis nesta fase.
 
 ## Decisões e propostas ainda por formalizar
 
-`1L-DEC.0` deve decidir o contexto organizacional. Proposta a avaliar, não contrato aprovado:
-
-- contexto explícito por pedido, possivelmente header `X-Folio-Organization-Id`;
-- membership sempre verificada no servidor;
-- organização activa fora do JWT;
-- preferência guardada no cliente nunca constitui autoridade;
-- sem escolher implicitamente a primeira organização;
-- mudança invalida estado scoped no cliente.
-
-Nome final do header e códigos de erro precisam de decisão formal; não estão implementados neste contrato. A proposta não altera o comportamento actual descrito acima.
+O contexto organizacional e as cadeias de domínio estão aprovados em
+`DECISION-1L-DEC-0-organizational-context.md` e decisões dependentes. A
+implementação backend é parcial: Organizations, Works e Editions estão
+migrados; a aprovação não significa que os restantes grupos estejam concluídos.
 
 A iteração `1M` deve distinguir, sem um enum prematuramente aprovado:
 

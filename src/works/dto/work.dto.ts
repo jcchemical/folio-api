@@ -25,11 +25,6 @@ export class CreateWorkDto {
   @IsString()
   subtitle?: string | null;
 
-  @ApiPropertyOptional({ nullable: true })
-  @IsOptional()
-  @IsString()
-  organizationId?: string;
-
   @ApiPropertyOptional({ type: [CreateEditionDto] })
   @IsOptional()
   @IsArray()
@@ -39,5 +34,5 @@ export class CreateWorkDto {
 }
 
 export class UpdateWorkDto extends PartialType(
-  OmitType(CreateWorkDto, ['organizationId', 'editions'] as const),
+  OmitType(CreateWorkDto, ['editions'] as const),
 ) {}

@@ -88,27 +88,41 @@ export class OrganizationContextResolver {
     return this.resolveForUser(userId, organizationId, input.requiredRole);
   }
 
-  async assertHeaderMatchesDerivedContext(input: {
+  async resolveDerivedContext(input: {
     userId: string | null | undefined;
     headerValue: OrganizationHeaderValue;
     derivedOrganizationId: string;
     requiredRole?: OrganizationRole;
-  }): Promise<void> {
-    if (input.headerValue === undefined) return;
-
-    const context = await this.resolveOptionalContext({
-      userId: input.userId,
-      headerValue: input.headerValue,
-    });
-    if (!context) return;
-    if (context.organizationId !== input.derivedOrganizationId) {
+  }): Promise<ResolvedOrganizationContext> {
+    const userId = requireAuthenticatedUserId(input.userId);
+    const headerOrganizationId = parseOrganizationContextHeader(
+      input.headerValue,
+      false,
+    );
+    if (
+      headerOrganizationId &&
+      headerOrganizationId !== input.derivedOrganizationId
+    ) {
       throw new ApiException(
         HttpStatus.CONFLICT,
         API_ERROR_CODES.ORGANIZATION_CONTEXT_CONFLICT,
         'The selected organization does not match the requested resource.',
       );
     }
-    if (input.requiredRole) this.requireRole(context, input.requiredRole);
+    return this.resolveForUser(
+      userId,
+      input.derivedOrganizationId,
+      input.requiredRole,
+    );
+  }
+
+  async assertHeaderMatchesDerivedContext(input: {
+    userId: string | null | undefined;
+    headerValue: OrganizationHeaderValue;
+    derivedOrganizationId: string;
+    requiredRole?: OrganizationRole;
+  }): Promise<void> {
+    await this.resolveDerivedContext(input);
   }
 
   requireRole(
