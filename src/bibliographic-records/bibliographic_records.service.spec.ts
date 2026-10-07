@@ -1,11 +1,14 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { HttpStatus } from '@nestjs/common';
+import { OrganizationRole } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import type { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
+import { API_ERROR_CODES, ApiException } from '../common/api-errors.js';
+import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
 import { BibliographicRecordsService } from './bibliographic_records.service.js';
 
 const userId = 'user-1';
-const work = { id: 'work-1', organizationId: 'organization-1' };
+const organizationId = 'organization-1';
+const work = { id: 'work-1', organizationId };
 const edition = { id: 'edition-1', work };
 const record = {
   id: 'record-1',
@@ -14,88 +17,146 @@ const record = {
   rawContent: '<record />',
 };
 
-function createService(authorized: boolean, result = record as object | null) {
+function createService(
+  recordResult: object | null = record,
+  editionResult: object | null = edition,
+) {
   const prisma = {
     bibliographicRecord: {
-      findUnique: vi.fn().mockResolvedValue(result),
+      findUnique: vi.fn().mockResolvedValue(recordResult),
       findMany: vi.fn().mockResolvedValue([record]),
     },
     edition: {
-      findUnique: vi.fn().mockResolvedValue(edition),
+      findUnique: vi.fn().mockResolvedValue(editionResult),
     },
   } as unknown as PrismaService;
-  const memberships = {
-    assertWorkAccess: authorized
-      ? vi.fn().mockResolvedValue(undefined)
-      : vi.fn().mockRejectedValue(new ForbiddenException()),
-  } as unknown as OrganizationMembershipService;
+  const contexts = {
+    resolveDerivedContext: vi.fn().mockResolvedValue({
+      organizationId,
+      role: OrganizationRole.READER,
+    }),
+  } as unknown as OrganizationContextResolver;
 
   return {
     prisma,
-    memberships,
-    service: new BibliographicRecordsService(prisma, memberships),
+    contexts,
+    service: new BibliographicRecordsService(prisma, contexts),
   };
 }
 
 describe('BibliographicRecordsService.findOne', () => {
-  it('authorizes through the required Edition target and its Work', async () => {
-    const { prisma, memberships, service } = createService(true);
+  it('derives organization through Edition → Work and checks membership', async () => {
+    const { prisma, contexts, service } = createService();
 
     await expect(service.findOne(userId, record.id)).resolves.toEqual(record);
     expect(prisma.bibliographicRecord.findUnique).toHaveBeenCalledWith({
       where: { id: record.id },
       include: { edition: { include: { work: true } } },
     });
-    expect(memberships.assertWorkAccess).toHaveBeenCalledWith(userId, work);
+    expect(contexts.resolveDerivedContext).toHaveBeenCalledWith({
+      userId,
+      headerValue: undefined,
+      derivedOrganizationId: organizationId,
+    });
   });
 
-  it('rejects a non-member of the Edition Work organization', async () => {
-    const { service } = createService(false);
+  it('accepts a matching optional organization header', async () => {
+    const { contexts, service } = createService();
 
-    await expect(service.findOne(userId, record.id)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await service.findOne(userId, record.id, organizationId);
+
+    expect(contexts.resolveDerivedContext).toHaveBeenCalledWith({
+      userId,
+      headerValue: organizationId,
+      derivedOrganizationId: organizationId,
+    });
   });
 
-  it('returns 404 when the record does not exist', async () => {
-    const { service } = createService(true, null);
-
-    await expect(service.findOne(userId, record.id)).rejects.toBeInstanceOf(
-      NotFoundException,
+  it('propagates a stable context conflict for a mismatching header', async () => {
+    const { contexts, service } = createService();
+    vi.mocked(contexts.resolveDerivedContext).mockRejectedValueOnce(
+      new ApiException(
+        HttpStatus.CONFLICT,
+        API_ERROR_CODES.ORGANIZATION_CONTEXT_CONFLICT,
+        'The selected organization does not match the requested resource.',
+      ),
     );
+
+    await expect(
+      service.findOne(userId, record.id, 'organization-2'),
+    ).rejects.toMatchObject({
+      status: HttpStatus.CONFLICT,
+      response: { code: API_ERROR_CODES.ORGANIZATION_CONTEXT_CONFLICT },
+    });
+  });
+
+  it('rejects a missing record or invalid persisted target with a stable 404', async () => {
+    const missingRecord = createService(null);
+    await expect(
+      missingRecord.service.findOne(userId, record.id),
+    ).rejects.toMatchObject({
+      status: HttpStatus.NOT_FOUND,
+      response: { code: API_ERROR_CODES.RESOURCE_NOT_FOUND },
+    });
+    expect(missingRecord.contexts.resolveDerivedContext).not.toHaveBeenCalled();
+
+    const missingTarget = createService({ ...record, edition: null });
+    await expect(
+      missingTarget.service.findOne(userId, record.id),
+    ).rejects.toMatchObject({
+      status: HttpStatus.NOT_FOUND,
+      response: { code: API_ERROR_CODES.RESOURCE_NOT_FOUND },
+    });
+    expect(missingTarget.contexts.resolveDerivedContext).not.toHaveBeenCalled();
   });
 });
 
 describe('BibliographicRecordsService.findByEdition', () => {
-  it('returns records only after authorizing access to the Edition Work', async () => {
-    const { memberships, service } = createService(true);
+  it('returns records only after resolving access to the Edition Work', async () => {
+    const { prisma, contexts, service } = createService();
 
     await expect(service.findByEdition(userId, edition.id)).resolves.toEqual([
       record,
     ]);
-    expect(memberships.assertWorkAccess).toHaveBeenCalledWith(userId, work);
+    expect(contexts.resolveDerivedContext).toHaveBeenCalledWith({
+      userId,
+      headerValue: undefined,
+      derivedOrganizationId: organizationId,
+    });
+    expect(prisma.bibliographicRecord.findMany).toHaveBeenCalledWith({
+      where: { editionId: edition.id },
+      orderBy: { createdAt: 'desc' },
+    });
   });
 
-  it('rejects users without access to the Edition Work', async () => {
-    const { service } = createService(false);
+  it('does not query records after membership authorization fails', async () => {
+    const { prisma, contexts, service } = createService();
+    vi.mocked(contexts.resolveDerivedContext).mockRejectedValueOnce(
+      new ApiException(
+        HttpStatus.FORBIDDEN,
+        API_ERROR_CODES.ORGANIZATION_MEMBERSHIP_REQUIRED,
+        'You do not have access to this organization.',
+      ),
+    );
 
     await expect(
       service.findByEdition('external-user', edition.id),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toMatchObject({
+      status: HttpStatus.FORBIDDEN,
+      response: { code: API_ERROR_CODES.ORGANIZATION_MEMBERSHIP_REQUIRED },
+    });
+    expect(prisma.bibliographicRecord.findMany).not.toHaveBeenCalled();
   });
 
-  it('returns 404 when the Edition does not exist', async () => {
-    const prisma = {
-      bibliographicRecord: { findMany: vi.fn() },
-      edition: { findUnique: vi.fn().mockResolvedValue(null) },
-    } as unknown as PrismaService;
-    const memberships = {
-      assertWorkAccess: vi.fn(),
-    } as unknown as OrganizationMembershipService;
-    const service = new BibliographicRecordsService(prisma, memberships);
+  it('returns a stable 404 when the Edition does not exist', async () => {
+    const { contexts, service } = createService(record, null);
 
     await expect(
       service.findByEdition(userId, 'missing-edition'),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toMatchObject({
+      status: HttpStatus.NOT_FOUND,
+      response: { code: API_ERROR_CODES.RESOURCE_NOT_FOUND },
+    });
+    expect(contexts.resolveDerivedContext).not.toHaveBeenCalled();
   });
 });

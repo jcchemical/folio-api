@@ -116,9 +116,9 @@ A hierarquia implementada é `READER < STAFF < ADMIN < OWNER`. Leituras protegid
 - Não há endpoints de administração de memberships, convites ou alteração de roles.
 - Não há Branch, políticas por Library/Location, Campus, ServicePoint ou circulação. `Library`, `Location` e `Holding` já estão implementados no schema e API.
 - `getDefaultOrganization()` permanece para o onboarding de organização pessoal; não é usado pela confirmação de import nem pelos handlers de Organizations, Works, Editions ou inventário físico.
-- Ainda não foram migrados para contexto explícito root os restantes grupos scoped: capas, bibliographic records e exports mantêm as regras próprias actuais.
+- Ainda não foram migrados para contexto explícito root os restantes grupos scoped: capas e exports mantêm as regras próprias actuais.
 - `ExternalIdentifier` não persiste `organizationId`; a Organization é derivada de Edition → Work.
-- `BibliographicRecord` pode apontar simultaneamente para Work e Edition; o schema não garante que ambos pertençam ao mesmo Work/organização.
+- `BibliographicRecord` pertence exclusivamente a uma Edition; Organization deriva de `Edition → Work → Organization`. Não tem `workId` nem `organizationId` duplicados.
 
 ## Autenticação, sessão e segurança
 
@@ -165,8 +165,10 @@ Organizações e catálogo local:
 - `/external-identifiers` — `GET` root exige header e filtra por Edition → Work; `editionId` só refina. `POST` deriva da Edition; `GET/PUT/DELETE :id` derivam da relação persistida. Escritas STAFF+; update não altera Edition.
 - Não existe `/contributors`; os modelos `Contributor`, `WorkContributor` e `EditionContributor` não fazem parte do schema/baseline.
 - `/contributions` — `POST` manual canónico; exactamente um `workId`/`editionId`, Organization derivada do target, Agent no mesmo tenant, header opcional de consistência e STAFF+. `source=MANUAL` é atribuído pelo servidor.
-- `/bibliographic-records/:id` — `GET` read-only; não há CRUD público destes
-  registos.
+- `/bibliographic-records/:id` — `GET` read-only; Organization deriva de
+  `BibliographicRecord → Edition → Work`; header opcional só confirma igualdade
+  e a leitura requer membership. Não há root list nem rotas próprias de escrita;
+  Records são criados pela confirmação de importação de catálogo.
 
 Catálogo externo, capas e exportação:
 
@@ -234,9 +236,13 @@ MARCXchange e MARCXML são serializers/endpoints separados. O export actual é a
 - `PublicationStatement` e partes ordenadas, com indicadores e `groupIndex`.
 - `PhysicalDescription` por ocorrência e `PhysicalDescriptionPart` por subcampo ordenado.
 - `Agent`, `Contribution` e `ContributionSourcePart`; `Contribution` tem XOR Work/Edition reforçado por check SQL. Agent é scoped a Organization; `displayName` não é forma de autoridade.
-- `BibliographicNote` pode apontar a Work ou Edition, com XOR SQL.
+- `BibliographicNote` pode apontar a Work ou Edition, com XOR SQL; Organization
+  deriva do único parent. O import actual cria Notes na Edition; não há rotas
+  públicas de CRUD para Notes.
 - Não existem modelos `Contributor`, `WorkContributor` ou `EditionContributor` no schema nem fallback para esses dados.
-- `BibliographicRecord` guarda `rawContent` e proveniência básica (`source`, `remoteId`, `sourceId`, `format`), e tem relações opcionais para Work e Edition.
+- `BibliographicRecord` pertence obrigatoriamente a Edition, guarda `rawContent`
+  e proveniência básica (`source`, `remoteId`, `sourceId`, `format`), e não tem
+  ownership duplicada por Work ou Organization.
 - `UnmappedSourceField` e `UnmappedSourceSubfield` preservam campos de origem não mapeados, além do raw payload.
 
 ### Implementação por pipeline
@@ -254,7 +260,8 @@ MARCXchange e MARCXML são serializers/endpoints separados. O export actual é a
 - Parser/DTO de título reconhece `200$h/$i` como `partNumber`/`partName`, mas o schema `WorkTitle`/`EditionTitle` não tem esses campos e a persistência não os grava estruturadamente. O raw original permanece disponível.
 - `BibliographicNote` suporta alvos Work e Edition no schema; o fluxo actual de import oferece notas na Edition, não um contrato completo de nota de Work.
 - A camada de proveniência não tem ainda versões/histórico de aquisição, hash do raw, encoding, versão do parser ou gestão de múltiplos snapshots.
-- A consistência entre `BibliographicRecord.workId` e `editionId` não é imposta no schema.
+- `GET /bibliographic-records/:id` é a única rota pública de Record; não há
+  listagem root, criação, atualização ou remoção fora da confirmação de import.
 - O perfil PORBASE é subconjunto: não implica implementação semântica de todo UNIMARC, authority control, MARC 21 ou preservação de todo campo desconhecido como conceito canónico.
 
 ## Capas e ficheiros
@@ -343,11 +350,11 @@ Os comandos são procedimentos de validação, não afirmação de que foram cor
 
 ## Limitações conhecidas consolidadas
 
-1. A migração do contexto é parcial: Organizations/Works/Editions/Libraries/Locations/Holdings/Items, catalogue import e `POST /contributions` usam contexto explícito ou derivado; bibliographic records, covers e exports ainda não. `getDefaultOrganization()` permanece apenas usado pelo onboarding pessoal.
+1. A migração do contexto é parcial: Organizations/Works/Editions/Libraries/Locations/Holdings/Items, catalogue import, `POST /contributions` e leitura de Bibliographic Records usam contexto explícito ou derivado; covers e exports ainda não. `getDefaultOrganization()` permanece apenas usado pelo onboarding pessoal.
 2. Sem gestão de memberships/convites/roles, branches, Campus, ServicePoint, auditoria ou circulação; Item não representa empréstimos nem estado de circulação. O CRUD administrativo de Agents permanece fora do âmbito.
 3. Confirmação de import sem preview snapshot; campos de contribuição de origem do import são editáveis pelo cliente.
 4. CRUD regular de Work/Edition ainda não mantém sempre relações de títulos/línguas canónicas; `$h/$i` parseados não são persistidos estruturadamente.
-5. Proveniência limitada; inconsistência Work/Edition em BibliographicRecord não é constraint.
+5. Proveniência de Records limitada; não há snapshot do preview nem versionamento/hash do raw record.
 6. `coverUrl` só em respostas directas de Edition; ausência em Editions aninhadas/resultado de import.
 7. Hosts do fetcher devem ser configurados; sem variável a allowlist é vazia.
 8. Storage S3, queue, rate-limit distribuído, request ID e redacção de mensagem/stack de excepções não existem.
@@ -368,7 +375,7 @@ incompleta.
 
 ### Próxima migração backend
 
-2. Continuar `1L-API.0`: migrar bibliographic records, covers e exports.
+2. Continuar `1L-API.0`: migrar covers e exports.
 
 3. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;
    dependência de contrato e fora do repositório `folio-api`.

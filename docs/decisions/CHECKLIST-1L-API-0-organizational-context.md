@@ -76,7 +76,7 @@ Do **not** require a header merely because an operation creates a scoped row. In
 | `POST /contributions` | Child association to exactly one persisted Work or Edition | **Implemented 2026-10-07:** derive Organization from target; validate Agent belongs to same Organization; optional header must match; STAFF+ required; source is server-assigned MANUAL. |
 | Contribution reads, where exposed | Persisted Work/Edition target | Derive and validate target Organization. |
 | `/contributors` legacy routes | Remove | **Implemented:** no Contributor routes/models remain; use canonical `Agent + Contribution`. |
-| `GET /bibliographic-records/:id` | Persisted record target | Resolve one unambiguous Work/Edition owner and derive Organization; inconsistent or ownerless local records must not authorize via only one of multiple targets. |
+| `GET /bibliographic-records/:id` | Persisted Edition-owned record | **Implemented 2026-10-07:** derive Organization only through `BibliographicRecord → Edition → Work`; optional header must match; require current membership and use stable context/resource errors. This is the only direct Record route; there is no root list or Record-specific write route. Records are created by catalogue import. |
 | Cover read/acquisition | Edition/record-derived | Derive tenant through Edition/Work or the unambiguous BibliographicRecord target; constrain CoverAsset/EditionCover to the same Organization. Background acquisition does not use a request header. |
 | `GET /exports/marcxchange/edition/:editionId` | Persisted Edition | Derive Organization through Edition → Work and validate membership. |
 | `GET /health`, `GET /`, `/docs` | Global | No organization context. |
@@ -103,7 +103,8 @@ Before coding controllers, enumerate every existing and new route and record met
 - Add `Holding` linked to exactly one Edition and Location; enforce that Edition→Work→Organization equals Location→Library→Organization. Model shared holding data (e.g. call number/collection notes) here, not on Item.
 - Change Item to belong to Holding; remove duplicate Item organization/edition/location ownership and move/retire Item `location` according to the approved model.
 - Remove `ExternalIdentifier.organizationId` if tenant is derivable from Edition; set uniqueness/indexes at the canonical scope.
-- Make BibliographicRecord's ownership unambiguous (Work or Edition target, or an explicitly modeled external-import record); prevent conflicting Work/Edition targets and derive tenant consistently.
+- Keep `BibliographicRecord` Edition-owned only; derive tenant through `Edition → Work`, with no duplicate `workId`/`organizationId`. **Implemented:** required Edition FK and `(editionId, createdAt, id)` index are in schema/baseline; no record target XOR is needed because only Edition is supported.
+- Keep `BibliographicNote` target XOR between Work and Edition, enforced by the baseline SQL check; derive tenant through its one parent. Current import writes Notes under Edition and there are no public Note routes.
 - Keep CoverAsset organization-scoped only if required for dedup/storage policy; constrain EditionCover asset and Edition to same organization. Ensure CoverCandidate's record/asset path cannot cross tenants.
 - Enforce Agent/Contribution target Organization equality at persistence boundary where feasible; keep Contribution's exactly-one Work-or-Edition invariant.
 - Remove Contributor, WorkContributor, EditionContributor from Prisma schema, services, DTOs, output projections, imports, exports/mappers and tests. **Implemented:** baseline/schema and code use only canonical `Agent + Contribution`; no legacy fallback projections remain.

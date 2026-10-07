@@ -1,40 +1,64 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { API_ERROR_CODES, ApiException } from '../common/api-errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { OrganizationMembershipService } from '../organizations/organization-membership.service.js';
+import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
+import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 
 @Injectable()
 export class BibliographicRecordsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly organizationMemberships: OrganizationMembershipService,
+    private readonly contexts: OrganizationContextResolver,
   ) {}
 
-  async findOne(userId: string, id: string) {
+  async findOne(
+    userId: string,
+    id: string,
+    headerValue?: OrganizationHeaderValue,
+  ) {
     const record = await this.prisma.bibliographicRecord.findUnique({
       where: { id },
       include: { edition: { include: { work: true } } },
     });
-    if (!record) throw new NotFoundException('Bibliographic record not found');
-    if (!record.edition)
-      throw new NotFoundException('Bibliographic record has no Edition');
+    if (!record) throw resourceNotFound('Bibliographic record');
+    if (!record.edition?.work?.organizationId)
+      throw resourceNotFound('Bibliographic record target');
 
-    await this.organizationMemberships.assertWorkAccess(
+    await this.contexts.resolveDerivedContext({
       userId,
-      record.edition.work,
-    );
+      headerValue,
+      derivedOrganizationId: record.edition.work.organizationId,
+    });
     return record;
   }
 
-  async findByEdition(userId: string, editionId: string) {
+  async findByEdition(
+    userId: string,
+    editionId: string,
+    headerValue?: OrganizationHeaderValue,
+  ) {
     const edition = await this.prisma.edition.findUnique({
       where: { id: editionId },
       include: { work: true },
     });
-    if (!edition) throw new NotFoundException('Edition not found');
-    await this.organizationMemberships.assertWorkAccess(userId, edition.work);
+    if (!edition) throw resourceNotFound('Edition');
+    if (!edition.work?.organizationId) throw resourceNotFound('Edition Work');
+    await this.contexts.resolveDerivedContext({
+      userId,
+      headerValue,
+      derivedOrganizationId: edition.work.organizationId,
+    });
     return this.prisma.bibliographicRecord.findMany({
       where: { editionId },
       orderBy: { createdAt: 'desc' },
     });
   }
+}
+
+function resourceNotFound(resource: string): ApiException {
+  return new ApiException(
+    HttpStatus.NOT_FOUND,
+    API_ERROR_CODES.RESOURCE_NOT_FOUND,
+    `${resource} not found.`,
+  );
 }

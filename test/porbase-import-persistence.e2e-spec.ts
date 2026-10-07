@@ -141,7 +141,6 @@ describe('Catalogue import persistence (e2e)', () => {
               },
             ],
             contributions: [],
-            bibliographicRecords: [],
           };
         },
       },
@@ -331,6 +330,7 @@ describe('Catalogue import persistence (e2e)', () => {
 
     expect(response.body.sourceId).toBe('porbase');
     expect(response.body.work.organization.id).toBe(organizationA);
+    expect(response.body.work).not.toHaveProperty('bibliographicRecords');
     expect(createdOrganizationIds).toEqual([organizationA]);
     expect(tx.edition.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ workId: 'work-1' }),
@@ -352,6 +352,9 @@ describe('Catalogue import persistence (e2e)', () => {
     );
     expect(response.body.bibliographicRecord.source).toBe('PORBASE');
     expect(response.body.bibliographicRecord.sourceId).toBe('porbase');
+    expect(response.body.edition.bibliographicRecords).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'record-1' })]),
+    );
     expect(response.body).not.toHaveProperty('item');
     expect(response.body.edition).not.toHaveProperty('items');
     expect(response.body.bibliographicRecord.unmappedSourceFields).toEqual(

@@ -75,7 +75,6 @@ function createTransactionMock(organizationId = 'organization-1') {
             classifications: [],
           },
         ],
-        bibliographicRecords: [],
       }),
     },
     agent: {
@@ -169,6 +168,10 @@ describe('PorbaseImportService', () => {
     });
     expect(result).not.toHaveProperty('item');
     expect(result.id).toBe('work-1');
+    expect(result.work).not.toHaveProperty('bibliographicRecords');
+    expect(result.edition.bibliographicRecords).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'record-1' })]),
+    );
   });
 
   it('ignores scalar publication values when statements exist without projections', async () => {

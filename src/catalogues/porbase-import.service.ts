@@ -356,19 +356,6 @@ export class PorbaseImportService {
             },
             orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
           },
-          bibliographicRecords: {
-            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-            include: {
-              unmappedSourceFields: {
-                orderBy: [{ tag: 'asc' }, { occurrence: 'asc' }, { id: 'asc' }],
-                include: {
-                  subfields: {
-                    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-                  },
-                },
-              },
-            },
-          },
         },
       });
 
@@ -394,7 +381,6 @@ export class PorbaseImportService {
           contributions: (persisted.contributions ?? []).map(
             toPersistedContribution,
           ),
-          bibliographicRecords: persisted.bibliographicRecords,
         },
         edition: responseEdition,
         contributions: [

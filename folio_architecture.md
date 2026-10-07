@@ -72,7 +72,7 @@ Empréstimo, devolução, reserva, políticas e multas são conceitos próprios.
 
 ### Identity, Organization e catálogo
 
-Há self-service de organizações, mas não há selecção de organização activa, memberships administráveis, convites, alteração de roles ou branches. As rotas de Organizations/Works/Editions/Libraries/Locations/Holdings/Items/External Identifiers/Contributions e a confirmação de import usam contexto explícito ou derivado. `POST /contributions` deriva tenant do único Work/Edition target; Agent tem de estar na mesma Organization e `source=MANUAL` é atribuído pelo servidor. As rotas e modelos Contributor legacy foram removidos. `POST /catalogues/import` exige header e STAFF+; o Work recebe Organization apenas do header e Editions derivam do Work. `POST /catalogues/search` permanece externo/context-free. `getDefaultOrganization()` permanece usado pelo onboarding pessoal, não por estas rotas.
+Há self-service de organizações, mas não há selecção de organização activa, memberships administráveis, convites, alteração de roles ou branches. As rotas de Organizations/Works/Editions/Libraries/Locations/Holdings/Items/External Identifiers/Contributions/Bibliographic Records e a confirmação de import usam contexto explícito ou derivado. `POST /contributions` deriva tenant do único Work/Edition target; Agent tem de estar na mesma Organization e `source=MANUAL` é atribuído pelo servidor. `GET /bibliographic-records/:id` deriva Organization apenas por `BibliographicRecord → Edition → Work`, aceita header opcional de consistência e exige membership. As rotas e modelos Contributor legacy foram removidos. `POST /catalogues/import` exige header e STAFF+; o Work recebe Organization apenas do header e Editions derivam do Work. `POST /catalogues/search` permanece externo/context-free. `getDefaultOrganization()` permanece usado pelo onboarding pessoal, não por estas rotas.
 
 PORBASE aceita variantes de pesquisa no DTO, mas implementa só ISBN. O preview não persiste. A confirmação envia o payload editável completo e não usa snapshot server-side nem repesquisa. Campos de metadata de contribuições (`sourceTag`, indicadores e source parts) continuam aceites no DTO de confirmação; a origem é marcada pelo servidor, mas a estrutura de origem apresentada pelo cliente não é autenticada contra o raw record. A rota manual de Contribution tem validação mais estrita. Esta fronteira merece decisão de segurança própria.
 
@@ -83,7 +83,7 @@ Schema e import PORBASE suportam grande parte da fundação Phase 1, e leitura/e
 - CRUD regular Work/Edition continua a escrever escalares para certos conceitos e não mantém sempre WorkTitle/EditionTitle/EditionLanguage;
 - o parser extrai 200$h/$i, mas não há armazenamento estruturado correspondente no schema;
 - notas podem modelar Work e Edition, mas o contrato/import corrente oferece a cobertura mais completa na Edition;
-- `BibliographicRecord` ainda tem proveniência básica, sem versionamento/hash/versão de parser e sem constraint que alinhe Work e Edition referenciados.
+- `BibliographicRecord` pertence apenas a Edition; o endpoint actual é read-only por ID, sem listagem root nem CRUD público. A proveniência continua básica, sem versionamento/hash/versão de parser.
 
 Manter a classificação por percurso — parsing, preview, confirmação, CRUD normal, leitura e exportação — em vez de rotular genericamente uma “Phase 1 concluída”.
 
@@ -118,7 +118,7 @@ Não há organização activa no JWT/servidor. As rotas root bibliográficas e d
 
 ### Integridade catalográfica e proveniência
 
-Confirmação de import aceita estruturas editáveis sem snapshot assinado/guardado no servidor. Partes 200$h/$i são extraídas mas não persistidas como conceitos estruturados. CRUD geral não mantém uniformemente relações canónicas. BibliographicRecord pode ligar simultaneamente Work e Edition sem garantir consistência entre eles.
+Confirmação de import aceita estruturas editáveis sem snapshot assinado/guardado no servidor. Partes 200$h/$i são extraídas mas não persistidas como conceitos estruturados. CRUD geral não mantém uniformemente relações canónicas. BibliographicRecord é Edition-owned; a resposta de import projecta-o sob Edition, não como uma segunda relação directa de Work.
 
 ### Capas
 
@@ -166,7 +166,7 @@ Estado nesta revisão: `1J-API.1` e `1L-DEC.0` estão implementadas/aprovadas; O
 1. `1J-FLUTTER.1` — proteger a `CoverCache` contra respostas tardias de pedidos
 	iniciados antes do logout ou mudança de geração de sessão.
 
-2. Continuar `1L-API.0` — migrar bibliographic records, covers e exports
+2. Continuar `1L-API.0` — migrar covers e exports
 	conforme as decisões aprovadas.
 
 3. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;

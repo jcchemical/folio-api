@@ -693,8 +693,6 @@ export class CatalogueImportedWorkDto {
   editions!: CatalogueImportedEditionDto[];
   @ApiProperty({ type: [CatalogueImportedContributionDto] })
   contributions!: CatalogueImportedContributionDto[];
-  @ApiProperty({ type: [CatalogueImportedBibliographicRecordDto] })
-  bibliographicRecords!: CatalogueImportedBibliographicRecordDto[];
   @ApiProperty({ type: [CatalogueImportedTitleDto] })
   titles!: CatalogueImportedTitleDto[];
 }
