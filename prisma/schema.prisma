@@ -36,12 +36,11 @@ model Organization {
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 
-  memberships         OrganizationMembership[]
-  works               Work[]
-  items               Item[]
-  externalIdentifiers ExternalIdentifier[]
-  agents              Agent[]
-  coverAssets         CoverAsset[]
+  memberships OrganizationMembership[]
+  libraries   Library[]
+  works       Work[]
+  agents      Agent[]
+  coverAssets CoverAsset[]
 }
 
 model User {
@@ -74,6 +73,34 @@ model OrganizationMembership {
   @@index([organizationId, userId])
 }
 
+model Library {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  locations    Location[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, createdAt, id])
+}
+
+model Location {
+  id        String   @id @default(cuid())
+  libraryId String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  library  Library   @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  holdings Holding[]
+
+  @@unique([libraryId, name])
+  @@index([libraryId, createdAt, id])
+}
+
 // =========================
 // Núcleo bibliográfico
 // =========================
@@ -90,12 +117,10 @@ model Work {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
-  editions             Edition[]
-  workContributors     WorkContributor[]
-  contributions        Contribution[]
-  bibliographicRecords BibliographicRecord[]
-  titles               WorkTitle[]
-  notes                BibliographicNote[]
+  editions      Edition[]
+  contributions Contribution[]
+  titles        WorkTitle[]
+  notes         BibliographicNote[]
 
   @@index([organizationId, createdAt, id])
 }
@@ -124,10 +149,9 @@ model Edition {
   workId String
   work   Work   @relation(fields: [workId], references: [id], onDelete: Cascade)
 
-  items                    Item[]
+  holdings                 Holding[]
   physicalDescriptions     PhysicalDescription[]
   publicationStatements    PublicationStatement[]
-  editionContributors      EditionContributor[]
   contributions            Contribution[]
   externalIdentifiers      ExternalIdentifier[]
   bibliographicRecords     BibliographicRecord[]
@@ -414,19 +438,6 @@ model PhysicalDescriptionPart {
   @@index([physicalDescriptionId, sortOrder, id])
 }
 
-model Contributor {
-  id           String   @id @default(cuid())
-  name         String
-  variantNames String[] // outros nomes, formas alternativas
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  workContributors    WorkContributor[]
-  editionContributors EditionContributor[]
-
-  @@index([createdAt, id])
-}
-
 model Agent {
   id                    String    @id @default(cuid())
   organizationId        String
@@ -483,40 +494,6 @@ model ContributionSourcePart {
   @@index([contributionId, sortOrder, id])
 }
 
-model WorkContributor {
-  id        String   @id @default(cuid())
-  role      String // ex: "author", "translator", "editor"
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  workId String
-  work   Work   @relation(fields: [workId], references: [id], onDelete: Cascade)
-
-  contributorId String
-  contributor   Contributor @relation(fields: [contributorId], references: [id], onDelete: Cascade)
-
-  @@index([workId, sortOrder, id])
-  @@index([contributorId])
-}
-
-model EditionContributor {
-  id        String   @id @default(cuid())
-  role      String // ex: "author", "translator", "editor"
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  editionId String
-  edition   Edition @relation(fields: [editionId], references: [id], onDelete: Cascade)
-
-  contributorId String
-  contributor   Contributor @relation(fields: [contributorId], references: [id], onDelete: Cascade)
-
-  @@index([editionId, sortOrder, id])
-  @@index([contributorId])
-}
-
 model ExternalIdentifier {
   id        String   @id @default(cuid())
   type      String // ex: "ISBN-10", "ISBN-13", "BNP", "OPENLIBRARY", "OCLC", "LCCN"
@@ -525,18 +502,16 @@ model ExternalIdentifier {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-
   editionId String
   edition   Edition @relation(fields: [editionId], references: [id], onDelete: Cascade)
 
-  @@unique([organizationId, type, value])
-  @@index([organizationId, type, value])
+  @@unique([editionId, type, value])
   @@index([editionId, createdAt, id])
 }
 
 model BibliographicRecord {
+  // Each persisted source record has one canonical Edition target. Work is
+  // derived through Edition -> Work rather than stored as a second owner.
   id         String   @id @default(cuid())
   format     String // ex: "MARCXML", "ISO2709", "MARCJSON"
   rawContent String   @db.Text // registo bruto (pode ser grande)
@@ -546,16 +521,12 @@ model BibliographicRecord {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  workId String?
-  work   Work?   @relation(fields: [workId], references: [id], onDelete: SetNull)
-
-  editionId String?
-  edition   Edition? @relation(fields: [editionId], references: [id], onDelete: SetNull)
+  editionId String
+  edition   Edition @relation(fields: [editionId], references: [id], onDelete: Cascade)
 
   unmappedSourceFields UnmappedSourceField[]
   coverCandidates      CoverCandidate[]
 
-  @@index([workId, createdAt, id])
   @@index([editionId, createdAt, id])
 }
 
@@ -585,6 +556,8 @@ model CoverCandidate {
 
 model CoverAsset {
   id             String   @id @default(cuid())
+  // Deliberately organization-scoped for storage-key isolation and deduplication.
+  // Cross-model organization equality is enforced by baseline constraint triggers.
   organizationId String
   storageBackend String
   storageKey     String
@@ -619,19 +592,32 @@ model EditionCover {
 
 model Item {
   id        String   @id @default(cuid())
-  label     String? // etiqueta interna (ex: "Meu exemplar principal")
-  location  String? // estante, caixa, etc.
-  status    String   @default("OWNED") // OWNED, BORROWED, LOST, etc.
+  label     String?
+  status    String   @default("OWNED")
   notes     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  editionId String
-  edition   Edition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  holdingId String
+  holding   Holding @relation(fields: [holdingId], references: [id], onDelete: Cascade)
 
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  @@index([holdingId, createdAt, id])
+}
+
+model Holding {
+  id         String   @id @default(cuid())
+  editionId  String
+  locationId String
+  // Call number and notes describe the shared possession, not an individual copy.
+  callNumber String?
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  edition  Edition  @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  items    Item[]
 
   @@index([editionId, createdAt, id])
-  @@index([organizationId, status, createdAt, id])
+  @@index([locationId, createdAt, id])
 }
