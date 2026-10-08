@@ -6,7 +6,10 @@ import {
   paginationArgs,
   type PaginationInput,
 } from '../common/pagination.js';
-import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
+import {
+  OrganizationContextResolver,
+  parseOrganizationContextHeader,
+} from '../organizations/organization-context.resolver.js';
 import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateLibraryDto, UpdateLibraryDto } from './dto/library.dto.js';
@@ -41,9 +44,10 @@ export class LibrariesService {
     userId: string,
     headerValue?: OrganizationHeaderValue,
   ) {
+    parseOrganizationContextHeader(headerValue, false);
     const library = await this.prisma.library.findUnique({ where: { id } });
-    if (!library) throw resourceNotFound('Library');
-    await this.contexts.resolveDerivedContext({
+    if (!library) throw resourceNotFound();
+    await this.contexts.resolveDerivedResourceContext({
       userId,
       headerValue,
       derivedOrganizationId: library.organizationId,
@@ -75,9 +79,10 @@ export class LibrariesService {
     input: UpdateLibraryDto,
     headerValue?: OrganizationHeaderValue,
   ) {
+    parseOrganizationContextHeader(headerValue, false);
     const library = await this.prisma.library.findUnique({ where: { id } });
-    if (!library) throw resourceNotFound('Library');
-    await this.contexts.resolveDerivedContext({
+    if (!library) throw resourceNotFound();
+    await this.contexts.resolveDerivedResourceContext({
       userId,
       headerValue,
       derivedOrganizationId: library.organizationId,
@@ -95,9 +100,10 @@ export class LibrariesService {
     userId: string,
     headerValue?: OrganizationHeaderValue,
   ) {
+    parseOrganizationContextHeader(headerValue, false);
     const library = await this.prisma.library.findUnique({ where: { id } });
-    if (!library) throw resourceNotFound('Library');
-    await this.contexts.resolveDerivedContext({
+    if (!library) throw resourceNotFound();
+    await this.contexts.resolveDerivedResourceContext({
       userId,
       headerValue,
       derivedOrganizationId: library.organizationId,
@@ -119,10 +125,10 @@ function normalizeName(value: string): string {
   return name;
 }
 
-function resourceNotFound(resource: string): ApiException {
+function resourceNotFound(): ApiException {
   return new ApiException(
     HttpStatus.NOT_FOUND,
     API_ERROR_CODES.RESOURCE_NOT_FOUND,
-    `${resource} not found.`,
+    'The requested resource was not found.',
   );
 }

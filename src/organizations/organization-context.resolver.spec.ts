@@ -337,6 +337,134 @@ describe('OrganizationContextResolver optional/derived context', () => {
     });
   });
 
+  it('masks missing membership when resolving a resource without hiding context conflicts', async () => {
+    const { resolver: nonMemberResolver } = createResolver({ memberships: [] });
+
+    await expect(
+      nonMemberResolver.resolveDerivedResourceContext({
+        userId,
+        headerValue: organizationB.id,
+        derivedOrganizationId: organizationA.id,
+      }),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: expect.objectContaining({
+        code: 'RESOURCE_NOT_FOUND',
+        message: 'The requested resource was not found.',
+      }),
+    });
+
+    const { resolver } = createResolver();
+    await expect(
+      resolver.resolveDerivedResourceContext({
+        userId,
+        headerValue: organizationB.id,
+        derivedOrganizationId: organizationA.id,
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({
+        code: 'ORGANIZATION_CONTEXT_CONFLICT',
+      }),
+    });
+  });
+
+  it('requires membership in both parent organizations before checking parent context', async () => {
+    const { resolver: nonMemberResolver, prisma } = createResolver({
+      memberships: [
+        { organizationId: organizationA.id, role: OrganizationRole.STAFF },
+      ],
+    });
+
+    await expect(
+      nonMemberResolver.resolveDerivedParentPairContext({
+        userId,
+        headerValue: organizationA.id,
+        firstOrganizationId: organizationA.id,
+        secondOrganizationId: organizationB.id,
+      }),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: expect.objectContaining({
+        code: 'RESOURCE_NOT_FOUND',
+        message: 'The requested resource was not found.',
+      }),
+    });
+    expect(prisma.organizationMembership.findUnique).toHaveBeenCalledTimes(2);
+  });
+
+  it('checks a parent-pair header only after membership in both organizations', async () => {
+    const { resolver } = createResolver();
+
+    await expect(
+      resolver.resolveDerivedParentPairContext({
+        userId,
+        headerValue: organizationB.id,
+        firstOrganizationId: organizationA.id,
+        secondOrganizationId: organizationA.id,
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({
+        code: 'ORGANIZATION_CONTEXT_CONFLICT',
+      }),
+    });
+    await expect(
+      resolver.resolveDerivedParentPairContext({
+        userId,
+        headerValue: 'malformed',
+        firstOrganizationId: organizationA.id,
+        secondOrganizationId: organizationB.id,
+      }),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({ code: 'ORGANIZATION_ID_INVALID' }),
+    });
+    await expect(
+      resolver.resolveDerivedParentPairContext({
+        userId,
+        headerValue: undefined,
+        firstOrganizationId: organizationA.id,
+        secondOrganizationId: organizationB.id,
+      }),
+    ).resolves.toMatchObject({
+      first: { organizationId: organizationA.id },
+      second: { organizationId: organizationB.id },
+    });
+  });
+
+  it('preserves role and invalid-header errors for derived resource context', async () => {
+    const { resolver: readerResolver } = createResolver({
+      currentRole: () => OrganizationRole.READER,
+    });
+
+    await expect(
+      readerResolver.resolveDerivedResourceContext({
+        userId,
+        headerValue: organizationA.id,
+        derivedOrganizationId: organizationA.id,
+        requiredRole: OrganizationRole.STAFF,
+      }),
+    ).rejects.toMatchObject({
+      status: 403,
+      response: expect.objectContaining({
+        code: 'ORGANIZATION_ROLE_INSUFFICIENT',
+      }),
+    });
+
+    const { resolver } = createResolver();
+    await expect(
+      resolver.resolveDerivedResourceContext({
+        userId,
+        headerValue: 'malformed',
+        derivedOrganizationId: organizationA.id,
+      }),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({ code: 'ORGANIZATION_ID_INVALID' }),
+    });
+  });
+
   it('rejects a supplied organization without current membership', async () => {
     const { resolver } = createResolver({ memberships: [] });
 

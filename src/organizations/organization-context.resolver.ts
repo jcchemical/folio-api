@@ -28,6 +28,25 @@ export type OrganizationContextInput = {
   requiredRole?: OrganizationRole;
 };
 
+export type DerivedOrganizationContextInput = {
+  userId: string | null | undefined;
+  headerValue: OrganizationHeaderValue;
+  derivedOrganizationId: string;
+  requiredRole?: OrganizationRole;
+};
+
+export type DerivedParentPairContextInput = {
+  userId: string | null | undefined;
+  headerValue: OrganizationHeaderValue;
+  firstOrganizationId: string;
+  secondOrganizationId: string;
+};
+
+export type ResolvedDerivedParentPairContext = {
+  first: ResolvedOrganizationContext;
+  second: ResolvedOrganizationContext;
+};
+
 const CUID_PATTERN = /^c[a-z0-9]{24}$/i;
 
 export function parseOrganizationContextHeader(
@@ -103,17 +122,72 @@ export class OrganizationContextResolver {
       headerOrganizationId &&
       headerOrganizationId !== input.derivedOrganizationId
     ) {
-      throw new ApiException(
-        HttpStatus.CONFLICT,
-        API_ERROR_CODES.ORGANIZATION_CONTEXT_CONFLICT,
-        'The selected organization does not match the requested resource.',
-      );
+      throw organizationContextConflict();
     }
     return this.resolveForUser(
       userId,
       input.derivedOrganizationId,
       input.requiredRole,
     );
+  }
+
+  async resolveDerivedResourceContext(
+    input: DerivedOrganizationContextInput,
+  ): Promise<ResolvedOrganizationContext> {
+    const userId = requireAuthenticatedUserId(input.userId);
+    const headerOrganizationId = parseOrganizationContextHeader(
+      input.headerValue,
+      false,
+    );
+    const context = await this.resolveForUser(
+      userId,
+      input.derivedOrganizationId,
+      undefined,
+      true,
+    );
+    if (
+      headerOrganizationId &&
+      headerOrganizationId !== input.derivedOrganizationId
+    ) {
+      throw organizationContextConflict();
+    }
+    if (input.requiredRole) this.requireRole(context, input.requiredRole);
+    return context;
+  }
+
+  async resolveDerivedParentPairContext(
+    input: DerivedParentPairContextInput,
+  ): Promise<ResolvedDerivedParentPairContext> {
+    const userId = requireAuthenticatedUserId(input.userId);
+    const headerOrganizationId = parseOrganizationContextHeader(
+      input.headerValue,
+      false,
+    );
+    const first = await this.resolveForUser(
+      userId,
+      input.firstOrganizationId,
+      undefined,
+      true,
+    );
+    const second =
+      input.secondOrganizationId === input.firstOrganizationId
+        ? first
+        : await this.resolveForUser(
+            userId,
+            input.secondOrganizationId,
+            undefined,
+            true,
+          );
+
+    if (
+      headerOrganizationId &&
+      (headerOrganizationId !== input.firstOrganizationId ||
+        headerOrganizationId !== input.secondOrganizationId)
+    ) {
+      throw organizationContextConflict();
+    }
+
+    return { first, second };
   }
 
   async assertHeaderMatchesDerivedContext(input: {
@@ -136,6 +210,7 @@ export class OrganizationContextResolver {
     userId: string,
     organizationId: string,
     requiredRole?: OrganizationRole,
+    hideMissingMembership = false,
   ): Promise<ResolvedOrganizationContext> {
     const organization =
       await this.memberships.requireOrganization(organizationId);
@@ -144,6 +219,9 @@ export class OrganizationContextResolver {
       organizationId,
     );
     if (!membership) {
+      if (hideMissingMembership) {
+        throw resourceNotFound();
+      }
       throw new ApiException(
         HttpStatus.FORBIDDEN,
         API_ERROR_CODES.ORGANIZATION_MEMBERSHIP_REQUIRED,
@@ -174,5 +252,21 @@ function invalidOrganizationId(): ApiException {
     HttpStatus.BAD_REQUEST,
     API_ERROR_CODES.ORGANIZATION_ID_INVALID,
     'The organization ID is invalid.',
+  );
+}
+
+function resourceNotFound(): ApiException {
+  return new ApiException(
+    HttpStatus.NOT_FOUND,
+    API_ERROR_CODES.RESOURCE_NOT_FOUND,
+    'The requested resource was not found.',
+  );
+}
+
+function organizationContextConflict(): ApiException {
+  return new ApiException(
+    HttpStatus.CONFLICT,
+    API_ERROR_CODES.ORGANIZATION_CONTEXT_CONFLICT,
+    'The selected organization does not match the requested resource.',
   );
 }

@@ -2,7 +2,10 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { OrganizationRole } from '@prisma/client';
 import { API_ERROR_CODES, ApiException } from '../common/api-errors.js';
 import { paginate, paginationArgs } from '../common/pagination.js';
-import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
+import {
+  OrganizationContextResolver,
+  parseOrganizationContextHeader,
+} from '../organizations/organization-context.resolver.js';
 import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { requireHoldingOrganization } from './holding-ownership.js';
@@ -54,17 +57,13 @@ export class HoldingsService {
     userId: string,
     headerValue?: OrganizationHeaderValue,
   ) {
+    parseOrganizationContextHeader(headerValue, false);
     const holding = await this.prisma.holding.findUnique({
       where: { id },
       include: holdingRelations,
     });
-    if (!holding) throw resourceNotFound('Holding');
-    const organizationId = requireHoldingOrganization(holding);
-    await this.contexts.resolveDerivedContext({
-      userId,
-      headerValue,
-      derivedOrganizationId: organizationId,
-    });
+    if (!holding) throw resourceNotFound();
+    await this.resolveHoldingOrganization(userId, headerValue, holding);
     return holding;
   }
 
@@ -73,6 +72,7 @@ export class HoldingsService {
     input: CreateHoldingDto,
     headerValue?: OrganizationHeaderValue,
   ) {
+    parseOrganizationContextHeader(headerValue, false);
     const [edition, location] = await Promise.all([
       this.prisma.edition.findUnique({
         where: { id: input.editionId },
@@ -83,16 +83,15 @@ export class HoldingsService {
         include: { library: { select: { organizationId: true } } },
       }),
     ]);
-    if (!edition) throw resourceNotFound('Edition');
-    if (!location) throw resourceNotFound('Location');
+    if (!edition) throw resourceNotFound();
+    if (!location) throw resourceNotFound();
 
-    const organizationId = requireHoldingOrganization({ edition, location });
-    await this.contexts.resolveDerivedContext({
+    await this.resolveHoldingOrganization(
       userId,
       headerValue,
-      derivedOrganizationId: organizationId,
-      requiredRole: OrganizationRole.STAFF,
-    });
+      { edition, location },
+      OrganizationRole.STAFF,
+    );
 
     return this.prisma.holding.create({
       data: {
@@ -111,18 +110,18 @@ export class HoldingsService {
     input: UpdateHoldingDto,
     headerValue?: OrganizationHeaderValue,
   ) {
+    parseOrganizationContextHeader(headerValue, false);
     const holding = await this.prisma.holding.findUnique({
       where: { id },
       include: holdingRelations,
     });
-    if (!holding) throw resourceNotFound('Holding');
-    const organizationId = requireHoldingOrganization(holding);
-    await this.contexts.resolveDerivedContext({
+    if (!holding) throw resourceNotFound();
+    await this.resolveHoldingOrganization(
       userId,
       headerValue,
-      derivedOrganizationId: organizationId,
-      requiredRole: OrganizationRole.STAFF,
-    });
+      holding,
+      OrganizationRole.STAFF,
+    );
     return this.prisma.holding.update({
       where: { id },
       data: {
@@ -142,26 +141,45 @@ export class HoldingsService {
     userId: string,
     headerValue?: OrganizationHeaderValue,
   ) {
+    parseOrganizationContextHeader(headerValue, false);
     const holding = await this.prisma.holding.findUnique({
       where: { id },
       include: holdingRelations,
     });
-    if (!holding) throw resourceNotFound('Holding');
-    const organizationId = requireHoldingOrganization(holding);
-    await this.contexts.resolveDerivedContext({
+    if (!holding) throw resourceNotFound();
+    await this.resolveHoldingOrganization(
       userId,
       headerValue,
-      derivedOrganizationId: organizationId,
-      requiredRole: OrganizationRole.STAFF,
-    });
+      holding,
+      OrganizationRole.STAFF,
+    );
     return this.prisma.holding.delete({ where: { id } });
+  }
+
+  private async resolveHoldingOrganization(
+    userId: string,
+    headerValue: OrganizationHeaderValue | undefined,
+    holding: {
+      edition: { work: { organizationId: string } };
+      location: { library: { organizationId: string } };
+    },
+    requiredRole?: OrganizationRole,
+  ): Promise<void> {
+    const contexts = await this.contexts.resolveDerivedParentPairContext({
+      userId,
+      headerValue,
+      firstOrganizationId: holding.edition.work.organizationId,
+      secondOrganizationId: holding.location.library.organizationId,
+    });
+    requireHoldingOrganization(holding);
+    if (requiredRole) this.contexts.requireRole(contexts.first, requiredRole);
   }
 }
 
-function resourceNotFound(resource: string): ApiException {
+function resourceNotFound(): ApiException {
   return new ApiException(
     HttpStatus.NOT_FOUND,
     API_ERROR_CODES.RESOURCE_NOT_FOUND,
-    `${resource} not found.`,
+    'The requested resource was not found.',
   );
 }

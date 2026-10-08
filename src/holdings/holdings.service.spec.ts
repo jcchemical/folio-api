@@ -33,10 +33,11 @@ function fixture() {
     resolveRequiredRootContext: vi
       .fn()
       .mockResolvedValue({ organizationId: orgA }),
-    resolveDerivedContext: vi.fn().mockResolvedValue({
-      organizationId: orgA,
-      role: OrganizationRole.STAFF,
+    resolveDerivedParentPairContext: vi.fn().mockResolvedValue({
+      first: { organizationId: orgA, role: OrganizationRole.STAFF },
+      second: { organizationId: orgA, role: OrganizationRole.STAFF },
     }),
+    requireRole: vi.fn(),
   } as unknown as OrganizationContextResolver;
   return { prisma, contexts, service: new HoldingsService(prisma, contexts) };
 }
@@ -73,12 +74,16 @@ describe('HoldingsService organization context', () => {
       notes: 'Stacks note',
     });
 
-    expect(contexts.resolveDerivedContext).toHaveBeenCalledWith({
+    expect(contexts.resolveDerivedParentPairContext).toHaveBeenCalledWith({
       userId: 'user-a',
       headerValue: undefined,
-      derivedOrganizationId: orgA,
-      requiredRole: OrganizationRole.STAFF,
+      firstOrganizationId: orgA,
+      secondOrganizationId: orgA,
     });
+    expect(contexts.requireRole).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId: orgA }),
+      OrganizationRole.STAFF,
+    );
     expect(prisma.holding.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: {
@@ -91,7 +96,7 @@ describe('HoldingsService organization context', () => {
     );
   });
 
-  it('rejects cross-organization parent pairs before authorization or mutation', async () => {
+  it('checks both parent memberships before reporting a cross-organization pair', async () => {
     const { prisma, contexts, service } = fixture();
     vi.mocked(prisma.location.findUnique).mockResolvedValue({
       id: location.id,
@@ -107,13 +112,18 @@ describe('HoldingsService organization context', () => {
       status: 409,
       response: { code: 'ORGANIZATION_CONTEXT_CONFLICT' },
     });
-    expect(contexts.resolveDerivedContext).not.toHaveBeenCalled();
+    expect(contexts.resolveDerivedParentPairContext).toHaveBeenCalledWith({
+      userId: 'user-a',
+      headerValue: undefined,
+      firstOrganizationId: orgA,
+      secondOrganizationId: orgB,
+    });
     expect(prisma.holding.create).not.toHaveBeenCalled();
   });
 
   it('rejects a mismatching optional header before create', async () => {
     const { prisma, contexts, service } = fixture();
-    vi.mocked(contexts.resolveDerivedContext).mockRejectedValueOnce({
+    vi.mocked(contexts.resolveDerivedParentPairContext).mockRejectedValueOnce({
       status: 409,
       response: { code: 'ORGANIZATION_CONTEXT_CONFLICT' },
     });
@@ -133,6 +143,29 @@ describe('HoldingsService organization context', () => {
     expect(prisma.holding.create).not.toHaveBeenCalled();
   });
 
+  it.each(['edition', 'location'] as const)(
+    'returns not found when the %s parent is missing',
+    async (parent) => {
+      const { prisma, service } = fixture();
+      if (parent === 'edition') {
+        vi.mocked(prisma.edition.findUnique).mockResolvedValue(null);
+      } else {
+        vi.mocked(prisma.location.findUnique).mockResolvedValue(null);
+      }
+
+      await expect(
+        service.create('user-a', {
+          editionId: edition.id,
+          locationId: location.id,
+        }),
+      ).rejects.toMatchObject({
+        status: 404,
+        response: { code: 'RESOURCE_NOT_FOUND' },
+      });
+      expect(prisma.holding.create).not.toHaveBeenCalled();
+    },
+  );
+
   it('fails closed for a persisted Holding whose Edition and Location tenants disagree', async () => {
     const inconsistent = {
       ...holding,
@@ -149,7 +182,7 @@ describe('HoldingsService organization context', () => {
       status: 409,
       response: { code: 'ORGANIZATION_CONTEXT_CONFLICT' },
     });
-    expect(local.contexts.resolveDerivedContext).not.toHaveBeenCalled();
+    expect(local.contexts.resolveDerivedParentPairContext).toHaveBeenCalled();
   });
 
   it.each(['update', 'remove'] as const)(
@@ -172,15 +205,17 @@ describe('HoldingsService organization context', () => {
       });
       expect(local.prisma.holding.update).not.toHaveBeenCalled();
       expect(local.prisma.holding.delete).not.toHaveBeenCalled();
-      expect(local.contexts.resolveDerivedContext).not.toHaveBeenCalled();
+      expect(local.contexts.resolveDerivedParentPairContext).toHaveBeenCalled();
     },
   );
 
   it('does not mutate when STAFF authorization fails', async () => {
     const { prisma, contexts, service } = fixture();
-    vi.mocked(contexts.resolveDerivedContext).mockRejectedValueOnce({
-      status: 403,
-      response: { code: 'ORGANIZATION_ROLE_INSUFFICIENT' },
+    vi.mocked(contexts.requireRole).mockImplementationOnce(() => {
+      throw {
+        status: 403,
+        response: { code: 'ORGANIZATION_ROLE_INSUFFICIENT' },
+      };
     });
 
     await expect(
@@ -189,5 +224,36 @@ describe('HoldingsService organization context', () => {
       response: { code: 'ORGANIZATION_ROLE_INSUFFICIENT' },
     });
     expect(prisma.holding.update).not.toHaveBeenCalled();
+  });
+
+  it('does not mutate after either parent membership is masked', async () => {
+    const { prisma, contexts, service } = fixture();
+    vi.mocked(contexts.resolveDerivedParentPairContext).mockRejectedValue({
+      status: 404,
+      response: { code: 'RESOURCE_NOT_FOUND' },
+    });
+
+    await expect(
+      service.create('outsider', {
+        editionId: edition.id,
+        locationId: location.id,
+      }),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { code: 'RESOURCE_NOT_FOUND' },
+    });
+    await expect(
+      service.update(holding.id, 'outsider', { notes: 'Denied' }),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { code: 'RESOURCE_NOT_FOUND' },
+    });
+    await expect(service.remove(holding.id, 'outsider')).rejects.toMatchObject({
+      status: 404,
+      response: { code: 'RESOURCE_NOT_FOUND' },
+    });
+    expect(prisma.holding.create).not.toHaveBeenCalled();
+    expect(prisma.holding.update).not.toHaveBeenCalled();
+    expect(prisma.holding.delete).not.toHaveBeenCalled();
   });
 });

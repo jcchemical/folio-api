@@ -7,6 +7,7 @@ import { ItemsService } from './items.service.js';
 
 const userId = 'items-user-1';
 const organizationId = `c${'a'.repeat(24)}`;
+const otherOrganizationId = `c${'b'.repeat(24)}`;
 const holding = {
   id: 'holding-1',
   edition: { id: 'edition-1', work: { id: 'work-1', organizationId } },
@@ -21,7 +22,11 @@ const item = {
   notes: null,
 };
 
-function createFixture(role = OrganizationRole.STAFF, itemFound = true) {
+function createFixture(
+  role = OrganizationRole.STAFF,
+  itemFound = true,
+  memberOrganizationIds: string[] = [organizationId],
+) {
   const prisma = {
     item: {
       findMany: vi.fn().mockResolvedValue([item]),
@@ -37,12 +42,32 @@ function createFixture(role = OrganizationRole.STAFF, itemFound = true) {
       findUnique: vi.fn().mockResolvedValue({ id: organizationId }),
     },
     organizationMembership: {
-      findUnique: vi.fn().mockResolvedValue({
-        userId,
-        organizationId,
-        role,
-        organization: { id: organizationId },
-      }),
+      findUnique: vi.fn(
+        ({
+          where,
+        }: {
+          where: {
+            userId_organizationId: { userId: string; organizationId: string };
+          };
+        }) => {
+          const key = where.userId_organizationId;
+          if (
+            key.userId !== userId ||
+            !memberOrganizationIds.includes(key.organizationId)
+          ) {
+            return Promise.resolve(null);
+          }
+          return Promise.resolve({
+            userId,
+            organizationId: key.organizationId,
+            role:
+              key.organizationId === organizationId
+                ? role
+                : OrganizationRole.STAFF,
+            organization: { id: key.organizationId },
+          });
+        },
+      ),
     },
   } as unknown as PrismaService;
   const memberships = new OrganizationMembershipService(prisma);
@@ -186,6 +211,50 @@ describe('ItemsService Holding ownership', () => {
     expect(missingHolding.prisma.item.create).not.toHaveBeenCalled();
   });
 
+  it.each(['update', 'remove'] as const)(
+    'returns not found when %s targets a missing Item',
+    async (operation) => {
+      const missingItem = createFixture(OrganizationRole.STAFF, false);
+      const result =
+        operation === 'update'
+          ? missingItem.service.update('missing', userId, { label: 'No write' })
+          : missingItem.service.remove('missing', userId);
+
+      await expect(result).rejects.toMatchObject({
+        status: 404,
+        response: { code: 'RESOURCE_NOT_FOUND' },
+      });
+      expect(missingItem.prisma.item.update).not.toHaveBeenCalled();
+      expect(missingItem.prisma.item.delete).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not mutate after derived membership is masked for either Holding parent', async () => {
+    const outsider = createFixture(OrganizationRole.STAFF, true, []);
+
+    await expect(
+      outsider.service.create(userId, { holdingId: holding.id }),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { code: 'RESOURCE_NOT_FOUND' },
+    });
+    await expect(
+      outsider.service.update(item.id, userId, { label: 'Denied' }),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { code: 'RESOURCE_NOT_FOUND' },
+    });
+    await expect(
+      outsider.service.remove(item.id, userId),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { code: 'RESOURCE_NOT_FOUND' },
+    });
+    expect(outsider.prisma.item.create).not.toHaveBeenCalled();
+    expect(outsider.prisma.item.update).not.toHaveBeenCalled();
+    expect(outsider.prisma.item.delete).not.toHaveBeenCalled();
+  });
+
   it('rejects blank status values', async () => {
     const { prisma, service } = createFixture();
 
@@ -201,7 +270,10 @@ describe('ItemsService Holding ownership', () => {
   });
 
   it('fails closed for inconsistent persisted Holding parents and conflicting context before mutation', async () => {
-    const inconsistentFixture = createFixture();
+    const inconsistentFixture = createFixture(OrganizationRole.STAFF, true, [
+      organizationId,
+      otherOrganizationId,
+    ]);
     vi.mocked(inconsistentFixture.prisma.item.findUnique).mockResolvedValue({
       ...item,
       holding: {
@@ -236,7 +308,10 @@ describe('ItemsService Holding ownership', () => {
   });
 
   it('does not create, update, or delete through an inconsistent persisted Holding', async () => {
-    const local = createFixture();
+    const local = createFixture(OrganizationRole.STAFF, true, [
+      organizationId,
+      otherOrganizationId,
+    ]);
     const inconsistentItem = {
       ...item,
       holding: {

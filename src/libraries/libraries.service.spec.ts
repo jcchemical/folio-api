@@ -21,7 +21,7 @@ function fixture() {
     resolveRequiredRootContext: vi
       .fn()
       .mockResolvedValue({ organizationId: orgA }),
-    resolveDerivedContext: vi.fn().mockResolvedValue({
+    resolveDerivedResourceContext: vi.fn().mockResolvedValue({
       organizationId: orgA,
       role: OrganizationRole.STAFF,
     }),
@@ -64,7 +64,7 @@ describe('LibrariesService organization context', () => {
 
     await service.findById(library.id, 'user-a', orgA);
 
-    expect(contexts.resolveDerivedContext).toHaveBeenCalledWith({
+    expect(contexts.resolveDerivedResourceContext).toHaveBeenCalledWith({
       userId: 'user-a',
       headerValue: orgA,
       derivedOrganizationId: orgA,
@@ -83,5 +83,58 @@ describe('LibrariesService organization context', () => {
       response: { code: 'ORGANIZATION_MEMBERSHIP_REQUIRED' },
     });
     expect(prisma.library.create).not.toHaveBeenCalled();
+  });
+
+  it('does not update or delete after a derived membership failure', async () => {
+    const { prisma, contexts, service } = fixture();
+    vi.mocked(contexts.resolveDerivedResourceContext).mockRejectedValue({
+      status: 404,
+      response: { code: 'RESOURCE_NOT_FOUND' },
+    });
+
+    await expect(
+      service.update(library.id, 'user-b', { name: 'Denied' }),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { code: 'RESOURCE_NOT_FOUND' },
+    });
+    await expect(service.remove(library.id, 'user-b')).rejects.toMatchObject({
+      status: 404,
+      response: { code: 'RESOURCE_NOT_FOUND' },
+    });
+    expect(prisma.library.update).not.toHaveBeenCalled();
+    expect(prisma.library.delete).not.toHaveBeenCalled();
+  });
+
+  it('does not update after a member header mismatch or insufficient write role', async () => {
+    const { prisma, contexts, service } = fixture();
+    vi.mocked(contexts.resolveDerivedResourceContext)
+      .mockRejectedValueOnce({
+        status: 409,
+        response: { code: 'ORGANIZATION_CONTEXT_CONFLICT' },
+      })
+      .mockRejectedValueOnce({
+        status: 403,
+        response: { code: 'ORGANIZATION_ROLE_INSUFFICIENT' },
+      });
+
+    await expect(
+      service.update(
+        library.id,
+        'member',
+        { name: 'Mismatch' },
+        `c${'b'.repeat(24)}`,
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: { code: 'ORGANIZATION_CONTEXT_CONFLICT' },
+    });
+    await expect(
+      service.update(library.id, 'reader', { name: 'Denied' }),
+    ).rejects.toMatchObject({
+      status: 403,
+      response: { code: 'ORGANIZATION_ROLE_INSUFFICIENT' },
+    });
+    expect(prisma.library.update).not.toHaveBeenCalled();
   });
 });

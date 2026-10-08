@@ -7,7 +7,10 @@ import {
   paginationArgs,
   type PaginationInput,
 } from '../common/pagination.js';
-import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
+import {
+  OrganizationContextResolver,
+  parseOrganizationContextHeader,
+} from '../organizations/organization-context.resolver.js';
 import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 import { requireHoldingOrganization } from '../holdings/holding-ownership.js';
 
@@ -65,22 +68,13 @@ export class ItemsService {
     userId: string,
     headerValue?: OrganizationHeaderValue,
   ) {
+    parseOrganizationContextHeader(headerValue, false);
     const item = await this.prisma.item.findUnique({
       where: { id },
       include: itemRelations,
     });
-    if (!item)
-      throw new ApiException(
-        HttpStatus.NOT_FOUND,
-        API_ERROR_CODES.RESOURCE_NOT_FOUND,
-        'Item not found.',
-      );
-    const organizationId = requireHoldingOrganization(item.holding);
-    await this.contexts.resolveDerivedContext({
-      userId,
-      headerValue,
-      derivedOrganizationId: organizationId,
-    });
+    if (!item) throw resourceNotFound();
+    await this.resolveItemOrganization(userId, headerValue, item.holding);
     return item;
   }
 
@@ -89,6 +83,7 @@ export class ItemsService {
     data: CreateItemInput,
     headerValue?: OrganizationHeaderValue,
   ) {
+    parseOrganizationContextHeader(headerValue, false);
     const holding = await this.requireWritableHolding(
       data.holdingId,
       userId,
@@ -112,14 +107,14 @@ export class ItemsService {
     data: UpdateItemInput,
     headerValue?: OrganizationHeaderValue,
   ) {
+    parseOrganizationContextHeader(headerValue, false);
     const item = await this.requireItem(id);
-    const organizationId = requireHoldingOrganization(item.holding);
-    await this.contexts.resolveDerivedContext({
+    await this.resolveItemOrganization(
       userId,
       headerValue,
-      derivedOrganizationId: organizationId,
-      requiredRole: OrganizationRole.STAFF,
-    });
+      item.holding,
+      OrganizationRole.STAFF,
+    );
     validateStatus(data.status);
     return this.prisma.item.update({
       where: { id },
@@ -137,14 +132,14 @@ export class ItemsService {
     userId: string,
     headerValue?: OrganizationHeaderValue,
   ) {
+    parseOrganizationContextHeader(headerValue, false);
     const item = await this.requireItem(id);
-    const organizationId = requireHoldingOrganization(item.holding);
-    await this.contexts.resolveDerivedContext({
+    await this.resolveItemOrganization(
       userId,
       headerValue,
-      derivedOrganizationId: organizationId,
-      requiredRole: OrganizationRole.STAFF,
-    });
+      item.holding,
+      OrganizationRole.STAFF,
+    );
     return this.prisma.item.delete({ where: { id }, include: itemRelations });
   }
 
@@ -153,12 +148,7 @@ export class ItemsService {
       where: { id },
       include: itemRelations,
     });
-    if (!item)
-      throw new ApiException(
-        HttpStatus.NOT_FOUND,
-        API_ERROR_CODES.RESOURCE_NOT_FOUND,
-        'Item not found.',
-      );
+    if (!item) throw resourceNotFound();
     return item;
   }
 
@@ -174,20 +164,33 @@ export class ItemsService {
         location: { include: { library: { include: { organization: true } } } },
       },
     });
-    if (!holding)
-      throw new ApiException(
-        HttpStatus.NOT_FOUND,
-        API_ERROR_CODES.RESOURCE_NOT_FOUND,
-        'Holding not found.',
-      );
-    const organizationId = requireHoldingOrganization(holding);
-    await this.contexts.resolveDerivedContext({
+    if (!holding) throw resourceNotFound();
+    await this.resolveItemOrganization(
       userId,
       headerValue,
-      derivedOrganizationId: organizationId,
-      requiredRole: OrganizationRole.STAFF,
-    });
+      holding,
+      OrganizationRole.STAFF,
+    );
     return holding;
+  }
+
+  private async resolveItemOrganization(
+    userId: string,
+    headerValue: OrganizationHeaderValue | undefined,
+    holding: {
+      edition: { work: { organizationId: string } };
+      location: { library: { organizationId: string } };
+    },
+    requiredRole?: OrganizationRole,
+  ): Promise<void> {
+    const contexts = await this.contexts.resolveDerivedParentPairContext({
+      userId,
+      headerValue,
+      firstOrganizationId: holding.edition.work.organizationId,
+      secondOrganizationId: holding.location.library.organizationId,
+    });
+    requireHoldingOrganization(holding);
+    if (requiredRole) this.contexts.requireRole(contexts.first, requiredRole);
   }
 }
 
@@ -199,4 +202,12 @@ function validateStatus(status: string | null | undefined): void {
       'Item status must be a non-empty string.',
     );
   }
+}
+
+function resourceNotFound(): ApiException {
+  return new ApiException(
+    HttpStatus.NOT_FOUND,
+    API_ERROR_CODES.RESOURCE_NOT_FOUND,
+    'The requested resource was not found.',
+  );
 }

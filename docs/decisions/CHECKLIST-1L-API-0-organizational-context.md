@@ -37,7 +37,7 @@ Organization → Work → Edition → Holding → Item
 
 ### 3.1 Rule
 
-Use `X-Folio-Organization-Id` only for root/ambiguous operations that have no persisted parent/resource from which to derive one Organization. The header is a context selector, not authority: validate existence, current membership and role server-side. Persisted-resource operations derive context from persisted ownership. Child creation under a persisted parent derives context from that parent and validates all parent relationships. If a header is also supplied for a resource-derived operation, it must match the derived Organization or fail with the context-conflict code. Never choose an Organization implicitly.
+Use `X-Folio-Organization-Id` only for root/ambiguous operations that have no persisted parent/resource from which to derive one Organization. The header is a context selector, not authority: validate existence, current membership and role server-side. Root operations with an explicit Organization return `ORGANIZATION_MEMBERSHIP_REQUIRED` when the user is not a member. For derived Inventory resources and parents, parse supplied header syntax first, then load the resource/parents and resolve membership before comparing the optional header; missing membership is masked as `RESOURCE_NOT_FOUND`. Child creation under a persisted parent derives context from that parent and validates all parent relationships. Never choose an Organization implicitly.
 
 Do **not** require a header merely because an operation creates a scoped row. In particular, child creates derive context from persisted parents.
 
@@ -59,8 +59,8 @@ Do **not** require a header merely because an operation creates a scoped row. In
 | `POST /editions` | Child create under persisted Work | Derive Organization from `workId`; validate membership/role. Header is not required; if supplied, require it to match the Work. |
 | `GET/PUT/DELETE /editions/:id`; `GET /editions/:id/cover`; Edition export | Persisted Edition | Derive Organization through Edition → Work; validate membership/role; reject supplied mismatch. |
 | Root `GET /holdings` | Explicit root context | New list route requires header and returns only Holdings in that Organization; Library/Location/Edition filters refine within it. |
-| `POST /holdings` | Child create under persisted Edition and Location | Resolve both parents and require same Organization; derive the Holding's tenant. Header is not required; if supplied, it must match both parents. |
-| `GET/PUT/DELETE /holdings/:id` | Persisted Holding | Derive Organization through its persisted parent chain; validate membership/role; reject supplied mismatch. |
+| `POST /holdings` | Child create under persisted Edition and Location | Load both parents; require membership in both parent Organizations before checking optional header or same-Organization consistency. Missing membership is `RESOURCE_NOT_FOUND`; once both parents are visible, validate header and same-Organization invariant, then require `STAFF` and create. |
+| `GET/PUT/DELETE /holdings/:id` | Persisted Holding | Require membership in both parent Organizations before validating same-Organization consistency; missing membership is `RESOURCE_NOT_FOUND`. For a valid Holding derive its Organization, compare any supplied header, then validate role and perform the operation. |
 | Root `GET /items` | Explicit root context | Require header; filter through Item → Holding → Location/Library/Organization. |
 | `POST /items` | Child create under persisted Holding | Derive tenant from Holding; do not accept tenant/location/edition ownership as alternate input. Header is optional and must match if present. |
 | `GET/PUT/DELETE /items/:id` | Persisted Item | Derive through Holding; validate membership/role; reject supplied mismatch. |
@@ -131,6 +131,8 @@ Before coding controllers, enumerate every existing and new route and record met
 - Implement consistent resource/parent resolvers for Organization, Library, Location, Work, Edition, Holding, Item, ExternalIdentifier, Contribution target, BibliographicRecord, and cover/export ownership. **Implemented for manual Contributions:** shared resolver derives tenant through target and checks optional header before write.
 - **Implemented for ExternalIdentifier:** required root context, persisted-Edition child context, and persisted-identifier context all use the shared `OrganizationContextResolver`.
 - Enforce optional header equality on resource-derived and child-create operations.
+- Keep root explicit-Organization membership failures as `ORGANIZATION_MEMBERSHIP_REQUIRED`; mask missing membership on derived Inventory resources/parents as `RESOURCE_NOT_FOUND` only after validating supplied header syntax.
+- For multi-parent Holding creation, require access to both parent Organizations before returning a header or parent-consistency conflict; then validate same-Organization consistency, role, and only then mutate.
 - Standardize order: authentication → persisted resource or explicit context resolution → membership → role → domain authorization → operation. **Catalogue import guard resolves required context and STAFF role before payload pipes or persistence.**
 - Remove `getDefaultOrganization`, OWNER-first selection, service-level tenant guessing, all-membership aggregation for tenant lists, and post-mutation authorization checks.
 - Resolve authorization once before mutation; avoid writing and then re-reading solely to check permission or construct an authorized response.
@@ -162,9 +164,9 @@ Build shared fixtures with at least two users, two organizations, distinct roles
 
 - Root list/create/import without header fails with exact status/code; valid member context succeeds; malformed, nonexistent, non-member and insufficient-role contexts fail distinctly.
 - Root lists return only the selected Organization, even when caller belongs to both.
-- Persisted-resource read/update/delete derives its tenant; member succeeds and non-member fails.
+- Persisted Inventory resource read/update/delete derives its tenant; member succeeds and non-member is indistinguishable from an absent ID. Header syntax remains distinguishable and a valid member's mismatched header remains `ORGANIZATION_CONTEXT_CONFLICT`.
 - Child Edition/Library/Location/Holding/Item creation derives context from persisted parent without header.
-- Holding creation rejects Edition and Location from different Organizations (including different Library within same/different Organization as specified).
+- Holding creation returns the same 404/code/message for missing parents and for a caller unable to inspect either parent; an authorized caller sees the Edition/Location Organization conflict. Same-Organization Reader is denied before mutation and STAFF succeeds.
 - Optional header matching a derived tenant succeeds; mismatch fails with `ORGANIZATION_CONTEXT_CONFLICT`.
 - Cross-tenant reads and writes fail for Work, Edition, Holding, Item, identifiers, Contributions, records, covers and export.
 - Cover reads allow any current member role, reject a mismatching optional header before storage reads, and preserve the single-active-cover invariant during acquisition.

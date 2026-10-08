@@ -113,6 +113,7 @@ function makeInventory() {
         locationId: locationAId,
         edition: editions.get(editionAId)!,
         location: locations.get(locationAId)!,
+        notes: null,
         items: [],
       },
     ],
@@ -124,6 +125,7 @@ function makeInventory() {
         locationId: locationBId,
         edition: editions.get(editionBId)!,
         location: locations.get(locationBId)!,
+        notes: null,
         items: [],
       },
     ],
@@ -156,6 +158,7 @@ function makeInventory() {
     { userId: 'user-a', organizationId: orgA, role: 'OWNER' },
     { userId: 'user-a', organizationId: orgB, role: 'STAFF' },
     { userId: 'user-b', organizationId: orgB, role: 'READER' },
+    { userId: 'user-c', organizationId: orgA, role: 'STAFF' },
   ];
 
   const prisma = {
@@ -362,6 +365,24 @@ function makeInventory() {
   return { prisma, libraries, locations, works, editions, holdings, items };
 }
 
+async function expectSameNotFound<
+  T extends {
+    status: number;
+    body: { code: string; message: string };
+  },
+>(inaccessible: PromiseLike<T>, nonexistent: PromiseLike<T>): Promise<void> {
+  const [inaccessibleResponse, nonexistentResponse] = await Promise.all([
+    inaccessible,
+    nonexistent,
+  ]);
+  const identity = (response: T) => ({
+    status: response.status,
+    code: response.body.code,
+    message: response.body.message,
+  });
+  expect(identity(inaccessibleResponse)).toEqual(identity(nonexistentResponse));
+}
+
 describe('Physical inventory routes (e2e)', () => {
   let app: INestApplication<App>;
   let userId = 'user-a';
@@ -388,6 +409,10 @@ describe('Physical inventory routes (e2e)', () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     app.useGlobalFilters(new ApiExceptionFilter());
+    app.use((_request, _response, next) => {
+      _request.headers['user-agent'] = 'node-fetch';
+      next();
+    });
     await app.init();
   }, 20_000);
 
@@ -407,6 +432,11 @@ describe('Physical inventory routes (e2e)', () => {
       .expect(({ body }) =>
         expect(body.items.map((row: Row) => row.id)).toEqual([libraryAId]),
       );
+    await request(app.getHttpServer())
+      .get('/libraries')
+      .set(header, 'malformed')
+      .expect(400)
+      .expect(({ body }) => expect(body.code).toBe('ORGANIZATION_ID_INVALID'));
     await request(app.getHttpServer())
       .get('/libraries')
       .set(header, orgA)
@@ -469,10 +499,17 @@ describe('Physical inventory routes (e2e)', () => {
       );
     await request(app.getHttpServer())
       .get(`/libraries/${libraryAId}`)
-      .expect(403)
-      .expect(({ body }) =>
-        expect(body.code).toBe('ORGANIZATION_MEMBERSHIP_REQUIRED'),
-      );
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+    await request(app.getHttpServer())
+      .put(`/libraries/${libraryAId}`)
+      .send({ name: 'Non-member cannot rename' })
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+    await request(app.getHttpServer())
+      .delete(`/libraries/${libraryAId}`)
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
     await request(app.getHttpServer())
       .post('/libraries')
       .set(header, orgA)
@@ -585,16 +622,21 @@ describe('Physical inventory routes (e2e)', () => {
     await request(app.getHttpServer())
       .post('/locations')
       .send({ libraryId: libraryAId, name: 'Out of tenant' })
-      .expect(403)
-      .expect(({ body }) =>
-        expect(body.code).toBe('ORGANIZATION_MEMBERSHIP_REQUIRED'),
-      );
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
     await request(app.getHttpServer())
       .get(`/locations/${locationAId}`)
-      .expect(403)
-      .expect(({ body }) =>
-        expect(body.code).toBe('ORGANIZATION_MEMBERSHIP_REQUIRED'),
-      );
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+    await request(app.getHttpServer())
+      .put(`/locations/${locationAId}`)
+      .send({ name: 'Non-member cannot rename' })
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+    await request(app.getHttpServer())
+      .delete(`/locations/${locationAId}`)
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
     await request(app.getHttpServer())
       .put(`/locations/${locationBId}`)
       .send({ name: 'Reader cannot rename' })
@@ -702,6 +744,11 @@ describe('Physical inventory routes (e2e)', () => {
       .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
     await request(app.getHttpServer())
       .post('/holdings')
+      .send({ editionId: editionAId, locationId: 'missing-location' })
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+    await request(app.getHttpServer())
+      .post('/holdings')
       .set(header, orgB)
       .send({ editionId: editionAId, locationId: locationAId })
       .expect(409)
@@ -732,17 +779,22 @@ describe('Physical inventory routes (e2e)', () => {
     userId = 'user-b';
     await request(app.getHttpServer())
       .get(`/holdings/${holdingAId}`)
-      .expect(403)
-      .expect(({ body }) =>
-        expect(body.code).toBe('ORGANIZATION_MEMBERSHIP_REQUIRED'),
-      );
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+    await request(app.getHttpServer())
+      .put(`/holdings/${holdingAId}`)
+      .send({ notes: 'Non-member cannot edit' })
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+    await request(app.getHttpServer())
+      .delete(`/holdings/${holdingAId}`)
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
     await request(app.getHttpServer())
       .post('/holdings')
       .send({ editionId: editionAId, locationId: locationAId })
-      .expect(403)
-      .expect(({ body }) =>
-        expect(body.code).toBe('ORGANIZATION_MEMBERSHIP_REQUIRED'),
-      );
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
     await request(app.getHttpServer())
       .post('/holdings')
       .send({ editionId: editionBId, locationId: locationBId })
@@ -750,6 +802,34 @@ describe('Physical inventory routes (e2e)', () => {
       .expect(({ body }) =>
         expect(body.code).toBe('ORGANIZATION_ROLE_INSUFFICIENT'),
       );
+
+    const sameNotFound = expectSameNotFound;
+    await sameNotFound(
+      request(app.getHttpServer())
+        .post('/holdings')
+        .send({ editionId: editionAId, locationId: locationBId }),
+      request(app.getHttpServer())
+        .post('/holdings')
+        .send({ editionId: 'missing-edition', locationId: locationBId }),
+    );
+    await sameNotFound(
+      request(app.getHttpServer())
+        .post('/holdings')
+        .send({ editionId: editionAId, locationId: editionAId }),
+      request(app.getHttpServer())
+        .post('/holdings')
+        .send({ editionId: 'missing-edition', locationId: locationAId }),
+    );
+    userId = 'user-c';
+    await sameNotFound(
+      request(app.getHttpServer())
+        .post('/holdings')
+        .send({ editionId: editionAId, locationId: locationBId }),
+      request(app.getHttpServer())
+        .post('/holdings')
+        .send({ editionId: editionAId, locationId: 'missing-location' }),
+    );
+    expect(inventory.holdings.size).toBe(before);
   });
 
   it('scopes Items through Holding, derives projections, and enforces membership, header consistency, and write roles', async () => {
@@ -850,10 +930,17 @@ describe('Physical inventory routes (e2e)', () => {
     userId = 'user-b';
     await request(app.getHttpServer())
       .get(`/items/${itemAId}`)
-      .expect(403)
-      .expect(({ body }) =>
-        expect(body.code).toBe('ORGANIZATION_MEMBERSHIP_REQUIRED'),
-      );
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+    await request(app.getHttpServer())
+      .put(`/items/${itemAId}`)
+      .send({ label: 'Non-member cannot edit' })
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+    await request(app.getHttpServer())
+      .delete(`/items/${itemAId}`)
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
     await request(app.getHttpServer())
       .put(`/items/${itemBId}`)
       .send({ label: 'Reader denied' })
@@ -872,6 +959,113 @@ describe('Physical inventory routes (e2e)', () => {
       .delete(`/items/${itemAId}`)
       .set(header, orgA)
       .expect(200);
+  });
+
+  it('masks Inventory resource and parent existence from non-members', async () => {
+    userId = 'user-b';
+    const missingId = `c${'0'.repeat(24)}`;
+    const sameNotFound = expectSameNotFound;
+
+    await sameNotFound(
+      request(app.getHttpServer()).get(`/libraries/${libraryAId}`),
+      request(app.getHttpServer()).get(`/libraries/${missingId}`),
+    );
+    await sameNotFound(
+      request(app.getHttpServer())
+        .put(`/libraries/${libraryAId}`)
+        .send({ name: 'No write' }),
+      request(app.getHttpServer())
+        .put(`/libraries/${missingId}`)
+        .send({ name: 'No write' }),
+    );
+    await sameNotFound(
+      request(app.getHttpServer()).delete(`/libraries/${libraryAId}`),
+      request(app.getHttpServer()).delete(`/libraries/${missingId}`),
+    );
+
+    await sameNotFound(
+      request(app.getHttpServer()).get(`/locations/${locationAId}`),
+      request(app.getHttpServer()).get(`/locations/${missingId}`),
+    );
+    await sameNotFound(
+      request(app.getHttpServer())
+        .put(`/locations/${locationAId}`)
+        .send({ name: 'No write' }),
+      request(app.getHttpServer())
+        .put(`/locations/${missingId}`)
+        .send({ name: 'No write' }),
+    );
+    await sameNotFound(
+      request(app.getHttpServer()).delete(`/locations/${locationAId}`),
+      request(app.getHttpServer()).delete(`/locations/${missingId}`),
+    );
+    await sameNotFound(
+      request(app.getHttpServer())
+        .post('/locations')
+        .send({ libraryId: libraryAId, name: 'No write' }),
+      request(app.getHttpServer())
+        .post('/locations')
+        .send({ libraryId: missingId, name: 'No write' }),
+    );
+
+    await sameNotFound(
+      request(app.getHttpServer()).get(`/holdings/${holdingAId}`),
+      request(app.getHttpServer()).get(`/holdings/${missingId}`),
+    );
+    await sameNotFound(
+      request(app.getHttpServer())
+        .put(`/holdings/${holdingAId}`)
+        .send({ notes: 'No write' }),
+      request(app.getHttpServer())
+        .put(`/holdings/${missingId}`)
+        .send({ notes: 'No write' }),
+    );
+    await sameNotFound(
+      request(app.getHttpServer()).delete(`/holdings/${holdingAId}`),
+      request(app.getHttpServer()).delete(`/holdings/${missingId}`),
+    );
+    await sameNotFound(
+      request(app.getHttpServer())
+        .post('/holdings')
+        .send({ editionId: editionAId, locationId: locationAId }),
+      request(app.getHttpServer())
+        .post('/holdings')
+        .send({ editionId: missingId, locationId: locationAId }),
+    );
+
+    await sameNotFound(
+      request(app.getHttpServer()).get(`/items/${itemAId}`),
+      request(app.getHttpServer()).get(`/items/${missingId}`),
+    );
+    await sameNotFound(
+      request(app.getHttpServer())
+        .put(`/items/${itemAId}`)
+        .send({ label: 'No write' }),
+      request(app.getHttpServer())
+        .put(`/items/${missingId}`)
+        .send({ label: 'No write' }),
+    );
+    await sameNotFound(
+      request(app.getHttpServer()).delete(`/items/${itemAId}`),
+      request(app.getHttpServer()).delete(`/items/${missingId}`),
+    );
+    await sameNotFound(
+      request(app.getHttpServer())
+        .post('/items')
+        .send({ holdingId: holdingAId }),
+      request(app.getHttpServer())
+        .post('/items')
+        .send({ holdingId: missingId }),
+    );
+
+    expect(inventory.libraries.get(libraryAId)?.name).toBe('Library A');
+    expect(inventory.locations.get(locationAId)?.name).toBe('Location A');
+    expect(inventory.holdings.get(holdingAId)?.notes).toBeNull();
+    expect(inventory.items.get(itemAId)?.label).toBe('Copy A');
+    expect(inventory.libraries.size).toBe(2);
+    expect(inventory.locations.size).toBe(2);
+    expect(inventory.holdings.size).toBe(2);
+    expect(inventory.items.size).toBe(2);
   });
 
   it('excludes inconsistent Holding and Item rows from root lists even when one ownership path matches', async () => {
@@ -923,5 +1117,21 @@ describe('Physical inventory routes (e2e)', () => {
         });
         expect(body.message).toEqual(expect.any(String));
       });
+  });
+
+  it('validates supplied header syntax before looking up a derived resource or parent', async () => {
+    const missingId = `c${'0'.repeat(24)}`;
+
+    await request(app.getHttpServer())
+      .get(`/libraries/${missingId}`)
+      .set(header, 'malformed')
+      .expect(400)
+      .expect(({ body }) => expect(body.code).toBe('ORGANIZATION_ID_INVALID'));
+    await request(app.getHttpServer())
+      .post('/locations')
+      .set(header, 'malformed')
+      .send({ libraryId: 'missing-library', name: 'No write' })
+      .expect(400)
+      .expect(({ body }) => expect(body.code).toBe('ORGANIZATION_ID_INVALID'));
   });
 });

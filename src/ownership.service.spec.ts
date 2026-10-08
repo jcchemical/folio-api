@@ -18,17 +18,35 @@ function prismaWith(model: Record<string, unknown>): PrismaService {
 function membershipPolicy(allowed: boolean) {
   const access = allowed
     ? vi.fn().mockResolvedValue(undefined)
-    : vi.fn().mockRejectedValue(
-        new ApiException(
-          HttpStatus.FORBIDDEN,
-          API_ERROR_CODES.ORGANIZATION_MEMBERSHIP_REQUIRED,
-          'You do not have access to this organization.',
-        ),
-      );
+    : vi
+        .fn()
+        .mockRejectedValue(
+          new ApiException(
+            HttpStatus.FORBIDDEN,
+            API_ERROR_CODES.ORGANIZATION_MEMBERSHIP_REQUIRED,
+            'You do not have access to this organization.',
+          ),
+        );
+  const derivedParentAccess = allowed
+    ? vi.fn().mockResolvedValue({
+        first: { organizationId },
+        second: { organizationId },
+      })
+    : vi
+        .fn()
+        .mockRejectedValue(
+          new ApiException(
+            HttpStatus.NOT_FOUND,
+            API_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'The requested resource was not found.',
+          ),
+        );
   return {
     resolveDerivedContext: access,
+    resolveDerivedParentPairContext: derivedParentAccess,
     assertWorkAccess: access,
     assertOrganizationAccess: access,
+    requireRole: vi.fn(),
   };
 }
 
@@ -131,8 +149,8 @@ describe('organization resource access', () => {
         membershipPolicy(false) as never,
       ).findById('item-1', userId),
     ).rejects.toMatchObject({
-      status: HttpStatus.FORBIDDEN,
-      response: { code: API_ERROR_CODES.ORGANIZATION_MEMBERSHIP_REQUIRED },
+      status: HttpStatus.NOT_FOUND,
+      response: { code: API_ERROR_CODES.RESOURCE_NOT_FOUND },
     });
   });
 });

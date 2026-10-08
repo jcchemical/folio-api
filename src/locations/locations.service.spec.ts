@@ -28,7 +28,7 @@ function fixture() {
     resolveRequiredRootContext: vi
       .fn()
       .mockResolvedValue({ organizationId: orgA }),
-    resolveDerivedContext: vi.fn().mockResolvedValue({
+    resolveDerivedResourceContext: vi.fn().mockResolvedValue({
       organizationId: orgA,
       role: OrganizationRole.STAFF,
     }),
@@ -54,7 +54,7 @@ describe('LocationsService organization context', () => {
 
     await service.create('user-a', { libraryId: library.id, name: ' Stacks ' });
 
-    expect(contexts.resolveDerivedContext).toHaveBeenCalledWith({
+    expect(contexts.resolveDerivedResourceContext).toHaveBeenCalledWith({
       userId: 'user-a',
       headerValue: undefined,
       derivedOrganizationId: orgA,
@@ -68,7 +68,7 @@ describe('LocationsService organization context', () => {
 
   it('passes an optional consistency header to the shared resolver and does not create after conflict', async () => {
     const { prisma, contexts, service } = fixture();
-    vi.mocked(contexts.resolveDerivedContext).mockRejectedValueOnce({
+    vi.mocked(contexts.resolveDerivedResourceContext).mockRejectedValueOnce({
       status: 409,
       response: { code: 'ORGANIZATION_CONTEXT_CONFLICT' },
     });
@@ -99,5 +99,54 @@ describe('LocationsService organization context', () => {
       response: { code: 'RESOURCE_NOT_FOUND' },
     });
     expect(prisma.location.create).not.toHaveBeenCalled();
+  });
+
+  it('does not create, update, or delete after derived membership failure', async () => {
+    const { prisma, contexts, service } = fixture();
+    vi.mocked(contexts.resolveDerivedResourceContext).mockRejectedValue({
+      status: 404,
+      response: { code: 'RESOURCE_NOT_FOUND' },
+    });
+
+    await expect(
+      service.create('user-b', { libraryId: library.id, name: 'Denied' }),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { code: 'RESOURCE_NOT_FOUND' },
+    });
+    await expect(
+      service.update(location.id, 'user-b', { name: 'Denied' }),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { code: 'RESOURCE_NOT_FOUND' },
+    });
+    await expect(service.remove(location.id, 'user-b')).rejects.toMatchObject({
+      status: 404,
+      response: { code: 'RESOURCE_NOT_FOUND' },
+    });
+    expect(prisma.location.create).not.toHaveBeenCalled();
+    expect(prisma.location.update).not.toHaveBeenCalled();
+    expect(prisma.location.delete).not.toHaveBeenCalled();
+  });
+
+  it('does not mutate after derived role denial', async () => {
+    const { prisma, contexts, service } = fixture();
+    vi.mocked(contexts.resolveDerivedResourceContext).mockRejectedValue({
+      status: 403,
+      response: { code: 'ORGANIZATION_ROLE_INSUFFICIENT' },
+    });
+
+    await expect(
+      service.update(location.id, 'reader', { name: 'Denied' }),
+    ).rejects.toMatchObject({
+      status: 403,
+      response: { code: 'ORGANIZATION_ROLE_INSUFFICIENT' },
+    });
+    await expect(service.remove(location.id, 'reader')).rejects.toMatchObject({
+      status: 403,
+      response: { code: 'ORGANIZATION_ROLE_INSUFFICIENT' },
+    });
+    expect(prisma.location.update).not.toHaveBeenCalled();
+    expect(prisma.location.delete).not.toHaveBeenCalled();
   });
 });

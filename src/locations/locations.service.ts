@@ -6,7 +6,10 @@ import {
   paginationArgs,
   type PaginationInput,
 } from '../common/pagination.js';
-import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
+import {
+  OrganizationContextResolver,
+  parseOrganizationContextHeader,
+} from '../organizations/organization-context.resolver.js';
 import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type {
@@ -45,12 +48,13 @@ export class LocationsService {
     userId: string,
     headerValue?: OrganizationHeaderValue,
   ) {
+    parseOrganizationContextHeader(headerValue, false);
     const location = await this.prisma.location.findUnique({
       where: { id },
       include: { library: true },
     });
-    if (!location) throw resourceNotFound('Location');
-    await this.contexts.resolveDerivedContext({
+    if (!location) throw resourceNotFound();
+    await this.contexts.resolveDerivedResourceContext({
       userId,
       headerValue,
       derivedOrganizationId: location.library.organizationId,
@@ -63,11 +67,12 @@ export class LocationsService {
     input: CreateLocationDto,
     headerValue?: OrganizationHeaderValue,
   ) {
+    parseOrganizationContextHeader(headerValue, false);
     const library = await this.prisma.library.findUnique({
       where: { id: input.libraryId },
     });
-    if (!library) throw resourceNotFound('Library');
-    await this.contexts.resolveDerivedContext({
+    if (!library) throw resourceNotFound();
+    await this.contexts.resolveDerivedResourceContext({
       userId,
       headerValue,
       derivedOrganizationId: library.organizationId,
@@ -85,12 +90,13 @@ export class LocationsService {
     input: UpdateLocationDto,
     headerValue?: OrganizationHeaderValue,
   ) {
+    parseOrganizationContextHeader(headerValue, false);
     const location = await this.prisma.location.findUnique({
       where: { id },
       include: { library: true },
     });
-    if (!location) throw resourceNotFound('Location');
-    await this.contexts.resolveDerivedContext({
+    if (!location) throw resourceNotFound();
+    await this.contexts.resolveDerivedResourceContext({
       userId,
       headerValue,
       derivedOrganizationId: location.library.organizationId,
@@ -109,12 +115,13 @@ export class LocationsService {
     userId: string,
     headerValue?: OrganizationHeaderValue,
   ) {
+    parseOrganizationContextHeader(headerValue, false);
     const location = await this.prisma.location.findUnique({
       where: { id },
       include: { library: true },
     });
-    if (!location) throw resourceNotFound('Location');
-    await this.contexts.resolveDerivedContext({
+    if (!location) throw resourceNotFound();
+    await this.contexts.resolveDerivedResourceContext({
       userId,
       headerValue,
       derivedOrganizationId: location.library.organizationId,
@@ -136,10 +143,10 @@ function normalizeName(value: string): string {
   return name;
 }
 
-function resourceNotFound(resource: string): ApiException {
+function resourceNotFound(): ApiException {
   return new ApiException(
     HttpStatus.NOT_FOUND,
     API_ERROR_CODES.RESOURCE_NOT_FOUND,
-    `${resource} not found.`,
+    'The requested resource was not found.',
   );
 }
