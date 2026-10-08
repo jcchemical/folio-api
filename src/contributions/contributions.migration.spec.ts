@@ -12,6 +12,13 @@ const sql = readFileSync(
   ),
   'utf8',
 );
+const externalIdentifierMigration = readFileSync(
+  new URL(
+    '../../prisma/migrations/20261008190000_external_identifiers_domain/migration.sql',
+    import.meta.url,
+  ),
+  'utf8',
+);
 
 describe('Tomos domain baseline', () => {
   it('defines the approved institutional and inventory models without legacy contributors', () => {
@@ -39,8 +46,14 @@ describe('Tomos domain baseline', () => {
     expect(holdingModel).toContain('locationId String');
     expect(holdingModel).not.toMatch(/\b(organizationId|libraryId)\b/);
     expect(identifierModel).toBeDefined();
-    expect(identifierModel).not.toContain('organizationId');
-    expect(identifierModel).toContain('@@unique([editionId, type, value])');
+    expect(identifierModel).toContain('entityType     String');
+    expect(identifierModel).toContain('entityId       String');
+    expect(identifierModel).toContain('authority      String');
+    expect(identifierModel).toContain('organizationId String');
+    expect(identifierModel).toContain(
+      '@@unique([entityType, entityId, authority, value])',
+    );
+    expect(identifierModel).not.toMatch(/\b(editionId|workId|libraryId)\b/);
     expect(recordModel).toBeDefined();
     expect(recordModel).toContain('editionId String');
     expect(recordModel).not.toContain('workId');
@@ -54,6 +67,16 @@ describe('Tomos domain baseline', () => {
     expect(sql).not.toContain('CREATE TABLE "Contributor"');
     expect(sql).not.toContain('CREATE TABLE "WorkContributor"');
     expect(sql).not.toContain('CREATE TABLE "EditionContributor"');
+    expect(externalIdentifierMigration).toContain(
+      'ADD COLUMN "organizationId" TEXT',
+    );
+    expect(externalIdentifierMigration).toContain(
+      'FOREIGN KEY ("organizationId") REFERENCES "Organization"("id")',
+    );
+    expect(externalIdentifierMigration).toContain('ON DELETE RESTRICT');
+    expect(externalIdentifierMigration).not.toContain(
+      '"ExternalIdentifier"("value")',
+    );
   });
 
   it('enforces XOR targets and organization equality for cross-parent relations', () => {

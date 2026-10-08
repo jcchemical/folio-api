@@ -13,8 +13,10 @@ import {
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiHeader,
+  ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
@@ -23,13 +25,12 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { forbidRequestFields } from '../common/forbid-request-fields.js';
 import { FOLIO_ORGANIZATION_HEADER } from '../organizations/organization-context.resolver.js';
-import {
-  ExternalIdentifiersService,
-  type ExternalIdentifierInput,
-} from './external_identifiers.service.js';
+import { ExternalIdentifiersService } from './external_identifiers.service.js';
 import {
   CreateExternalIdentifierDto,
   ExternalIdentifierListQueryDto,
+  ExternalIdentifierDto,
+  ExternalIdentifierPageDto,
   UpdateExternalIdentifierDto,
 } from './dto/external-identifier.dto.js';
 
@@ -44,9 +45,10 @@ export class ExternalIdentifiersController {
   @ApiOperation({
     summary: 'List External Identifiers in one organization',
     description:
-      'X-Folio-Organization-Id is required. editionId may narrow the results but cannot replace organization context.',
+      'X-Folio-Organization-Id is required. entityType, entityId and authority refine results within that organization.',
   })
   @ApiHeader({ name: FOLIO_ORGANIZATION_HEADER, required: true })
+  @ApiOkResponse({ type: ExternalIdentifierPageDto })
   @ApiBadRequestResponse({
     description: 'Organization context is missing or invalid.',
   })
@@ -57,15 +59,8 @@ export class ExternalIdentifiersController {
     @Query() query: ExternalIdentifierListQueryDto,
     @Req() request: Request,
   ) {
-    forbidRequestFields(request.query, [
-      'organizationId',
-      'workId',
-      'libraryId',
-      'locationId',
-      'holdingId',
-      'itemId',
-    ]);
-    return this.service.findAll(
+    forbidRequestFields(request.query, ['organizationId', 'workId']);
+    return this.service.list(
       this.userId(request),
       request.headers[FOLIO_ORGANIZATION_HEADER],
       query,
@@ -74,31 +69,25 @@ export class ExternalIdentifiersController {
 
   @Post()
   @ApiOperation({
-    summary: 'Create an External Identifier for an Edition',
+    summary: 'Create an External Identifier',
     description:
-      'Organization is derived from the persisted editionId. The optional organization header is a consistency check only.',
+      'Organization is derived from the persisted entity. The optional organization header is a consistency check only.',
   })
   @ApiHeader({
     name: FOLIO_ORGANIZATION_HEADER,
     required: false,
     description:
-      'Optional consistency check; organization is derived from the persisted editionId.',
+      'Optional consistency check; organization is derived from the persisted entity.',
   })
   @ApiForbiddenResponse({
-    description: 'STAFF membership is required in the Edition organization.',
+    description: 'STAFF membership is required in the target Organization.',
   })
+  @ApiCreatedResponse({ type: ExternalIdentifierDto })
   create(@Body() body: CreateExternalIdentifierDto, @Req() request: Request) {
-    forbidRequestFields(request.body, [
-      'organizationId',
-      'workId',
-      'libraryId',
-      'locationId',
-      'holdingId',
-      'itemId',
-    ]);
+    forbidRequestFields(request.body, ['organizationId']);
     return this.service.create(
       this.userId(request),
-      body satisfies ExternalIdentifierInput,
+      body,
       request.headers[FOLIO_ORGANIZATION_HEADER],
     );
   }
@@ -108,13 +97,13 @@ export class ExternalIdentifiersController {
     name: FOLIO_ORGANIZATION_HEADER,
     required: false,
     description:
-      'Optional consistency check; must match the persisted identifier Edition organization.',
+      'Optional consistency check; must match the identifier Organization.',
   })
   @ApiOperation({
     summary: 'Get an External Identifier',
-    description:
-      'Organization is derived from External Identifier → Edition → Work.',
+    description: 'Organization is derived from the persisted identifier.',
   })
+  @ApiOkResponse({ type: ExternalIdentifierDto })
   findOne(@Param('id') id: string, @Req() request: Request) {
     return this.service.findById(
       id,
@@ -128,16 +117,17 @@ export class ExternalIdentifiersController {
     name: FOLIO_ORGANIZATION_HEADER,
     required: false,
     description:
-      'Optional consistency check; must match the persisted identifier Edition organization.',
+      'Optional consistency check; must match the identifier Organization.',
   })
   @ApiOperation({
     summary: 'Update External Identifier fields',
     description:
-      'Organization is derived from the persisted identifier. editionId cannot be reassigned.',
+      'Organization and entity binding are immutable; authority and value may be changed.',
   })
   @ApiForbiddenResponse({
     description: 'STAFF membership is required in the identifier organization.',
   })
+  @ApiOkResponse({ type: ExternalIdentifierDto })
   update(
     @Param('id') id: string,
     @Body() body: UpdateExternalIdentifierDto,
@@ -145,12 +135,8 @@ export class ExternalIdentifiersController {
   ) {
     forbidRequestFields(request.body, [
       'organizationId',
-      'workId',
-      'editionId',
-      'libraryId',
-      'locationId',
-      'holdingId',
-      'itemId',
+      'entityType',
+      'entityId',
     ]);
     return this.service.update(
       id,
@@ -165,16 +151,16 @@ export class ExternalIdentifiersController {
     name: FOLIO_ORGANIZATION_HEADER,
     required: false,
     description:
-      'Optional consistency check; must match the persisted identifier Edition organization.',
+      'Optional consistency check; must match the identifier Organization.',
   })
   @ApiOperation({
     summary: 'Delete an External Identifier',
-    description:
-      'Organization is derived from External Identifier → Edition → Work.',
+    description: 'Organization is derived from the persisted identifier.',
   })
   @ApiForbiddenResponse({
     description: 'STAFF membership is required in the identifier organization.',
   })
+  @ApiOkResponse({ type: ExternalIdentifierDto })
   remove(@Param('id') id: string, @Req() request: Request) {
     return this.service.remove(
       id,

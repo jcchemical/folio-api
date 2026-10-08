@@ -30,7 +30,7 @@ Organization → Work → Edition → Holding → Item
 - `Item` belongs to exactly one Holding. Do not persist duplicate `organizationId`, `editionId`, `libraryId`, or `locationId` on Item when derivable through Holding. Keep only copy-level attributes on Item.
 - Do not introduce `Campus` or `ServicePoint` in this iteration.
 - `Agent + Contribution` is the canonical contributor/participation model. Remove the legacy `Contributor`, `WorkContributor`, and `EditionContributor` routes/models and all fallback projections that keep them active, as required by DECISION-1L-DEC-2.
-- `ExternalIdentifier`, `BibliographicRecord`, `CoverCandidate`, `CoverAsset`, and `EditionCover` must derive or constrain their tenant through their canonical target. Do not leave duplicate ownership values that can disagree.
+- `ExternalIdentifier` persists its owning Organization and validates it against the canonical target on creation; `entityType`/`entityId` remain polymorphic scalar fields without a target FK. `BibliographicRecord`, `CoverCandidate`, `CoverAsset`, and `EditionCover` derive or constrain their tenant through their canonical target. Do not leave duplicate ownership values that can disagree.
 - JWT identifies the user only. Organization context is request context, never a JWT claim or authorization proof.
 
 ## 3. Context contract and route classification
@@ -70,9 +70,9 @@ Do **not** require a header merely because an operation creates a scoped row. In
 | Location creation under Library | Child create under persisted Library | Derive through Library → Organization; if header supplied, require equality. |
 | `POST /catalogues/search` | Global external-provider preview | No Organization context; it does not read or persist local tenant data. This is not local catalogue search. |
 | `POST /catalogues/import` | Root operation creating local Work/Edition data | **Implemented 2026-10-07:** require header + JWT + STAFF; reject competing tenant ownership and client-supplied bibliographic `source`/`sourceId`/`schema`; create all imported records transactionally in that context. Nested Edition derives from the newly created Work. The server stamps `PORBASE`, but confirmed Contribution tags, indicators and source parts remain client-editable and are not verified against `rawContent` (known provenance limitation). External `POST /catalogues/search` stays global and context-free. |
-| Root `/external-identifiers` list | Explicit root context | **Implemented 2026-10-07:** require header; filter by `Edition → Work → Organization`; optional `editionId` only refines within the selected tenant. |
-| External identifier create under an Edition | Child create under persisted Edition | **Implemented 2026-10-07:** derive tenant through Edition → Work; no header required, validate it if supplied; STAFF+ write role. |
-| External identifier detail/update/delete | Persisted identifier | **Implemented 2026-10-07:** derive tenant through persisted identifier → Edition → Work; validate membership/role and optional header equality. Update does not reassign Edition. |
+| Root `/external-identifiers` list | Explicit root context | **Implemented 2026-10-08:** require header; filter by persisted `organizationId`; only `entityType`, `entityId`, and `authority` refine results; use shared cursor pagination. |
+| External identifier create | Child binding to one persisted Work, Edition, Library, Location, Holding, or Item | **Implemented 2026-10-08:** derive tenant from canonical target; Holding and Item require both inventory parent paths to resolve to the same Organization; optional header is a consistency check; STAFF+ required. |
+| External identifier detail/update/delete | Persisted identifier | **Implemented 2026-10-08:** derive tenant from its persisted Organization; hide missing membership as `RESOURCE_NOT_FOUND`; validate optional header; STAFF+ writes. Entity binding is immutable on update. |
 | `POST /contributions` | Child association to exactly one persisted Work or Edition | **Implemented 2026-10-07:** derive Organization from target; validate Agent belongs to same Organization; optional header must match; STAFF+ required; source is server-assigned MANUAL. |
 | Contribution reads, where exposed | Persisted Work/Edition target | Derive and validate target Organization. |
 | `/contributors` legacy routes | Remove | **Implemented:** no Contributor routes/models remain; use canonical `Agent + Contribution`. |
@@ -102,7 +102,7 @@ Before coding controllers, enumerate every existing and new route and record met
 - Add `Library` and `Location`; enforce Library→Organization and Location→Library cardinality/foreign keys. No Campus or ServicePoint.
 - Add `Holding` linked to exactly one Edition and Location; enforce that Edition→Work→Organization equals Location→Library→Organization. Model shared holding data (e.g. call number/collection notes) here, not on Item.
 - Change Item to belong to Holding; remove duplicate Item organization/edition/location ownership and move/retire Item `location` according to the approved model.
-- Remove `ExternalIdentifier.organizationId` if tenant is derivable from Edition; set uniqueness/indexes at the canonical scope.
+- Persist `ExternalIdentifier.organizationId` with an Organization `RESTRICT` FK; derive and validate its value from the selected canonical target. **Implemented 2026-10-08:** model and additive migration provide entity/authority/value uniqueness and the requested target, authority/value, and Organization indexes.
 - Keep `BibliographicRecord` Edition-owned only; derive tenant through `Edition → Work`, with no duplicate `workId`/`organizationId`. **Implemented:** required Edition FK and `(editionId, createdAt, id)` index are in schema/baseline; no record target XOR is needed because only Edition is supported.
 - Keep `BibliographicNote` target XOR between Work and Edition, enforced by the baseline SQL check; derive tenant through its one parent. Current import writes Notes under Edition and there are no public Note routes.
 - Keep CoverAsset organization-scoped for storage-key isolation and deduplication; constrain EditionCover asset and Edition to same organization. Ensure CoverCandidate's record/asset path cannot cross tenants. **Implemented in baseline:** deferred triggers enforce these ownership paths; partial unique index protects one active cover per Edition.
@@ -129,7 +129,7 @@ Before coding controllers, enumerate every existing and new route and record met
 
 - Implement one reusable explicit-context resolver for required root operations: header presence, identifier format, Organization existence, current membership, effective role.
 - Implement consistent resource/parent resolvers for Organization, Library, Location, Work, Edition, Holding, Item, ExternalIdentifier, Contribution target, BibliographicRecord, and cover/export ownership. **Implemented for manual Contributions:** shared resolver derives tenant through target and checks optional header before write.
-- **Implemented for ExternalIdentifier:** required root context, persisted-Edition child context, and persisted-identifier context all use the shared `OrganizationContextResolver`.
+- **Implemented for ExternalIdentifier (2026-10-08):** required root context and entity-derived create/persisted-resource context use the shared `OrganizationContextResolver`; Holding/Item targets validate both Organization paths.
 - Enforce optional header equality on resource-derived and child-create operations.
 - Keep root explicit-Organization membership failures as `ORGANIZATION_MEMBERSHIP_REQUIRED`; mask missing membership on derived Inventory resources/parents as `RESOURCE_NOT_FOUND` only after validating supplied header syntax.
 - For multi-parent Holding creation, require access to both parent Organizations before returning a header or parent-consistency conflict; then validate same-Organization consistency, role, and only then mutate.

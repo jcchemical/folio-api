@@ -15,6 +15,7 @@ import { HoldingsModule } from './holdings/holdings.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { THROTTLE_LIMIT, THROTTLE_TTL_MS } from './common/throttling.config.js';
+import { ExternalIdentifiersModule } from './external-identifiers/external-identifiers.module.js';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { THROTTLE_LIMIT, THROTTLE_TTL_MS } from './common/throttling.config.js';
     LibrariesModule,
     LocationsModule,
     HoldingsModule,
+    ExternalIdentifiersModule,
   ],
   controllers: [AppController],
   providers: [

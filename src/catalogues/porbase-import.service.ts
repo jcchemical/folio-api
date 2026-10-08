@@ -240,6 +240,7 @@ export class PorbaseImportService {
       await this.persistExternalIdentifiers(
         transaction,
         edition.id,
+        organizationId,
         input.externalIdentifiers,
       );
 
@@ -295,7 +296,6 @@ export class PorbaseImportService {
           titles: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
           editions: {
             include: {
-              externalIdentifiers: true,
               bibliographicRecords: {
                 orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
                 include: {
@@ -362,8 +362,23 @@ export class PorbaseImportService {
       const persistedEdition =
         persisted.editions.find(({ id }) => id === edition.id) ??
         persisted.editions[0];
+      const persistedExternalIdentifiers =
+        await transaction.externalIdentifier.findMany({
+          where: {
+            entityType: 'Edition',
+            entityId: edition.id,
+            organizationId,
+          },
+          orderBy: [{ id: 'asc' }],
+        });
       const responseEdition = {
         ...persistedEdition,
+        externalIdentifiers: persistedExternalIdentifiers.map((entry) => ({
+          id: entry.id,
+          type: entry.authority.toUpperCase(),
+          value: entry.value,
+          source: null,
+        })),
         contributions: (persistedEdition.contributions ?? []).map(
           toPersistedContribution,
         ),
@@ -431,16 +446,18 @@ export class PorbaseImportService {
   private async persistExternalIdentifiers(
     transaction: TransactionClient,
     editionId: string,
+    organizationId: string,
     inputs: CatalogueImportDto['externalIdentifiers'],
   ): Promise<void> {
     for (const input of inputs) {
       try {
         await transaction.externalIdentifier.create({
           data: {
-            type: input.type,
+            entityType: 'Edition',
+            entityId: editionId,
+            authority: normalizeIdentifierAuthority(input.type),
             value: normalizeIdentifierValue(input.type, input.value),
-            source: input.source ?? null,
-            editionId,
+            organizationId,
           },
         });
       } catch (error: unknown) {
@@ -643,6 +660,31 @@ function normalizeIdentifierValue(type: string, value: string): string {
   return type.toUpperCase().startsWith('ISBN')
     ? normalizeIsbn(value)
     : value.trim();
+}
+
+function normalizeIdentifierAuthority(type: string): string {
+  switch (type.trim().toUpperCase().replace(/[\s_]/g, '-')) {
+    case 'ISBN-10':
+      return 'isbn-10';
+    case 'ISBN-13':
+      return 'isbn-13';
+    case 'ISSN':
+      return 'issn';
+    case 'DOI':
+      return 'doi';
+    case 'LCCN':
+      return 'lccn';
+    case 'OCLC':
+      return 'oclc';
+    case 'VIAF':
+      return 'viaf';
+    case 'ISNI':
+      return 'isni';
+    case 'WIKIDATA':
+      return 'wikidata';
+    default:
+      return 'local';
+  }
 }
 
 function isPrismaUniqueViolation(error: unknown): boolean {

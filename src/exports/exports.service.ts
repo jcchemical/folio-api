@@ -84,8 +84,6 @@ export class ExportsService {
             sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
           },
         },
-        // ExternalIdentifier has no sortOrder column; id provides stable ordering.
-        externalIdentifiers: { orderBy: [{ id: 'asc' }] },
         physicalDescriptions: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
           include: {
@@ -102,6 +100,14 @@ export class ExportsService {
     });
 
     if (!edition) throw resourceNotFound();
+    const identifiers = await this.prisma.externalIdentifier.findMany({
+      where: {
+        entityType: 'Edition',
+        entityId: edition.id,
+        organizationId: target.work.organizationId,
+      },
+      orderBy: [{ id: 'asc' }],
+    });
 
     try {
       const legacyProjection = {
@@ -138,7 +144,10 @@ export class ExportsService {
           notes: edition.work.notes,
           contributions: edition.work.contributions,
         },
-        externalIdentifiers: edition.externalIdentifiers,
+        externalIdentifiers: identifiers.map((identifier) => ({
+          type: identifier.authority.toUpperCase(),
+          value: identifier.value,
+        })),
       };
 
       const mapping = mapLocalEditionToUnimarc(localEdition);

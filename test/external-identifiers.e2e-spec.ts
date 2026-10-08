@@ -1,6 +1,7 @@
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import type { ExecutionContext } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { Prisma } from '@prisma/client';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module.js';
@@ -10,67 +11,141 @@ import { PrismaService } from '../src/prisma/prisma.service.js';
 
 const orgA = `c${'a'.repeat(24)}`;
 const orgB = `c${'b'.repeat(24)}`;
-const editionA = `c${'1'.repeat(24)}`;
-const editionB = `c${'2'.repeat(24)}`;
-const identifierAId = `c${'3'.repeat(24)}`;
-const identifierBId = `c${'4'.repeat(24)}`;
+const workA = `c${'1'.repeat(24)}`;
+const workB = `c${'2'.repeat(24)}`;
+const editionA = `c${'3'.repeat(24)}`;
+const libraryA = `c${'4'.repeat(24)}`;
+const locationA = `c${'5'.repeat(24)}`;
+const holdingA = `c${'6'.repeat(24)}`;
+const itemA = `c${'7'.repeat(24)}`;
+const workIdentifierA = `c${'8'.repeat(24)}`;
+const editionIdentifierA = `c${'9'.repeat(24)}`;
+const libraryIdentifierA = `c${'0'.repeat(24)}`;
+const workIdentifierB = `c${'d'.repeat(24)}`;
 const header = 'X-Folio-Organization-Id';
 
-type WorkRow = { id: string; organizationId: string };
-type EditionRow = { id: string; workId: string; work: WorkRow };
-type IdentifierRow = {
+type OrganizationRecord = { id: string; name: string };
+type EntityRecord = {
+  entityType: string;
   id: string;
-  type: string;
+  organizationId: string;
+  relatedOrganizationId?: string;
+};
+type IdentifierRecord = {
+  id: string;
+  entityType: string;
+  entityId: string;
+  authority: string;
   value: string;
-  source: string | null;
-  editionId: string;
-  edition: EditionRow;
+  organizationId: string;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 function makeState() {
-  const works = new Map<string, WorkRow>([
-    ['work-a', { id: 'work-a', organizationId: orgA }],
-    ['work-b', { id: 'work-b', organizationId: orgB }],
-  ]);
-  const editions = new Map<string, EditionRow>([
-    [editionA, { id: editionA, workId: 'work-a', work: works.get('work-a')! }],
-    [editionB, { id: editionB, workId: 'work-b', work: works.get('work-b')! }],
-  ]);
-  const identifiers = new Map<string, IdentifierRow>([
-    [
-      identifierAId,
-      {
-        id: identifierAId,
-        type: 'ISBN-13',
-        value: '9780000000001',
-        source: 'A',
-        editionId: editionA,
-        edition: editions.get(editionA)!,
-      },
-    ],
-    [
-      identifierBId,
-      {
-        id: identifierBId,
-        type: 'ISBN-13',
-        value: '9780000000002',
-        source: 'B',
-        editionId: editionB,
-        edition: editions.get(editionB)!,
-      },
-    ],
-  ]);
-  const organizations = new Map([
+  const organizations = new Map<string, OrganizationRecord>([
     [orgA, { id: orgA, name: 'Organization A' }],
     [orgB, { id: orgB, name: 'Organization B' }],
   ]);
+  const entities = new Map<string, EntityRecord>();
+  for (const [type, id, organizationId] of [
+    ['Work', workA, orgA],
+    ['Work', workB, orgB],
+    ['Edition', editionA, orgA],
+    ['Library', libraryA, orgA],
+    ['Location', locationA, orgA],
+    ['Holding', holdingA, orgA],
+    ['Item', itemA, orgA],
+  ]) {
+    entities.set(`${type}:${id}`, { entityType: type, id, organizationId });
+  }
+  const identifiers = new Map<string, IdentifierRecord>([
+    [
+      workIdentifierA,
+      makeIdentifier(workIdentifierA, 'Work', workA, orgA, 'a', 1),
+    ],
+    [
+      editionIdentifierA,
+      makeIdentifier(editionIdentifierA, 'Edition', editionA, orgA, 'b', 2),
+    ],
+    [
+      libraryIdentifierA,
+      makeIdentifier(libraryIdentifierA, 'Library', libraryA, orgA, 'c', 3),
+    ],
+    [
+      workIdentifierB,
+      makeIdentifier(workIdentifierB, 'Work', workB, orgB, 'd', 1),
+    ],
+  ]);
   const memberships = [
-    { userId: 'user-a', organizationId: orgA, role: 'OWNER' },
+    { userId: 'user-a', organizationId: orgA, role: 'STAFF' },
     { userId: 'user-a', organizationId: orgB, role: 'STAFF' },
     { userId: 'user-b', organizationId: orgB, role: 'READER' },
   ];
-  let sequence = 0;
+  let sequence = 10;
 
+  function entityOrganization(entityType: string, entityId: string) {
+    const entity = entities.get(`${entityType}:${entityId}`);
+    if (!entity) return null;
+    if (entityType === 'Edition') {
+      return { work: { organizationId: entity.organizationId } };
+    }
+    if (entityType === 'Location') {
+      return { library: { organizationId: entity.organizationId } };
+    }
+    if (entityType === 'Holding') {
+      return {
+        edition: { work: { organizationId: entity.organizationId } },
+        location: {
+          library: {
+            organizationId:
+              entity.relatedOrganizationId ?? entity.organizationId,
+          },
+        },
+      };
+    }
+    if (entityType === 'Item') {
+      return {
+        holding: {
+          edition: { work: { organizationId: entity.organizationId } },
+          location: {
+            library: {
+              organizationId:
+                entity.relatedOrganizationId ?? entity.organizationId,
+            },
+          },
+        },
+      };
+    }
+    return { organizationId: entity.organizationId };
+  }
+
+  const entityModels = {
+    work: {
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        entityOrganization('Work', where.id),
+    },
+    edition: {
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        entityOrganization('Edition', where.id),
+    },
+    library: {
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        entityOrganization('Library', where.id),
+    },
+    location: {
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        entityOrganization('Location', where.id),
+    },
+    holding: {
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        entityOrganization('Holding', where.id),
+    },
+    item: {
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        entityOrganization('Item', where.id),
+    },
+  };
   const prisma = {
     organization: {
       findUnique: async ({ where }: { where: { id: string } }) =>
@@ -85,53 +160,83 @@ function makeState() {
         };
       }) => {
         const key = where.userId_organizationId;
-        const row = memberships.find(
-          (membership) =>
-            membership.userId === key.userId &&
-            membership.organizationId === key.organizationId,
+        const membership = memberships.find(
+          (entry) =>
+            entry.userId === key.userId &&
+            entry.organizationId === key.organizationId,
         );
-        return row
-          ? { ...row, organization: organizations.get(key.organizationId) }
+        return membership
+          ? {
+              ...membership,
+              organization: organizations.get(key.organizationId),
+            }
           : null;
       },
     },
-    edition: {
-      findUnique: async ({ where }: { where: { id: string } }) =>
-        editions.get(where.id) ?? null,
-    },
+    ...entityModels,
     externalIdentifier: {
       findMany: async ({
         where,
+        take,
+        cursor,
+        skip,
       }: {
         where: {
-          edition: { work: { organizationId: string } };
-          editionId?: string;
+          organizationId: string;
+          entityType?: string;
+          entityId?: string;
+          authority?: string;
         };
-      }) =>
-        [...identifiers.values()].filter(
+        take: number;
+        cursor?: { id: string };
+        skip?: number;
+      }) => {
+        let rows = [...identifiers.values()].filter(
           (row) =>
-            row.edition.work.organizationId ===
-              where.edition.work.organizationId &&
-            (!where.editionId || row.editionId === where.editionId),
-        ),
+            row.organizationId === where.organizationId &&
+            (!where.entityType || row.entityType === where.entityType) &&
+            (!where.entityId || row.entityId === where.entityId) &&
+            (!where.authority || row.authority === where.authority),
+        );
+        rows.sort(
+          (left, right) =>
+            right.createdAt.getTime() - left.createdAt.getTime() ||
+            right.id.localeCompare(left.id),
+        );
+        if (cursor) {
+          const index = rows.findIndex((row) => row.id === cursor.id);
+          rows = index < 0 ? [] : rows.slice(index + (skip ?? 0));
+        }
+        return rows.slice(0, take);
+      },
       findUnique: async ({ where }: { where: { id: string } }) =>
         identifiers.get(where.id) ?? null,
       create: async ({
         data,
       }: {
-        data: {
-          type: string;
-          value: string;
-          source?: string | null;
-          editionId: string;
-        };
+        data: Omit<IdentifierRecord, 'id' | 'createdAt' | 'updatedAt'>;
       }) => {
+        if (
+          [...identifiers.values()].some(
+            (row) =>
+              row.entityType === data.entityType &&
+              row.entityId === data.entityId &&
+              row.authority === data.authority &&
+              row.value === data.value,
+          )
+        ) {
+          throw new Prisma.PrismaClientKnownRequestError('duplicate', {
+            code: 'P2002',
+            clientVersion: 'test',
+          });
+        }
         sequence += 1;
-        const row: IdentifierRow = {
+        const now = new Date();
+        const row: IdentifierRecord = {
           id: `c${sequence.toString().padStart(24, '0')}`,
           ...data,
-          source: data.source ?? null,
-          edition: editions.get(data.editionId)!,
+          createdAt: now,
+          updatedAt: now,
         };
         identifiers.set(row.id, row);
         return row;
@@ -141,8 +246,12 @@ function makeState() {
         data,
       }: {
         where: { id: string };
-        data: Partial<IdentifierRow>;
-      }) => Object.assign(identifiers.get(where.id)!, data),
+        data: Partial<Pick<IdentifierRecord, 'authority' | 'value'>>;
+      }) => {
+        const row = identifiers.get(where.id)!;
+        Object.assign(row, data, { updatedAt: new Date() });
+        return row;
+      },
       delete: async ({ where }: { where: { id: string } }) => {
         const row = identifiers.get(where.id)!;
         identifiers.delete(where.id);
@@ -152,7 +261,28 @@ function makeState() {
     $connect: async () => undefined,
     $disconnect: async () => undefined,
   };
-  return { prisma, identifiers };
+  return { prisma, identifiers, entities };
+}
+
+function makeIdentifier(
+  id: string,
+  entityType: string,
+  entityId: string,
+  organizationId: string,
+  valueSuffix: string,
+  day: number,
+): IdentifierRecord {
+  const timestamp = new Date(`2026-01-0${day}T00:00:00Z`);
+  return {
+    id,
+    entityType,
+    entityId,
+    authority: 'oclc',
+    value: `value-${valueSuffix}`,
+    organizationId,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
 }
 
 describe('External Identifiers organization context (e2e)', () => {
@@ -178,13 +308,16 @@ describe('External Identifiers organization context (e2e)', () => {
       .compile();
 
     app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true }),
+    );
     app.useGlobalFilters(new ApiExceptionFilter());
     await app.init();
   }, 20_000);
 
   afterEach(async () => app.close());
 
-  it('requires and validates root context, never returns a multi-membership union, and refines editionId within the tenant', async () => {
+  it('requires root context and limits filtered, paginated lists to one Organization', async () => {
     await request(app.getHttpServer())
       .get('/external-identifiers')
       .expect(400)
@@ -205,33 +338,49 @@ describe('External Identifiers organization context (e2e)', () => {
     await request(app.getHttpServer())
       .get('/external-identifiers')
       .set(header, orgA)
+      .query({ limit: 1 })
       .expect(200)
       .expect(({ body }) => {
-        expect(body.items.map((item: IdentifierRow) => item.id)).toEqual([
-          identifierAId,
+        expect(body.items.map((row: IdentifierRecord) => row.id)).toEqual([
+          libraryIdentifierA,
         ]);
+        expect(body.hasMore).toBe(true);
+        expect(body.nextCursor).toBe(libraryIdentifierA);
       });
     await request(app.getHttpServer())
       .get('/external-identifiers')
-      .set(header, orgB)
-      .expect(200)
-      .expect(({ body }) => {
-        expect(body.items.map((item: IdentifierRow) => item.id)).toEqual([
-          identifierBId,
-        ]);
-      });
-    await request(app.getHttpServer())
-      .get('/external-identifiers')
-      .set(header, orgB)
-      .query({ editionId: editionA })
-      .expect(200)
-      .expect(({ body }) => expect(body.items).toEqual([]));
-    await request(app.getHttpServer())
-      .get('/external-identifiers')
-      .query({ organizationId: orgA })
       .set(header, orgA)
-      .expect(400)
-      .expect(({ body }) => expect(body.code).toBe('VALIDATION_INVALID_BODY'));
+      .query({ cursor: libraryIdentifierA, limit: 1 })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.items.map((row: IdentifierRecord) => row.id)).toEqual([
+          editionIdentifierA,
+        ]);
+      });
+    await request(app.getHttpServer())
+      .get('/external-identifiers')
+      .set(header, orgA)
+      .query({ entityType: 'Edition', entityId: editionA, authority: 'oclc' })
+      .expect(200)
+      .expect(({ body }) =>
+        expect(body.items.map((row: IdentifierRecord) => row.id)).toEqual([
+          editionIdentifierA,
+        ]),
+      );
+    await request(app.getHttpServer())
+      .get('/external-identifiers')
+      .set(header, orgB)
+      .expect(200)
+      .expect(({ body }) =>
+        expect(body.items.map((row: IdentifierRecord) => row.id)).toEqual([
+          workIdentifierB,
+        ]),
+      );
+    await request(app.getHttpServer())
+      .get('/external-identifiers')
+      .set(header, orgA)
+      .query({ organizationId: orgB })
+      .expect(400);
 
     userId = 'user-b';
     await request(app.getHttpServer())
@@ -243,140 +392,162 @@ describe('External Identifiers organization context (e2e)', () => {
       );
   });
 
-  it('creates under Edition-derived ownership without a header and enforces optional consistency and write roles', async () => {
-    await request(app.getHttpServer())
-      .post('/external-identifiers')
-      .send({ type: 'OCLC', value: '123', editionId: editionA })
-      .expect(201);
-    await request(app.getHttpServer())
-      .post('/external-identifiers')
-      .set(header, orgA)
-      .send({ type: 'OCLC', value: '124', editionId: editionA })
-      .expect(201);
+  it('creates identifiers for all entity types with server-derived Organization ownership', async () => {
+    const types = [
+      ['Work', workA],
+      ['Edition', editionA],
+      ['Library', libraryA],
+      ['Location', locationA],
+      ['Holding', holdingA],
+      ['Item', itemA],
+    ] as const;
 
+    for (const [entityType, entityId] of types) {
+      await request(app.getHttpServer())
+        .post('/external-identifiers')
+        .set(header, orgA)
+        .send({
+          entityType,
+          entityId,
+          authority: 'local',
+          value: `local-${entityType}`,
+        })
+        .expect(201)
+        .expect(({ body }) => {
+          expect(body).toMatchObject({
+            entityType,
+            entityId,
+            authority: 'local',
+            organizationId: orgA,
+          });
+        });
+    }
+    expect(state.identifiers.size).toBe(10);
+  });
+
+  it('masks non-member reads, enforces write roles, and mutates only after authorization', async () => {
+    const initialBValue = state.identifiers.get(workIdentifierB)?.value;
+
+    userId = 'user-b';
+    await request(app.getHttpServer())
+      .get(`/external-identifiers/${workIdentifierB}`)
+      .set(header, orgB)
+      .expect(200);
+    await request(app.getHttpServer())
+      .put(`/external-identifiers/${workIdentifierB}`)
+      .set(header, orgB)
+      .send({ value: 'reader-cannot-change' })
+      .expect(403)
+      .expect(({ body }) =>
+        expect(body.code).toBe('ORGANIZATION_ROLE_INSUFFICIENT'),
+      );
+    await request(app.getHttpServer())
+      .delete(`/external-identifiers/${workIdentifierB}`)
+      .set(header, orgB)
+      .expect(403)
+      .expect(({ body }) =>
+        expect(body.code).toBe('ORGANIZATION_ROLE_INSUFFICIENT'),
+      );
+    await request(app.getHttpServer())
+      .get(`/external-identifiers/${workIdentifierA}`)
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+    expect(state.identifiers.get(workIdentifierB)?.value).toBe(initialBValue);
+    expect(state.identifiers.has(workIdentifierB)).toBe(true);
+
+    userId = 'user-a';
+    await request(app.getHttpServer())
+      .put(`/external-identifiers/${workIdentifierA}`)
+      .set(header, orgA)
+      .send({ value: 'updated-by-staff' })
+      .expect(200)
+      .expect(({ body }) => expect(body.value).toBe('updated-by-staff'));
+    await request(app.getHttpServer())
+      .delete(`/external-identifiers/${workIdentifierA}`)
+      .set(header, orgA)
+      .expect(200);
+    expect(state.identifiers.has(workIdentifierA)).toBe(false);
+  });
+
+  it('rejects cross-Organization bindings and duplicate pairs without mutation', async () => {
+    userId = 'user-b';
     const before = state.identifiers.size;
     await request(app.getHttpServer())
       .post('/external-identifiers')
       .set(header, orgB)
-      .send({ type: 'OCLC', value: '125', editionId: editionA })
-      .expect(409)
-      .expect(({ body }) =>
-        expect(body.code).toBe('ORGANIZATION_CONTEXT_CONFLICT'),
-      );
+      .send({
+        entityType: 'Work',
+        entityId: workA,
+        authority: 'local',
+        value: 'cross-org',
+      })
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+    expect(state.identifiers.size).toBe(before);
+
+    userId = 'user-a';
     await request(app.getHttpServer())
       .post('/external-identifiers')
       .set(header, orgA)
       .send({
-        type: 'OCLC',
-        value: '126',
-        editionId: editionA,
+        entityType: 'Work',
+        entityId: workA,
+        authority: 'oclc',
+        value: 'value-a',
+      })
+      .expect(409)
+      .expect(({ body }) =>
+        expect(body.code).toBe('CONFLICT_DUPLICATE_EXTERNAL_IDENTIFIER'),
+      );
+    await request(app.getHttpServer())
+      .post('/external-identifiers')
+      .set(header, orgB)
+      .send({
+        entityType: 'Work',
+        entityId: workA,
+        authority: 'local',
+        value: 'mismatched-header',
+      })
+      .expect(409)
+      .expect(({ body }) =>
+        expect(body.code).toBe('ORGANIZATION_CONTEXT_CONFLICT'),
+      );
+    expect(state.identifiers.size).toBe(before);
+  });
+
+  it('rejects tenant body fields and safely rejects inconsistent Holding ownership', async () => {
+    userId = 'user-a';
+    const before = state.identifiers.size;
+    await request(app.getHttpServer())
+      .post('/external-identifiers')
+      .send({
+        entityType: 'Work',
+        entityId: workA,
+        authority: 'local',
+        value: 'forged',
         organizationId: orgB,
       })
       .expect(400)
       .expect(({ body }) => expect(body.code).toBe('VALIDATION_INVALID_BODY'));
+    state.entities.set(`Holding:${holdingA}`, {
+      entityType: 'Holding',
+      id: holdingA,
+      organizationId: orgA,
+      relatedOrganizationId: orgB,
+    });
     await request(app.getHttpServer())
       .post('/external-identifiers')
+      .set(header, orgA)
       .send({
-        type: 'OCLC',
-        value: '127',
-        editionId: editionA,
-        workId: 'work-a',
+        entityType: 'Holding',
+        entityId: holdingA,
+        authority: 'local',
+        value: 'invalid-parent-pair',
       })
-      .expect(400)
-      .expect(({ body }) => expect(body.code).toBe('VALIDATION_INVALID_BODY'));
+      .expect(409)
+      .expect(({ body }) =>
+        expect(body.code).toBe('ORGANIZATION_CONTEXT_CONFLICT'),
+      );
     expect(state.identifiers.size).toBe(before);
-
-    userId = 'user-b';
-    await request(app.getHttpServer())
-      .post('/external-identifiers')
-      .send({ type: 'OCLC', value: '128', editionId: editionA })
-      .expect(403)
-      .expect(({ body }) =>
-        expect(body.code).toBe('ORGANIZATION_MEMBERSHIP_REQUIRED'),
-      );
-    await request(app.getHttpServer())
-      .post('/external-identifiers')
-      .send({ type: 'OCLC', value: '129', editionId: editionB })
-      .expect(403)
-      .expect(({ body }) =>
-        expect(body.code).toBe('ORGANIZATION_ROLE_INSUFFICIENT'),
-      );
-  });
-
-  it('derives detail, update, and delete from the persisted identifier and rejects cross-tenant access before mutation', async () => {
-    await request(app.getHttpServer())
-      .get(`/external-identifiers/${identifierAId}`)
-      .set(header, orgA)
-      .expect(200);
-    await request(app.getHttpServer())
-      .get(`/external-identifiers/${identifierAId}`)
-      .set(header, orgB)
-      .expect(409)
-      .expect(({ body }) =>
-        expect(body.code).toBe('ORGANIZATION_CONTEXT_CONFLICT'),
-      );
-    await request(app.getHttpServer())
-      .put(`/external-identifiers/${identifierAId}`)
-      .set(header, orgB)
-      .send({ value: 'must-not-update' })
-      .expect(409)
-      .expect(({ body }) =>
-        expect(body.code).toBe('ORGANIZATION_CONTEXT_CONFLICT'),
-      );
-    await request(app.getHttpServer())
-      .put(`/external-identifiers/${identifierAId}`)
-      .set(header, orgA)
-      .send({ editionId: editionB })
-      .expect(400)
-      .expect(({ body }) => expect(body.code).toBe('VALIDATION_INVALID_BODY'));
-    await request(app.getHttpServer())
-      .put(`/external-identifiers/${identifierAId}`)
-      .set(header, orgA)
-      .send({ value: 'updated-value' })
-      .expect(200)
-      .expect(({ body }) => expect(body.value).toBe('updated-value'));
-
-    userId = 'user-b';
-    await request(app.getHttpServer())
-      .get(`/external-identifiers/${identifierAId}`)
-      .expect(403)
-      .expect(({ body }) =>
-        expect(body.code).toBe('ORGANIZATION_MEMBERSHIP_REQUIRED'),
-      );
-    await request(app.getHttpServer())
-      .delete(`/external-identifiers/${identifierBId}`)
-      .expect(403)
-      .expect(({ body }) =>
-        expect(body.code).toBe('ORGANIZATION_ROLE_INSUFFICIENT'),
-      );
-    expect(state.identifiers.has(identifierBId)).toBe(true);
-
-    userId = 'user-a';
-    await request(app.getHttpServer())
-      .delete(`/external-identifiers/${identifierAId}`)
-      .set(header, orgB)
-      .expect(409)
-      .expect(({ body }) =>
-        expect(body.code).toBe('ORGANIZATION_CONTEXT_CONFLICT'),
-      );
-    await request(app.getHttpServer())
-      .delete(`/external-identifiers/${identifierAId}`)
-      .set(header, orgA)
-      .expect(200);
-    expect(state.identifiers.has(identifierAId)).toBe(false);
-  });
-
-  it('uses the stable error envelope for organization-context failures', async () => {
-    await request(app.getHttpServer())
-      .get('/external-identifiers')
-      .expect(400)
-      .expect(({ body }) => {
-        expect(body).toMatchObject({
-          statusCode: 400,
-          error: 'Bad Request',
-          code: 'ORGANIZATION_CONTEXT_REQUIRED',
-        });
-        expect(body.message).toEqual(expect.any(String));
-      });
   });
 });

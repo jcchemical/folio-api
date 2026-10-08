@@ -1,27 +1,56 @@
-import { ConflictException } from '@nestjs/common';
-import { OrganizationRole } from '@prisma/client';
-import { Prisma } from '@prisma/client';
+import { HttpStatus } from '@nestjs/common';
+import { OrganizationRole, Prisma } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
-import { ExternalIdentifiersService } from './external_identifiers.service.js';
+import {
+  ExternalIdentifiersService,
+  type ExternalIdentifierEntityType,
+} from './external_identifiers.service.js';
 
-const organizationA = 'organization-a';
-const organizationB = 'organization-b';
-const editionA = { id: 'edition-a', work: { organizationId: organizationA } };
-const editionB = { id: 'edition-b', work: { organizationId: organizationB } };
+const orgA = 'caaaaaaaaaaaaaaaaaaaaaaaa';
+const orgB = 'cbbbbbbbbbbbbbbbbbbbbbbbb';
 const identifier = {
-  id: 'identifier-a',
-  type: 'ISBN-13',
-  value: '9789898236005',
-  source: 'PORBASE',
-  editionId: editionA.id,
-  edition: editionA,
+  id: 'c111111111111111111111111',
+  entityType: 'Work',
+  entityId: 'c222222222222222222222222',
+  authority: 'isbn-13',
+  value: '9780000000001',
+  organizationId: orgA,
+  createdAt: new Date('2026-01-01T00:00:00Z'),
+  updatedAt: new Date('2026-01-01T00:00:00Z'),
 };
 
 function createService() {
   const prisma = {
-    edition: { findUnique: vi.fn().mockResolvedValue(editionA) },
+    work: {
+      findUnique: vi.fn().mockResolvedValue({ organizationId: orgA }),
+    },
+    edition: {
+      findUnique: vi.fn().mockResolvedValue({ work: { organizationId: orgA } }),
+    },
+    library: {
+      findUnique: vi.fn().mockResolvedValue({ organizationId: orgA }),
+    },
+    location: {
+      findUnique: vi
+        .fn()
+        .mockResolvedValue({ library: { organizationId: orgA } }),
+    },
+    holding: {
+      findUnique: vi.fn().mockResolvedValue({
+        edition: { work: { organizationId: orgA } },
+        location: { library: { organizationId: orgA } },
+      }),
+    },
+    item: {
+      findUnique: vi.fn().mockResolvedValue({
+        holding: {
+          edition: { work: { organizationId: orgA } },
+          location: { library: { organizationId: orgA } },
+        },
+      }),
+    },
     externalIdentifier: {
       findMany: vi.fn().mockResolvedValue([identifier]),
       findUnique: vi.fn().mockResolvedValue(identifier),
@@ -32,12 +61,17 @@ function createService() {
   } as unknown as PrismaService;
   const contexts = {
     resolveRequiredRootContext: vi.fn().mockResolvedValue({
-      organizationId: organizationA,
+      organizationId: orgA,
     }),
-    resolveDerivedContext: vi.fn().mockResolvedValue({
-      organizationId: organizationA,
+    resolveDerivedResourceContext: vi.fn().mockResolvedValue({
+      organizationId: orgA,
       role: OrganizationRole.STAFF,
     }),
+    resolveDerivedParentPairContext: vi.fn().mockResolvedValue({
+      first: { organizationId: orgA, role: OrganizationRole.STAFF },
+      second: { organizationId: orgA, role: OrganizationRole.STAFF },
+    }),
+    requireRole: vi.fn(),
   } as unknown as OrganizationContextResolver;
   return {
     prisma,
@@ -47,194 +81,203 @@ function createService() {
 }
 
 describe('ExternalIdentifiersService organization context', () => {
-  it('requires explicit root context and filters to the selected organization', async () => {
-    const { prisma, contexts, service } = createService();
-    vi.mocked(contexts.resolveRequiredRootContext).mockResolvedValueOnce({
-      organizationId: organizationB,
-    } as never);
+  it('creates identifiers for each supported canonical entity and derives ownership', async () => {
+    const { prisma, service } = createService();
+    const types: ExternalIdentifierEntityType[] = [
+      'Work',
+      'Edition',
+      'Library',
+      'Location',
+      'Holding',
+      'Item',
+    ];
 
-    await service.findAll('user-a', organizationB);
+    for (const entityType of types) {
+      await service.create('user-a', {
+        entityType,
+        entityId: `entity-${entityType}`,
+        authority: 'isbn-13',
+        value: `value-${entityType}`,
+      });
+    }
+
+    expect(prisma.externalIdentifier.create).toHaveBeenCalledTimes(
+      types.length,
+    );
+    expect(prisma.externalIdentifier.create).toHaveBeenCalledWith({
+      data: {
+        entityType: 'Work',
+        entityId: 'entity-Work',
+        authority: 'isbn-13',
+        value: 'value-Work',
+        organizationId: orgA,
+      },
+    });
+    expect(prisma.holding.findUnique).toHaveBeenCalled();
+    expect(prisma.item.findUnique).toHaveBeenCalled();
+  });
+
+  it('requires root context, applies supported filters, and paginates', async () => {
+    const { prisma, contexts, service } = createService();
+    vi.mocked(prisma.externalIdentifier.findMany).mockResolvedValue([
+      identifier,
+      { ...identifier, id: 'c333333333333333333333333' },
+      { ...identifier, id: 'c444444444444444444444444' },
+    ] as never);
+
+    const page = await service.list('user-a', orgA, {
+      entityType: 'Edition',
+      entityId: 'edition-a',
+      authority: 'oclc',
+      cursor: 'c000000000000000000000000',
+      limit: 2,
+    });
 
     expect(contexts.resolveRequiredRootContext).toHaveBeenCalledWith({
       userId: 'user-a',
-      headerValue: organizationB,
+      headerValue: orgA,
     });
     expect(prisma.externalIdentifier.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          edition: { work: { organizationId: organizationB } },
+          organizationId: orgA,
+          entityType: 'Edition',
+          entityId: 'edition-a',
+          authority: 'oclc',
         },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 3,
+        cursor: { id: 'c000000000000000000000000' },
+        skip: 1,
       }),
     );
+    expect(page).toMatchObject({
+      items: [identifier, { id: 'c333333333333333333333333' }],
+      nextCursor: 'c333333333333333333333333',
+      hasMore: true,
+    });
   });
 
-  it('uses editionId only as a filter inside the selected organization', async () => {
-    const { prisma, service } = createService();
+  it('fetches by ID, updates only supplied fields, and deletes after STAFF authorization', async () => {
+    const { prisma, contexts, service } = createService();
 
-    await service.findAll('user-a', organizationA, {
-      limit: 25,
-      editionId: editionA.id,
-    });
-
-    expect(prisma.externalIdentifier.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          edition: { work: { organizationId: organizationA } },
-          editionId: editionA.id,
-        },
-      }),
+    await expect(service.findById(identifier.id, 'user-a')).resolves.toEqual(
+      identifier,
     );
-  });
+    await service.update(identifier.id, 'user-a', { value: 'updated-value' });
+    await service.remove(identifier.id, 'user-a');
 
-  it('derives child creation from persisted Edition and authorizes before mutation', async () => {
-    const { prisma, contexts, service } = createService();
-
-    await service.create(
-      'user-a',
-      { type: 'ISBN-13', value: '9789898236005', editionId: editionA.id },
-      organizationA,
-    );
-
-    expect(contexts.resolveDerivedContext).toHaveBeenCalledWith({
-      userId: 'user-a',
-      headerValue: organizationA,
-      derivedOrganizationId: organizationA,
-      requiredRole: OrganizationRole.STAFF,
-    });
-    expect(prisma.externalIdentifier.create).toHaveBeenCalledWith({
-      data: {
-        type: 'ISBN-13',
-        value: '9789898236005',
-        source: undefined,
-        editionId: editionA.id,
-      },
-    });
-  });
-
-  it('supports child creation without a header and rejects context mismatch before create', async () => {
-    const { prisma, contexts, service } = createService();
-    await service.create('user-a', {
-      type: 'ISBN-13',
-      value: '9789898236005',
-      editionId: editionA.id,
-    });
-    expect(contexts.resolveDerivedContext).toHaveBeenCalledWith({
-      userId: 'user-a',
-      headerValue: undefined,
-      derivedOrganizationId: organizationA,
-      requiredRole: OrganizationRole.STAFF,
-    });
-
-    vi.mocked(contexts.resolveDerivedContext).mockRejectedValueOnce({
-      status: 409,
-      response: { code: 'ORGANIZATION_CONTEXT_CONFLICT' },
-    });
-    await expect(
-      service.create(
-        'user-a',
-        { type: 'ISBN-13', value: 'same', editionId: editionA.id },
-        organizationB,
-      ),
-    ).rejects.toMatchObject({
-      response: { code: 'ORGANIZATION_CONTEXT_CONFLICT' },
-    });
-    expect(prisma.externalIdentifier.create).toHaveBeenCalledTimes(1);
-  });
-
-  it('derives detail, update, and delete authorization from the persisted identifier', async () => {
-    const { prisma, contexts, service } = createService();
-
-    await service.findById(identifier.id, 'user-a', organizationA);
-    await service.update(identifier.id, 'user-a', { value: 'updated' });
-    await service.remove(identifier.id, 'user-a', organizationA);
-
-    expect(contexts.resolveDerivedContext).toHaveBeenNthCalledWith(1, {
-      userId: 'user-a',
-      headerValue: organizationA,
-      derivedOrganizationId: organizationA,
-    });
-    expect(contexts.resolveDerivedContext).toHaveBeenNthCalledWith(2, {
-      userId: 'user-a',
-      headerValue: undefined,
-      derivedOrganizationId: organizationA,
-      requiredRole: OrganizationRole.STAFF,
-    });
     expect(prisma.externalIdentifier.update).toHaveBeenCalledWith({
       where: { id: identifier.id },
-      data: { value: 'updated' },
+      data: { value: 'updated-value' },
     });
     expect(prisma.externalIdentifier.delete).toHaveBeenCalledWith({
       where: { id: identifier.id },
     });
+    expect(contexts.resolveDerivedResourceContext).toHaveBeenNthCalledWith(2, {
+      userId: 'user-a',
+      headerValue: undefined,
+      derivedOrganizationId: orgA,
+      requiredRole: OrganizationRole.STAFF,
+    });
   });
 
-  it('does not mutate after membership/role/conflict failures', async () => {
+  it.each([
+    ['ORGANIZATION_CONTEXT_REQUIRED', undefined],
+    ['ORGANIZATION_ID_INVALID', 'not-an-org'],
+    ['ORGANIZATION_NOT_FOUND', 'czzzzzzzzzzzzzzzzzzzzzzzz'],
+    ['ORGANIZATION_MEMBERSHIP_REQUIRED', orgA],
+  ])('preserves root context error %s', async (code, header) => {
     const { prisma, contexts, service } = createService();
-    vi.mocked(contexts.resolveDerivedContext).mockRejectedValueOnce({
-      status: 403,
-      response: { code: 'ORGANIZATION_MEMBERSHIP_REQUIRED' },
+    vi.mocked(contexts.resolveRequiredRootContext).mockRejectedValueOnce({
+      status: HttpStatus.FORBIDDEN,
+      response: { code },
     });
+
+    await expect(service.list('user-b', header)).rejects.toMatchObject({
+      response: { code },
+    });
+    expect(prisma.externalIdentifier.findMany).not.toHaveBeenCalled();
+  });
+
+  it('denies Reader writes and permits STAFF writes', async () => {
+    const { prisma, contexts, service } = createService();
+    vi.mocked(contexts.resolveDerivedResourceContext).mockRejectedValueOnce({
+      status: HttpStatus.FORBIDDEN,
+      response: { code: 'ORGANIZATION_ROLE_INSUFFICIENT' },
+    });
+
     await expect(
-      service.create('user-b', {
-        type: 'ISBN-13',
-        value: '9789898236005',
-        editionId: editionA.id,
+      service.create('reader', {
+        entityType: 'Work',
+        entityId: 'work-a',
+        authority: 'oclc',
+        value: '123',
       }),
     ).rejects.toMatchObject({
-      response: { code: 'ORGANIZATION_MEMBERSHIP_REQUIRED' },
+      response: { code: 'ORGANIZATION_ROLE_INSUFFICIENT' },
     });
     expect(prisma.externalIdentifier.create).not.toHaveBeenCalled();
 
-    vi.mocked(contexts.resolveDerivedContext).mockRejectedValueOnce({
-      status: 403,
-      response: { code: 'ORGANIZATION_ROLE_INSUFFICIENT' },
+    await service.create('staff', {
+      entityType: 'Work',
+      entityId: 'work-a',
+      authority: 'oclc',
+      value: '123',
     });
-    await expect(
-      service.update(identifier.id, 'reader', { value: 'denied' }),
-    ).rejects.toMatchObject({
-      response: { code: 'ORGANIZATION_ROLE_INSUFFICIENT' },
-    });
-    expect(prisma.externalIdentifier.update).not.toHaveBeenCalled();
-
-    vi.mocked(contexts.resolveDerivedContext).mockRejectedValueOnce({
-      status: 409,
-      response: { code: 'ORGANIZATION_CONTEXT_CONFLICT' },
-    });
-    await expect(
-      service.remove(identifier.id, 'user-a', organizationB),
-    ).rejects.toMatchObject({
-      response: { code: 'ORGANIZATION_CONTEXT_CONFLICT' },
-    });
-    expect(prisma.externalIdentifier.delete).not.toHaveBeenCalled();
+    expect(prisma.externalIdentifier.create).toHaveBeenCalledTimes(1);
   });
 
-  it('returns RESOURCE_NOT_FOUND for missing Edition or identifier before mutation', async () => {
-    const { prisma, service } = createService();
-    vi.mocked(prisma.edition.findUnique).mockResolvedValue(null);
+  it('masks cross-Organization entity access and avoids mutation', async () => {
+    const { prisma, contexts, service } = createService();
+    vi.mocked(prisma.work.findUnique).mockResolvedValueOnce({
+      organizationId: orgB,
+    } as never);
+    vi.mocked(contexts.resolveDerivedResourceContext).mockRejectedValueOnce({
+      status: HttpStatus.NOT_FOUND,
+      response: { code: 'RESOURCE_NOT_FOUND' },
+    });
+
+    await expect(
+      service.create(
+        'user-b',
+        {
+          entityType: 'Work',
+          entityId: 'work-in-org-b',
+          authority: 'oclc',
+          value: '123',
+        },
+        orgA,
+      ),
+    ).rejects.toMatchObject({
+      response: { code: 'RESOURCE_NOT_FOUND' },
+    });
+    expect(prisma.externalIdentifier.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a Holding whose parent entities belong to different Organizations', async () => {
+    const { prisma, contexts, service } = createService();
+    vi.mocked(prisma.holding.findUnique).mockResolvedValueOnce({
+      edition: { work: { organizationId: orgA } },
+      location: { library: { organizationId: orgB } },
+    } as never);
+
     await expect(
       service.create('user-a', {
-        type: 'ISBN-13',
-        value: '9789898236005',
-        editionId: 'missing-edition',
+        entityType: 'Holding',
+        entityId: 'holding-cross-org',
+        authority: 'local',
+        value: 'ref-1',
       }),
     ).rejects.toMatchObject({
-      status: 404,
-      response: { code: 'RESOURCE_NOT_FOUND' },
+      response: { code: 'ORGANIZATION_CONTEXT_CONFLICT' },
     });
-    vi.mocked(prisma.externalIdentifier.findUnique).mockResolvedValue(null);
-    await expect(
-      service.findById('missing-identifier', 'user-a'),
-    ).rejects.toMatchObject({
-      status: 404,
-      response: { code: 'RESOURCE_NOT_FOUND' },
-    });
+    expect(contexts.resolveDerivedParentPairContext).toHaveBeenCalled();
     expect(prisma.externalIdentifier.create).not.toHaveBeenCalled();
   });
 
-  it('maps same-Edition unique violations to 409', async () => {
+  it('maps duplicate authority/value bindings to the stable conflict code', async () => {
     const { prisma, service } = createService();
-    prisma.externalIdentifier.create.mockRejectedValue(
+    vi.mocked(prisma.externalIdentifier.create).mockRejectedValueOnce(
       new Prisma.PrismaClientKnownRequestError('duplicate', {
         code: 'P2002',
         clientVersion: 'test',
@@ -243,10 +286,14 @@ describe('ExternalIdentifiersService organization context', () => {
 
     await expect(
       service.create('user-a', {
-        type: 'ISBN-13',
-        value: '9789898236005',
-        editionId: editionA.id,
+        entityType: 'Work',
+        entityId: 'work-a',
+        authority: 'oclc',
+        value: 'same-value',
       }),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).rejects.toMatchObject({
+      status: HttpStatus.CONFLICT,
+      response: { code: 'CONFLICT_DUPLICATE_EXTERNAL_IDENTIFIER' },
+    });
   });
 });

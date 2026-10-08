@@ -163,7 +163,10 @@ describe('PorbaseImportService', () => {
     });
     expect(tx.externalIdentifier.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        editionId: 'edition-1',
+        entityType: 'Edition',
+        entityId: 'edition-1',
+        organizationId: 'organization-1',
+        authority: 'isbn-13',
       }),
     });
     expect(result).not.toHaveProperty('item');
@@ -256,7 +259,11 @@ describe('PorbaseImportService', () => {
       data: expect.objectContaining({ organizationId: 'organization-b' }),
     });
     expect(tx.externalIdentifier.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ editionId: 'edition-1' }),
+      data: expect.objectContaining({
+        entityType: 'Edition',
+        entityId: 'edition-1',
+        organizationId: 'organization-b',
+      }),
     });
   });
 

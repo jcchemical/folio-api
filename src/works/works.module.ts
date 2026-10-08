@@ -5,8 +5,6 @@ import { WorksService } from './works.service.js';
 import { WorksController } from './works.controller.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { EditionsService } from '../editions/editions.service.js';
-import { ExternalIdentifiersService } from '../external-identifiers/external_identifiers.service.js';
-import { ExternalIdentifiersController } from '../external-identifiers/external-identifiers.controller.js';
 import { BibliographicRecordsService } from '../bibliographic-records/bibliographic_records.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { EditionsController } from '../editions/editions.controller.js';
@@ -30,7 +28,6 @@ import { StorageModule } from '../storage/storage.module.js';
     WorksService,
     EditionsService,
     EditionCoverService,
-    ExternalIdentifiersService,
     BibliographicRecordsService,
     ItemsService,
     ContributionsService,
@@ -40,13 +37,11 @@ import { StorageModule } from '../storage/storage.module.js';
     EditionsController,
     BibliographicRecordsController,
     ItemsController,
-    ExternalIdentifiersController,
     ContributionsController,
   ],
   exports: [
     WorksService,
     EditionsService,
-    ExternalIdentifiersService,
     BibliographicRecordsService,
     ItemsService,
     ContributionsService,

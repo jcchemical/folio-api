@@ -176,6 +176,47 @@ describe('Local canonical MARCXchange export (e2e)', () => {
           return edition;
         },
       },
+      externalIdentifier: {
+        findMany: async ({
+          where,
+        }: {
+          where: {
+            entityType: string;
+            entityId: string;
+            organizationId: string;
+          };
+        }) => {
+          if (where.entityType !== 'Edition') return [];
+          const edition = editions.get(where.entityId) as
+            | {
+                work: { organizationId: string };
+                externalIdentifiers?: {
+                  type: string;
+                  value: string;
+                  source?: string | null;
+                }[];
+              }
+            | undefined;
+          if (
+            !edition ||
+            edition.work.organizationId !== where.organizationId
+          ) {
+            return [];
+          }
+          return (edition.externalIdentifiers ?? []).map(
+            ({ type, value }, index) => ({
+              id: `c${String(index + 1).padStart(24, '0')}`,
+              entityType: 'Edition',
+              entityId: where.entityId,
+              authority: type.toLowerCase(),
+              value,
+              organizationId: where.organizationId,
+              createdAt: new Date(0),
+              updatedAt: new Date(0),
+            }),
+          );
+        },
+      },
       $connect: async () => undefined,
       $disconnect: async () => undefined,
     };

@@ -41,6 +41,7 @@ model Organization {
   works       Work[]
   agents      Agent[]
   coverAssets CoverAsset[]
+  externalIdentifiers ExternalIdentifier[]
 }
 
 model User {
@@ -153,7 +154,6 @@ model Edition {
   physicalDescriptions     PhysicalDescription[]
   publicationStatements    PublicationStatement[]
   contributions            Contribution[]
-  externalIdentifiers      ExternalIdentifier[]
   bibliographicRecords     BibliographicRecord[]
   titles                   EditionTitle[]
   responsibilityStatements ResponsibilityStatement[]
@@ -495,18 +495,21 @@ model ContributionSourcePart {
 }
 
 model ExternalIdentifier {
-  id        String   @id @default(cuid())
-  type      String // ex: "ISBN-10", "ISBN-13", "BNP", "OPENLIBRARY", "OCLC", "LCCN"
-  value     String
-  source    String? // ex: "BNP", "Open Library"
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String   @id @default(cuid())
+  entityType     String
+  entityId       String
+  authority      String
+  value          String
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  editionId String
-  edition   Edition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
-  @@unique([editionId, type, value])
-  @@index([editionId, createdAt, id])
+  @@unique([entityType, entityId, authority, value])
+  @@index([entityType, entityId])
+  @@index([authority, value])
+  @@index([organizationId])
 }
 
 model BibliographicRecord {

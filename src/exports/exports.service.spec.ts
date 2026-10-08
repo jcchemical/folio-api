@@ -65,6 +65,24 @@ function createService(edition: unknown, allowed = true) {
         .mockResolvedValueOnce(target)
         .mockResolvedValueOnce(edition),
     },
+    externalIdentifier: {
+      findMany: vi.fn().mockResolvedValue(
+        (
+          edition as {
+            externalIdentifiers?: { type: string; value: string }[];
+          } | null
+        )?.externalIdentifiers?.map(({ type, value }) => ({
+          id: 'identifier-1',
+          entityType: 'Edition',
+          entityId: editionId,
+          authority: type.toLowerCase(),
+          value,
+          organizationId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })) ?? [],
+      ),
+    },
   } as unknown as PrismaService;
   const contexts = {
     resolveDerivedContext: allowed
@@ -237,7 +255,14 @@ describe('ExportsService', () => {
         sourceParts: { orderBy: ordered },
       },
     });
-    expect(include.externalIdentifiers).toEqual({ orderBy: [{ id: 'asc' }] });
+    expect(prisma.externalIdentifier.findMany).toHaveBeenCalledWith({
+      where: {
+        entityType: 'Edition',
+        entityId: editionId,
+        organizationId: 'organization-1',
+      },
+      orderBy: [{ id: 'asc' }],
+    });
     expect(include.physicalDescriptions).toEqual({
       orderBy: ordered,
       include: { parts: { orderBy: ordered } },

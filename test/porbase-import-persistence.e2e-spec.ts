@@ -162,6 +162,7 @@ describe('Catalogue import persistence (e2e)', () => {
           recordWrite('ExternalIdentifier');
           return {};
         },
+        findMany: async () => [],
       },
       bibliographicRecord: {
         create: async () => {
