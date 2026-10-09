@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  HttpStatus,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -7,13 +8,30 @@ import {
   AgentKind,
   ContributionSource,
   OrganizationRole,
+  type Prisma,
   type PrismaClient,
 } from '@prisma/client';
-import { conflictAgentOrganizationMismatch } from '../common/api-errors.js';
+import {
+  API_ERROR_CODES,
+  ApiException,
+  conflictAgentOrganizationMismatch,
+} from '../common/api-errors.js';
+import { paginate, paginationArgs } from '../common/pagination.js';
+import type { PaginationInput } from '../common/pagination.js';
 import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
+import { parseOrganizationContextHeader } from '../organizations/organization-context.resolver.js';
 import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import type { CreateContributionDto } from './contributions.dto.js';
+import type {
+  ContributionListQueryDto,
+  CreateContributionDto,
+  UpdateContributionDto,
+} from './contributions.dto.js';
+
+const contributionInclude = {
+  agent: true,
+  sourceParts: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+} satisfies Prisma.ContributionInclude;
 
 type TransactionClient = Omit<
   PrismaClient,
@@ -97,6 +115,120 @@ export class ContributionsService {
         },
       });
     });
+  }
+
+  async list(
+    userId: string,
+    headerValue: OrganizationHeaderValue,
+    query: Partial<ContributionListQueryDto> & PaginationInput = {},
+  ) {
+    const context = await this.contexts.resolveRequiredRootContext({
+      userId,
+      headerValue,
+    });
+    const { limit, prisma } = paginationArgs(query);
+    const rows = await this.prisma.contribution.findMany({
+      where: {
+        AND: [
+          {
+            OR: [
+              { work: { organizationId: context.organizationId } },
+              { edition: { work: { organizationId: context.organizationId } } },
+            ],
+          },
+          ...(query.workId ? [{ workId: query.workId }] : []),
+          ...(query.editionId ? [{ editionId: query.editionId }] : []),
+          ...(query.agentId ? [{ agentId: query.agentId }] : []),
+        ],
+      },
+      include: contributionInclude,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...prisma,
+    });
+    return paginate(rows, limit);
+  }
+
+  async findById(
+    id: string,
+    userId: string,
+    headerValue?: OrganizationHeaderValue,
+  ) {
+    parseOrganizationContextHeader(headerValue, false);
+    const { organizationId, contribution } = await this.requireContribution(id);
+    await this.contexts.resolveDerivedResourceContext({
+      userId,
+      headerValue,
+      derivedOrganizationId: organizationId,
+    });
+    return contribution;
+  }
+
+  async update(
+    id: string,
+    userId: string,
+    data: UpdateContributionDto,
+    headerValue?: OrganizationHeaderValue,
+  ) {
+    parseOrganizationContextHeader(headerValue, false);
+    const { organizationId } = await this.requireContribution(id);
+    await this.contexts.resolveDerivedResourceContext({
+      userId,
+      headerValue,
+      derivedOrganizationId: organizationId,
+      requiredRole: OrganizationRole.STAFF,
+    });
+    return this.prisma.contribution.update({
+      where: { id },
+      data: {
+        ...(data.sortOrder !== undefined ? { sortOrder: data.sortOrder } : {}),
+        ...(data.roleLabel !== undefined
+          ? { roleLabel: data.roleLabel.trim() || null }
+          : {}),
+      },
+      include: contributionInclude,
+    });
+  }
+
+  async remove(
+    id: string,
+    userId: string,
+    headerValue?: OrganizationHeaderValue,
+  ) {
+    parseOrganizationContextHeader(headerValue, false);
+    const { organizationId } = await this.requireContribution(id);
+    await this.contexts.resolveDerivedResourceContext({
+      userId,
+      headerValue,
+      derivedOrganizationId: organizationId,
+      requiredRole: OrganizationRole.STAFF,
+    });
+    return this.prisma.contribution.delete({
+      where: { id },
+      include: contributionInclude,
+    });
+  }
+
+  private async requireContribution(id: string) {
+    const contribution = await this.prisma.contribution.findUnique({
+      where: { id },
+      include: {
+        ...contributionInclude,
+        work: { select: { organizationId: true } },
+        edition: { select: { work: { select: { organizationId: true } } } },
+      },
+    });
+    if (!contribution) {
+      throw new ApiException(
+        HttpStatus.NOT_FOUND,
+        API_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'The requested resource was not found.',
+      );
+    }
+    const { work, edition, ...rest } = contribution;
+    return {
+      organizationId: (work ?? edition!.work).organizationId,
+      contribution: rest,
+    };
   }
 
   async persistPorbase(

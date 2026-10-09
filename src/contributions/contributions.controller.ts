@@ -1,7 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
   Post,
+  Query,
   Req,
   UseGuards,
   UsePipes,
@@ -12,6 +17,7 @@ import {
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiHeader,
+  ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
@@ -19,7 +25,12 @@ import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { FOLIO_ORGANIZATION_HEADER } from '../organizations/organization-context.resolver.js';
-import { CreateContributionDto } from './contributions.dto.js';
+import { forbidRequestFields } from '../common/forbid-request-fields.js';
+import {
+  ContributionListQueryDto,
+  CreateContributionDto,
+  UpdateContributionDto,
+} from './contributions.dto.js';
 import { ContributionsService } from './contributions.service.js';
 
 @ApiTags('contributions')
@@ -35,6 +46,81 @@ import { ContributionsService } from './contributions.service.js';
 )
 export class ContributionsController {
   constructor(private readonly contributionsService: ContributionsService) {}
+
+  @Get()
+  @ApiHeader({ name: FOLIO_ORGANIZATION_HEADER, required: true })
+  @ApiOperation({
+    summary: 'List Contributions in one organization',
+    description:
+      'X-Folio-Organization-Id is required. workId, editionId and agentId refine results within that organization.',
+  })
+  @ApiOkResponse()
+  findAll(@Query() query: ContributionListQueryDto, @Req() request: Request) {
+    forbidRequestFields(request.query, ['organizationId']);
+    return this.contributionsService.list(
+      this.userId(request),
+      request.headers[FOLIO_ORGANIZATION_HEADER],
+      query,
+    );
+  }
+
+  @Get(':id')
+  @ApiHeader({
+    name: FOLIO_ORGANIZATION_HEADER,
+    required: false,
+    description: 'Optional consistency check.',
+  })
+  @ApiOperation({ summary: 'Get a Contribution' })
+  @ApiOkResponse()
+  findOne(@Param('id') id: string, @Req() request: Request) {
+    return this.contributionsService.findById(
+      id,
+      this.userId(request),
+      request.headers[FOLIO_ORGANIZATION_HEADER],
+    );
+  }
+
+  @Patch(':id')
+  @ApiHeader({
+    name: FOLIO_ORGANIZATION_HEADER,
+    required: false,
+    description: 'Optional consistency check.',
+  })
+  @ApiOperation({
+    summary: 'Update Contribution roleLabel or sortOrder',
+    description: 'Target and Agent bindings are immutable.',
+  })
+  @ApiForbiddenResponse({ description: 'STAFF membership is required.' })
+  @ApiOkResponse()
+  update(
+    @Param('id') id: string,
+    @Body() body: UpdateContributionDto,
+    @Req() request: Request,
+  ) {
+    return this.contributionsService.update(
+      id,
+      this.userId(request),
+      body,
+      request.headers[FOLIO_ORGANIZATION_HEADER],
+    );
+  }
+
+  @Delete(':id')
+  @ApiHeader({
+    name: FOLIO_ORGANIZATION_HEADER,
+    required: false,
+    description: 'Optional consistency check.',
+  })
+  @ApiOperation({ summary: 'Delete a Contribution' })
+  @ApiForbiddenResponse({ description: 'STAFF membership is required.' })
+  @ApiOkResponse()
+  remove(@Param('id') id: string, @Req() request: Request) {
+    return this.contributionsService.remove(
+      id,
+      this.userId(request),
+      request.headers[FOLIO_ORGANIZATION_HEADER],
+    );
+  }
 
   @Post()
   @ApiHeader({
@@ -58,5 +144,9 @@ export class ContributionsController {
       body,
       request.headers[FOLIO_ORGANIZATION_HEADER],
     );
+  }
+
+  private userId(request: Request): string {
+    return (request.user as AuthenticatedUser).id;
   }
 }

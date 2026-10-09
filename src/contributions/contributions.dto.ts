@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 import {
   IsIn,
   IsInt,
@@ -53,4 +54,36 @@ export class CreateContributionDto {
   @IsOptional()
   @IsString()
   roleLabel?: string;
+}
+export class UpdateContributionDto {
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
+
+  @ApiPropertyOptional({ description: 'An empty string clears the label.' })
+  @IsOptional()
+  @IsString()
+  roleLabel?: string;
+}
+
+export class ContributionListQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  workId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  editionId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  agentId?: string;
 }

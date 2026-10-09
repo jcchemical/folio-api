@@ -168,7 +168,8 @@ Organizações e catálogo local:
 - `/items` — CRUD; lista root exige header; criação deriva de `holdingId`; operações por ID derivam de `Item → Holding → Edition → Work`. Escritas exigem STAFF+.
 - `/external-identifiers` — `GET` root exige header, filtra por Organization e aceita apenas entityType/entityId/authority como filtros. `POST` deriva Organization de Work, Edition, Library, Location, Holding ou Item; `GET/PUT/DELETE :id` usam a Organization persistida. Leituras requerem membership e escritas STAFF+; update não altera o vínculo entityType/entityId.
 - Não existe `/contributors`; os modelos `Contributor`, `WorkContributor` e `EditionContributor` não fazem parte do schema/baseline.
-- `/contributions` — `POST` manual canónico; exactamente um `workId`/`editionId`, Organization derivada do target, Agent no mesmo tenant, header opcional de consistência e STAFF+. `source=MANUAL` é atribuído pelo servidor.
+- `/agents` — `GET` (raiz, contexto explícito, cursor, filtro `kind`) e `POST` (raiz, STAFF+); `GET/PATCH/DELETE /agents/:id` com Organization derivada do Agent (escrita STAFF+, não-membro mascarado como `RESOURCE_NOT_FOUND`). Duplicado `kind`+nome normalizado → `CONFLICT_DUPLICATE_RESOURCE`; apagar Agent com Contributions → `CONFLICT_FOREIGN_KEY_REFERENCE`. Sem `organizationId` no body/query.
+- `/contributions` — `GET` raiz (contexto explícito, cursor, filtros `workId`/`editionId`/`agentId`) e `GET/PATCH/DELETE /contributions/:id` (Organization derivada do Work/Edition; PATCH só `roleLabel`/`sortOrder`; target e Agent imutáveis; escrita STAFF+). `POST` manual canónico; exactamente um `workId`/`editionId`, Organization derivada do target, Agent no mesmo tenant, header opcional de consistência e STAFF+. `source=MANUAL` é atribuído pelo servidor.
 - `/bibliographic-records/:id` — `GET` read-only; Organization deriva de
   `BibliographicRecord → Edition → Work`; header opcional só confirma igualdade
   e a leitura requer membership. Não há root list nem rotas próprias de escrita;
@@ -363,7 +364,7 @@ Os comandos são procedimentos de validação, não afirmação de que foram cor
 ## Limitações conhecidas consolidadas
 
 1. A migração do contexto é parcial: Organizations/Works/Editions/Libraries/Locations/Holdings/Items, catalogue import, `POST /contributions`, leitura de Bibliographic Records/Covers e export por Edition usam contexto explícito ou derivado. `getDefaultOrganization()` permanece apenas usado pelo onboarding pessoal.
-2. Sem gestão de memberships/convites/roles, branches, Campus, ServicePoint, auditoria ou circulação; Item não representa empréstimos nem estado de circulação. O CRUD administrativo de Agents permanece fora do âmbito.
+2. Sem gestão de memberships/convites/roles, branches, Campus, ServicePoint, auditoria ou circulação; Item não representa empréstimos nem estado de circulação. O CRUD de Agents e Contributions (list/get/PATCH/DELETE) está implementado; o modelo mantém `displayName`/`kind`/`workId`/`editionId`/`roleLabel` (sem schema/migration novos nem alteração de frontend); Agents ainda sem merge/autoridade.
 3. Confirmação de import sem preview snapshot; campos de contribuição de origem do import são editáveis pelo cliente.
 4. CRUD regular de Work/Edition ainda não mantém sempre relações de títulos/línguas canónicas; `$h/$i` parseados não são persistidos estruturadamente.
 5. Proveniência de Records limitada; não há snapshot do preview nem versionamento/hash do raw record.

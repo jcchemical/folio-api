@@ -87,6 +87,16 @@ describe('Canonical Contribution route (e2e)', () => {
     let generatedAgent = 0;
     let generatedContribution = 0;
 
+    const expand = (row: Record<string, unknown>) => ({
+      ...row,
+      agent: agentMap.get(String(row.agentId)),
+      sourceParts: [],
+      work: row.workId ? workMap.get(String(row.workId)) : null,
+      edition: row.editionId ? editionMap.get(String(row.editionId)) : null,
+    });
+    const ownerOf = (row: ReturnType<typeof expand>) =>
+      (row.work ?? row.edition?.work)?.organizationId;
+
     const prisma = {
       organization: {
         findUnique: async ({ where }: { where: { id: string } }) =>
@@ -163,6 +173,7 @@ describe('Canonical Contribution route (e2e)', () => {
           generatedContribution += 1;
           const row = {
             id: `c${(100 + generatedContribution).toString().padStart(24, '0')}`,
+            createdAt: new Date(2026, 0, generatedContribution),
             ...data,
           };
           rows.push(row);
@@ -172,6 +183,68 @@ describe('Canonical Contribution route (e2e)', () => {
             sourceParts: [],
             include,
           };
+        },
+        findUnique: async ({ where }: { where: { id: string } }) => {
+          const row = rows.find((entry) => entry.id === where.id);
+          return row ? expand(row) : null;
+        },
+        findMany: async ({
+          where,
+          take,
+          cursor,
+          skip,
+        }: {
+          where: {
+            AND: Array<
+              | { OR: Array<{ work?: { organizationId: string } }> }
+              | Record<string, string>
+            >;
+          };
+          take: number;
+          cursor?: { id: string };
+          skip?: number;
+        }) => {
+          const organizationId = (
+            where.AND[0] as { OR: Array<{ work: { organizationId: string } }> }
+          ).OR[0].work.organizationId;
+          const filters = where.AND.slice(1) as Array<Record<string, string>>;
+          let found = rows
+            .map(expand)
+            .filter(
+              (row) =>
+                ownerOf(row) === organizationId &&
+                filters.every((filter) =>
+                  Object.entries(filter).every(
+                    ([key, value]) => row[key] === value,
+                  ),
+                ),
+            )
+            .sort(
+              (left, right) =>
+                (right.createdAt as Date).getTime() -
+                (left.createdAt as Date).getTime(),
+            );
+          if (cursor) {
+            const index = found.findIndex((row) => row.id === cursor.id);
+            found = index < 0 ? [] : found.slice(index + (skip ?? 0));
+          }
+          return found.slice(0, take);
+        },
+        update: async ({
+          where,
+          data,
+        }: {
+          where: { id: string };
+          data: Record<string, unknown>;
+        }) => {
+          const row = rows.find((entry) => entry.id === where.id)!;
+          Object.assign(row, data);
+          return expand(row);
+        },
+        delete: async ({ where }: { where: { id: string } }) => {
+          const index = rows.findIndex((entry) => entry.id === where.id);
+          const [row] = rows.splice(index, 1);
+          return expand(row);
         },
       },
       $transaction: async (callback: (transaction: unknown) => unknown) =>
@@ -292,6 +365,202 @@ describe('Canonical Contribution route (e2e)', () => {
         (agent) => agent.displayName === manualAgentDraft.displayName,
       ),
     ).toEqual([]);
+  });
+
+  async function seed() {
+    const ids: string[] = [];
+    for (const body of [
+      { workId: workAId, agentId: agentAId, roleLabel: 'author' },
+      { editionId: editionAId, agentId: agentAId, roleLabel: 'editor' },
+    ]) {
+      const { body: created } = await request(app.getHttpServer())
+        .post('/contributions')
+        .send(body)
+        .expect(201);
+      ids.push(created.id);
+    }
+    currentUserId = 'user-b';
+    const { body: inB } = await request(app.getHttpServer())
+      .post('/contributions')
+      .send({ workId: workBId, agentId: agentBId })
+      .expect(403);
+    expect(inB.code).toBe('ORGANIZATION_ROLE_INSUFFICIENT');
+    currentUserId = 'user-a';
+    const { body: createdB } = await request(app.getHttpServer())
+      .post('/contributions')
+      .send({ workId: workBId, agentId: agentBId })
+      .expect(201);
+    ids.push(createdB.id);
+    return ids;
+  }
+
+  it('lists only the explicit Organization with filters and cursor pagination', async () => {
+    const [workContribution, editionContribution, orgBContribution] =
+      await seed();
+    await request(app.getHttpServer())
+      .get('/contributions')
+      .expect(400)
+      .expect(({ body }) =>
+        expect(body.code).toBe('ORGANIZATION_CONTEXT_REQUIRED'),
+      );
+    await request(app.getHttpServer())
+      .get('/contributions')
+      .set(header, orgA)
+      .query({ organizationId: orgB })
+      .expect(400);
+
+    const first = await request(app.getHttpServer())
+      .get('/contributions')
+      .set(header, orgA)
+      .query({ limit: 1 })
+      .expect(200);
+    expect(first.body.items.map((row: { id: string }) => row.id)).toEqual([
+      editionContribution,
+    ]);
+    expect(first.body.hasMore).toBe(true);
+    const second = await request(app.getHttpServer())
+      .get('/contributions')
+      .set(header, orgA)
+      .query({ limit: 1, cursor: first.body.nextCursor })
+      .expect(200);
+    expect(second.body.items.map((row: { id: string }) => row.id)).toEqual([
+      workContribution,
+    ]);
+    expect(second.body.hasMore).toBe(false);
+
+    await request(app.getHttpServer())
+      .get('/contributions')
+      .set(header, orgA)
+      .query({ workId: workAId })
+      .expect(200)
+      .expect(({ body }) =>
+        expect(body.items.map((row: { id: string }) => row.id)).toEqual([
+          workContribution,
+        ]),
+      );
+    await request(app.getHttpServer())
+      .get('/contributions')
+      .set(header, orgB)
+      .expect(200)
+      .expect(({ body }) =>
+        expect(body.items.map((row: { id: string }) => row.id)).toEqual([
+          orgBContribution,
+        ]),
+      );
+    currentUserId = 'user-b';
+    await request(app.getHttpServer())
+      .get('/contributions')
+      .set(header, orgA)
+      .expect(403)
+      .expect(({ body }) =>
+        expect(body.code).toBe('ORGANIZATION_MEMBERSHIP_REQUIRED'),
+      );
+  });
+
+  it('fetches by id for members and masks other Organizations as RESOURCE_NOT_FOUND', async () => {
+    const [workContribution, , orgBContribution] = await seed();
+    await request(app.getHttpServer())
+      .get(`/contributions/${workContribution}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.id).toBe(workContribution);
+        expect(body).not.toHaveProperty('work');
+      });
+    currentUserId = 'user-b';
+    await request(app.getHttpServer())
+      .get(`/contributions/${orgBContribution}`)
+      .expect(200);
+    await request(app.getHttpServer())
+      .get(`/contributions/${workContribution}`)
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+    await request(app.getHttpServer())
+      .get(`/contributions/c${'9'.repeat(24)}`)
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+  });
+
+  it('updates and deletes by STAFF, immutably binds target and agent, and denies Reader before mutation', async () => {
+    const [workContribution, editionContribution, orgBContribution] =
+      await seed();
+    await request(app.getHttpServer())
+      .patch(`/contributions/${workContribution}`)
+      .send({ roleLabel: 'translator', sortOrder: 2 })
+      .expect(200)
+      .expect(({ body }) =>
+        expect(body).toMatchObject({
+          roleLabel: 'translator',
+          sortOrder: 2,
+          workId: workAId,
+        }),
+      );
+    for (const field of [
+      { workId: workBId },
+      { editionId: editionBId },
+      { agentId: agentBId },
+      { organizationId: orgB },
+    ]) {
+      await request(app.getHttpServer())
+        .patch(`/contributions/${workContribution}`)
+        .send(field)
+        .expect(400)
+        .expect(({ body }) =>
+          expect(body.code).toBe('VALIDATION_INVALID_BODY'),
+        );
+    }
+    await request(app.getHttpServer())
+      .patch(`/contributions/${workContribution}`)
+      .set(header, orgB)
+      .send({ roleLabel: 'x' })
+      .expect(409)
+      .expect(({ body }) =>
+        expect(body.code).toBe('ORGANIZATION_CONTEXT_CONFLICT'),
+      );
+
+    currentUserId = 'user-b';
+    await request(app.getHttpServer())
+      .patch(`/contributions/${orgBContribution}`)
+      .send({ roleLabel: 'reader' })
+      .expect(403)
+      .expect(({ body }) =>
+        expect(body.code).toBe('ORGANIZATION_ROLE_INSUFFICIENT'),
+      );
+    await request(app.getHttpServer())
+      .delete(`/contributions/${orgBContribution}`)
+      .expect(403)
+      .expect(({ body }) =>
+        expect(body.code).toBe('ORGANIZATION_ROLE_INSUFFICIENT'),
+      );
+    await request(app.getHttpServer())
+      .delete(`/contributions/${editionContribution}`)
+      .expect(404);
+    expect(rows).toHaveLength(3);
+
+    currentUserId = 'user-a';
+    await request(app.getHttpServer())
+      .delete(`/contributions/${editionContribution}`)
+      .expect(200);
+    expect(rows.map((row) => row.id)).toEqual([
+      workContribution,
+      orgBContribution,
+    ]);
+    expect(agentMap.has(agentAId)).toBe(true);
+  });
+
+  it('rejects invalid agentId and invalid targets without creating records', async () => {
+    await request(app.getHttpServer())
+      .post('/contributions')
+      .send({ workId: workAId, agentId: `c${'9'.repeat(24)}` })
+      .expect(404);
+    await request(app.getHttpServer())
+      .post('/contributions')
+      .send({ workId: `c${'9'.repeat(24)}`, agentId: agentAId })
+      .expect(404);
+    await request(app.getHttpServer())
+      .post('/contributions')
+      .send({ editionId: `c${'9'.repeat(24)}`, agentId: agentAId })
+      .expect(404);
+    expect(rows).toEqual([]);
   });
 
   it('keeps legacy Contributor routes absent and returns the stable error envelope', async () => {
