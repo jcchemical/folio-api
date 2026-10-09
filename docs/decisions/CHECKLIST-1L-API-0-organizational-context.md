@@ -1,8 +1,9 @@
 # Checklist: 1L-API.0 Organizational Context and Domain Structure
 
-**Status:** Partially implemented; remaining route groups continue under the approved target model
+**Status:** Core route groups implemented in code and tests; isolated-database
+integration and cross-repository smoke remain open
 
-**Date:** 2026-10-07
+**Date:** 2026-10-09
 
 **Scope:** `folio-api` schema, migrations, HTTP contracts, authorization, tests and documentation
 
@@ -12,7 +13,7 @@
 
 This checklist translates the three organizational/domain decisions into one backend implementation plan. The current implementation is a baseline to replace, not a compatibility requirement. The development database may be reset; there are no production data or external consumers to preserve. Do not add compatibility bridges, fallback periods, or migration-safe layering.
 
-The original 2026-10-06 baseline described `Organization → Work → Edition → Item`, lacked `Library`, `Location`, and `Holding`, and had implicit tenant fallbacks. That paragraph is a historical baseline, not the current API state. As of 2026-10-07, the Prisma baseline contains `Organization → Library → Location` and `Organization → Work → Edition → Holding → Item`; Organizations, Works, Editions, Libraries, Locations, Holdings, and Items use explicit root or persisted-parent context. Remaining groups and legacy models below are not implied complete by this physical-inventory slice.
+The original 2026-10-06 baseline described `Organization → Work → Edition → Item`, lacked `Library`, `Location`, and `Holding`, and had implicit tenant fallbacks. That paragraph is a historical baseline, not the current API state. The Prisma baseline now contains `Organization → Library → Location` and `Organization → Work → Edition → Holding → Item`; Organizations, Works, Editions, Libraries, Locations, Holdings, Items, External Identifiers, Agents and Contributions use explicit root or persisted-resource context. Sections 4.1–4.7 preserve the execution plan and acceptance gates; bullets written in the imperative are not evidence that work remains open when the route matrix or current code marks it implemented.
 
 ## 2. Normative target model
 
@@ -73,7 +74,7 @@ Do **not** require a header merely because an operation creates a scoped row. In
 | Root `/external-identifiers` list | Explicit root context | **Implemented 2026-10-08:** require header; filter by persisted `organizationId`; only `entityType`, `entityId`, and `authority` refine results; use shared cursor pagination. |
 | External identifier create | Child binding to one persisted Work, Edition, Library, Location, Holding, or Item | **Implemented 2026-10-08:** derive tenant from canonical target; Holding and Item require both inventory parent paths to resolve to the same Organization; optional header is a consistency check; STAFF+ required. |
 | External identifier detail/update/delete | Persisted identifier | **Implemented 2026-10-08:** derive tenant from its persisted Organization; hide missing membership as `RESOURCE_NOT_FOUND`; validate optional header; STAFF+ writes. Entity binding is immutable on update. |
-| External identifier orphan cleanup | Owning entity deletion (Work, Edition, Library, Location, Holding, Item) | **Implemented 2026-10-09:** each entity `remove` runs `$transaction` that `deleteMany`s External Identifiers by `entityType` + `entityId`, then deletes the entity. No schema, API or error-code change. |
+| External identifier cleanup | Direct deletion of Work, Edition, Library, Location, Holding or Item | **Direct-target cleanup implemented 2026-10-09:** each entity `remove` deletes External Identifiers for its own `entityType` + `entityId` in the transaction. This does not clean identifiers of descendants removed by cascades; Work→Edition→Holding→Item and Library→Location cascade paths remain an integrity risk to prove and close against an isolated database. |
 | `POST /contributions` | Child association to exactly one persisted Work or Edition | **Implemented 2026-10-07:** derive Organization from target; validate Agent belongs to same Organization; optional header must match; STAFF+ required; source is server-assigned MANUAL. |
 | `/agents`, `/agents/:id`, `GET/PATCH/DELETE /contributions` | Root list/create with explicit context; resource routes with derived context | **Implemented 2026-10-09:** Agent CRUD (STAFF+ writes, duplicate and FK-reference conflicts); Contribution list/get/PATCH/DELETE derive Organization from Work/Edition, target and Agent immutable; no schema change. |
 | Contribution reads, where exposed | Persisted Work/Edition target | Derive and validate target Organization. |
@@ -121,7 +122,11 @@ Before coding controllers, enumerate every existing and new route and record met
 - Derive context for child creates from persisted Organization/Library/Work/Edition/Holding parents as applicable; validate cross-parent equality for Holding's Edition and Location.
 - Keep resource-specific operations derived from persisted resources; when header is present, compare and fail on mismatch.
 - Remove `organizationId` from Work and catalogue-import bodies and remove any redundant tenant fields/params/query inputs. Remove Item's direct Edition target in favor of Holding. **Implemented:** Work/Edition/inventory/import request contracts no longer accept competing tenant ownership.
-- Remove tenant authority from External Identifier requests; `organizationId` is derived through Edition → Work and is not persisted on the model. **Implemented:** create requires persisted `editionId`; update changes only identifier fields; list/refinement and raw body/query guards enforce the root/derived contract.
+- Remove tenant authority from External Identifier requests. **Implemented:**
+  create accepts a persisted Work, Edition, Library, Location, Holding or Item
+  target and derives Organization; update keeps `entityType`/`entityId`
+  immutable while allowing `authority` and `value`; list/refinement and raw
+  body/query guards enforce the root/derived contract.
 - Keep external search, auth, users, health, root and Swagger context-free; classify Organizations routes according to §4.1.
 - Update Swagger header parameters, request/response DTOs and examples to match the final route matrix.
 
@@ -193,7 +198,7 @@ Build shared fixtures with at least two users, two organizations, distinct roles
 
 ## 5. Acceptance criteria
 
-`1L-API.0` is complete when:
+Implementation against `1L-API.0` can only be closed when:
 
 - Organization→Library→Location and Work→Edition→Holding→Item are implemented with same-Organization invariants;
 - no Campus or ServicePoint exists without a new decision;
@@ -207,6 +212,13 @@ Build shared fixtures with at least two users, two organizations, distinct roles
 - tests prove tenant isolation with two users and two Organizations;
 - schema/migrations and docs represent the final model;
 - build, lint and API tests pass after implementation.
+- persistence constraints, cascade behavior and migrations are exercised
+  against an approved isolated database;
+- contract/integration tests and cross-repository smoke app→API pass.
+
+Code and local unit tests satisfy most model and route bullets above. The final
+two integration gates remain open; this checklist therefore does not declare
+the phase complete.
 
 ## 6. Explicit non-goals
 

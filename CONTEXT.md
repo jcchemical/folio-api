@@ -1,6 +1,6 @@
 # Contexto de desenvolvimento — Folio API
 
-> Última revisão documental: 2026-10-07.
+> Última revisão documental: 2026-10-09.
 > Este documento descreve o código e schema presentes no repositório nessa data. A existência de uma migration no repositório não prova que esteja aplicada num ambiente concreto.
 
 ## Como ler este documento
@@ -166,7 +166,7 @@ Organizações e catálogo local:
 - `/locations` — CRUD; lista root exige header; criação deriva de `libraryId`; operações por ID derivam de `Location → Library`. Escritas exigem STAFF+.
 - `/holdings` — CRUD; lista root exige header; criação deriva de `editionId` + `locationId` e valida organização comum; operações por ID derivam do Holding. Escritas exigem STAFF+.
 - `/items` — CRUD; lista root exige header; criação deriva de `holdingId`; operações por ID derivam de `Item → Holding → Edition → Work`. Escritas exigem STAFF+.
-- `/external-identifiers` — `GET` root exige header, filtra por Organization e aceita apenas entityType/entityId/authority como filtros. `POST` deriva Organization de Work, Edition, Library, Location, Holding ou Item; `GET/PUT/DELETE :id` usam a Organization persistida. Leituras requerem membership e escritas STAFF+; update não altera o vínculo entityType/entityId.
+- `/external-identifiers` — `GET` root exige header, filtra por Organization e aceita apenas entityType/entityId/authority como filtros. `POST` deriva Organization de Work, Edition, Library, Location, Holding ou Item; `GET/PUT/DELETE :id` usam a Organization persistida. Leituras requerem membership e escritas STAFF+; update mantém `entityType`/`entityId` imutáveis e permite alterar `authority` e `value`.
 - Não existe `/contributors`; os modelos `Contributor`, `WorkContributor` e `EditionContributor` não fazem parte do schema/baseline.
 - `/agents` — `GET` (raiz, contexto explícito, cursor, filtro `kind`) e `POST` (raiz, STAFF+); `GET/PATCH/DELETE /agents/:id` com Organization derivada do Agent (escrita STAFF+, não-membro mascarado como `RESOURCE_NOT_FOUND`). Duplicado `kind`+nome normalizado → `CONFLICT_DUPLICATE_RESOURCE`; apagar Agent com Contributions → `CONFLICT_FOREIGN_KEY_REFERENCE`. Sem `organizationId` no body/query.
 - `/contributions` — `GET` raiz (contexto explícito, cursor, filtros `workId`/`editionId`/`agentId`) e `GET/PATCH/DELETE /contributions/:id` (Organization derivada do Work/Edition; PATCH só `roleLabel`/`sortOrder`; target e Agent imutáveis; escrita STAFF+). `POST` manual canónico; exactamente um `workId`/`editionId`, Organization derivada do target, Agent no mesmo tenant, header opcional de consistência e STAFF+. `source=MANUAL` é atribuído pelo servidor.
@@ -364,7 +364,7 @@ Os comandos são procedimentos de validação, não afirmação de que foram cor
 ## Limitações conhecidas consolidadas
 
 1. A migração do contexto é parcial: Organizations/Works/Editions/Libraries/Locations/Holdings/Items, catalogue import, `POST /contributions`, leitura de Bibliographic Records/Covers e export por Edition usam contexto explícito ou derivado. `getDefaultOrganization()` permanece apenas usado pelo onboarding pessoal.
-2. Sem gestão de memberships/convites/roles, branches, Campus, ServicePoint, auditoria ou circulação; Item não representa empréstimos nem estado de circulação. O CRUD de Agents e Contributions (list/get/PATCH/DELETE) está implementado; o modelo mantém `displayName`/`kind`/`workId`/`editionId`/`roleLabel` (sem schema/migration novos nem alteração de frontend); Agents ainda sem merge/autoridade.
+2. Sem gestão de memberships/convites/roles, branches, Campus, ServicePoint, auditoria ou circulação; Item não representa empréstimos nem estado de circulação. O CRUD de Agents e Contributions (list/get/PATCH/DELETE) está implementado no backend e tem cliente/UI no `folio-app`; a validação de integração e smoke app→API continua pendente. Agents continuam sem merge/autoridade.
 3. Confirmação de import sem preview snapshot; campos de contribuição de origem do import são editáveis pelo cliente.
 4. CRUD regular de Work/Edition ainda não mantém sempre relações de títulos/línguas canónicas; `$h/$i` parseados não são persistidos estruturadamente.
 5. Proveniência de Records limitada; não há snapshot do preview nem versionamento/hash do raw record.
@@ -373,37 +373,20 @@ Os comandos são procedimentos de validação, não afirmação de que foram cor
 8. Storage S3, queue, rate-limit distribuído, request ID e redacção de mensagem/stack de excepções não existem.
 9. Migração `20260907180000_refine_bibliographic_model` declara-se como alvo de reset deliberado de desenvolvimento e executa `DROP TABLE PhysicalDescription`; confirmar estado/impacto do ambiente antes de aplicar migrations. Migrations versionadas não demonstram estado de aplicação remota.
 
-## Roadmap acordado — ordem actualizada
+## Próximos gates
 
-Estado nesta revisão: `1J-API.1` e `1L-DEC.0` estão implementadas/aprovadas;
-Organizations/Works/Editions, a fatia de inventário físico
-(Libraries/Locations/Holdings/Items), catalogue import e `POST /contributions`
-usam contexto explícito ou derivado. A migração de tenancy global continua
-incompleta.
+O backend implementa contexto explícito/derivado nos grupos actualmente
+expostos, incluindo Agents, Contributions e External Identifiers. O cliente já
+implementa selector de Organization, paginação por cursor e as superfícies de
+External Identifiers e Agents/Contributions. Isto não fecha a integração:
 
-### Próxima iteração
-
-1. `1J-FLUTTER.1` — proteger a `CoverCache` contra respostas tardias de pedidos
-   iniciados antes do logout ou mudança de geração de sessão.
-
-### Próxima migração backend
-
-2. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;
-   dependência de contrato e fora do repositório `folio-api`.
-
-3. `1K-API.0` — contrato de listagem, pesquisa e ordenação da biblioteca.
-
-4. `1K-API.1` — pesquisa local PostgreSQL.
-
-5. `1K-FLUTTER.0` — paginação/infinite loading; dependência de contrato.
-
-6. `1K-FLUTTER.1` — pesquisa e ordenação; dependência de contrato.
-
-7. `1L-API.1` — memberships, convites e roles.
-
-8. `1L-FLUTTER.1` — gestão de membros; dependência de contrato.
-
-9. `1M` — separar captura, qualidade, revisão e auditoria.
+1. manter documentação e contratos dos dois repositórios convergentes;
+2. preparar futuramente uma base de teste isolada e descartável, mediante
+   aprovação explícita;
+3. validar contract/integration tests e smoke real app→API nessa base;
+4. só depois decidir o fecho da Phase 7 e o próximo domínio;
+5. tratar pesquisa local, gestão de memberships, captura, auditoria e
+   hardening distribuído como trabalho futuro sujeito a decisão própria.
 
 Direcção futura de pesquisa local: pesquisa Folio distinta de providers externos; extensão controlada de `GET /works`; PostgreSQL full-text (`tsvector`, ranking e GIN), cursor compatível com ordenação; trigramas só com justificação medida. Sem Elasticsearch/Redis nesta fase.
 

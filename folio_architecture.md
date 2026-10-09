@@ -1,6 +1,6 @@
 # Reavaliação arquitectural — Folio API
 
-> Revisão: 2026-10-07. Este documento avalia a direcção e riscos arquitecturais; `CONTEXT.md` é a referência operacional do estado detalhado das rotas e configuração.
+> Revisão: 2026-10-09. Este documento avalia a direcção e riscos arquitecturais; `CONTEXT.md` é a referência operacional do estado detalhado das rotas e configuração.
 
 ## 1. Síntese executiva
 
@@ -72,10 +72,28 @@ Empréstimo, devolução, reserva, políticas e multas são conceitos próprios.
 
 ### Identity, Organization e catálogo
 
-Há self-service de organizações, mas não há selecção de organização activa, memberships administráveis, convites, alteração de roles ou branches. As rotas de Organizations/Works/Editions/Libraries/Locations/Holdings/Items/External Identifiers/Contributions/Bibliographic Records/Exports e a confirmação de import usam contexto explícito ou derivado. `/agents` (CRUD; raiz com contexto explícito, recurso com contexto derivado) e `GET/PATCH/DELETE /contributions` (Organization derivada do Work/Edition; PATCH só `roleLabel`/`sortOrder`) seguem o mesmo modelo, sem alteração de schema. `POST /contributions` deriva tenant do único Work/Edition target; Agent tem de estar na mesma Organization e `source=MANUAL` é atribuído pelo servidor. `GET /bibliographic-records/:id` e `GET /exports/marcxchange/edition/:editionId` derivam Organization da Edition → Work e aceitam header opcional de consistência. Operações derivadas de Libraries/Locations/Holdings/Items mascaram como `RESOURCE_NOT_FOUND` (mesmo status, código e mensagem de um ID inexistente) a existência de recursos ou parents noutra Organization sem membership; o export aplica a mesma política. O header malformado não é mascarado; para membros, header divergente continua `ORGANIZATION_CONTEXT_CONFLICT`. Na criação de Holding, memberships nos dois parents são confirmadas antes de comparar o header ou revelar que Edition e Location pertencem a Organizations diferentes; falta de membership em qualquer parent continua indistinguível de inexistência. Listas root mantêm `ORGANIZATION_MEMBERSHIP_REQUIRED` para Organization explícita. O export exige membership Reader+ e valida contexto antes de carregar o grafo. As rotas e modelos Contributor legacy foram removidos. `POST /catalogues/import` exige header e STAFF+; o Work recebe Organization apenas do header e Editions derivam do Work. `POST /catalogues/search` permanece externo/context-free. `getDefaultOrganization()` permanece usado pelo onboarding pessoal, não por estas rotas.
-Há self-service de organizações, mas não há selecção de organização activa, memberships administráveis, convites, alteração de roles ou branches. As rotas de Organizations/Works/Editions/Libraries/Locations/Holdings/Items/External Identifiers/Contributions/Bibliographic Records/Exports e a confirmação de import usam contexto explícito ou derivado. External Identifiers suportam bindings de Work, Edition, Library, Location, Holding e Item; cada registo persiste Organization e deriva o tenant do alvo na criação. O root list exige header e suporta apenas entityType/entityId/authority, cursor e limit; operações por ID usam ownership persistido. Leitura requer membership e escrita STAFF+; Organization não é aceite no body. `authority` é um namespace livre não vazio, por exemplo isbn-13, isbn-10, issn, doi, lccn, oclc, viaf, isni, wikidata ou local. Ainda não há implementação frontend desta entidade. `POST /contributions` deriva tenant do único Work/Edition target; Agent tem de estar na mesma Organization e `source=MANUAL` é atribuído pelo servidor. `GET /bibliographic-records/:id` e `GET /exports/marcxchange/edition/:editionId` derivam Organization da Edition → Work e aceitam header opcional de consistência. Operações derivadas de Libraries/Locations/Holdings/Items mascaram como `RESOURCE_NOT_FOUND` (mesmo status, código e mensagem de um ID inexistente) a existência de recursos ou parents noutra Organization sem membership; o export aplica a mesma política. O header malformado não é mascarado; para membros, header divergente continua `ORGANIZATION_CONTEXT_CONFLICT`. Na criação de Holding, memberships nos dois parents são confirmadas antes de comparar o header ou revelar que Edition e Location pertencem a Organizations diferentes; falta de membership em qualquer parent continua indistinguível de inexistência. Listas root mantêm `ORGANIZATION_MEMBERSHIP_REQUIRED` para Organization explícita. O export exige membership Reader+ e valida contexto antes de carregar o grafo. As rotas e modelos Contributor legacy foram removidos. `POST /catalogues/import` exige header e STAFF+; o Work recebe Organization apenas do header e Editions derivam do Work. `POST /catalogues/search` permanece externo/context-free. `getDefaultOrganization()` permanece usado pelo onboarding pessoal, não por estas rotas.
+Há self-service de organizações, mas não há administração de memberships,
+convites, alteração de roles ou branches. A app já mantém Organization activa e
+selector explícito; isso é estado do cliente, não um claim no JWT nem fallback
+do backend. As rotas de
+Organizations/Works/Editions/Libraries/Locations/Holdings/Items/External
+Identifiers/Agents/Contributions/Bibliographic Records/Exports e a confirmação
+de import usam contexto explícito ou derivado. External Identifiers suportam
+Work, Edition, Library, Location, Holding e Item; `entityType`/`entityId` são
+imutáveis e `authority`/`value` são mutáveis no backend. A app expõe actualmente
+edição apenas de `value`, como capacidade de UI mais restrita. Agents e
+Contributions usam o modelo canónico, sem rotas ou fallback Contributor.
+`POST /catalogues/import` exige header e STAFF+; a estrutura confirmada continua
+editável pelo cliente e não constitui proveniência autenticada contra o raw.
+Selector, paginação e superfícies de Agents/Contributions e External Identifiers
+existem no cliente, mas smoke real app→API continua pendente.
 
-External Identifiers (`Work`, `Edition`, `Library`, `Location`, `Holding`, `Item`) não têm FK polimórfica; a limpeza é feita ao nível do serviço: cada `remove` das seis entidades corre numa `$transaction` que apaga os External Identifiers por `entityType` + `entityId` e depois a entidade, sem orphans, sem cascade na base de dados e sem alterações de schema, de API ou de frontend.
+External Identifiers (`Work`, `Edition`, `Library`, `Location`, `Holding`,
+`Item`) não têm FK polimórfica. Cada `remove` directo das seis entidades limpa
+os identifiers do próprio alvo na mesma transacção. Isto não prova cleanup de
+identifiers de descendentes removidos por cascatas Work→Edition→Holding→Item ou
+Library→Location; esse lifecycle continua dívida de integridade a validar numa
+base isolada.
 
 PORBASE aceita variantes de pesquisa no DTO, mas implementa só ISBN. O preview não persiste. A confirmação envia o payload editável completo e não usa snapshot server-side nem repesquisa. Campos de metadata de contribuições (`sourceTag`, indicadores e source parts) continuam aceites no DTO de confirmação; a origem é marcada pelo servidor, mas a estrutura de origem apresentada pelo cliente não é autenticada contra o raw record. A rota manual de Contribution tem validação mais estrita. Esta fronteira merece decisão de segurança própria.
 
@@ -148,7 +166,10 @@ O repositório contém migrations, mas estado aplicado depende de cada ambiente.
 
 ### Contexto organizacional explícito
 
-`1L-DEC.0` está aprovada e o header `X-Folio-Organization-Id` e respectivos códigos estáveis estão implementados nas áreas migradas. A migração backend continua parcial; o selector/invalidação de contexto no cliente é dependência de contrato fora do escopo deste repositório.
+`1L-DEC.0` está aprovada e o header `X-Folio-Organization-Id` e respectivos
+códigos estáveis estão implementados nas áreas migradas. O selector,
+invalidação de contexto e paginação por cursor estão implementados no cliente;
+a validação de integração/smoke real continua pendente.
 
 ### Busca local
 
@@ -162,32 +183,14 @@ Completar primeiro a associação Candidate/Asset/EditionCover, idempotência e 
 
 Adicionar auditoria de acções sem event sourcing completo. Na iteração `1M`, separar `ScanCapture`, maturidade/qualidade catalográfica, `ReviewTask` e `AuditEvent`; não os colapsar num enum `captured/identified/provisional/needsReview/validated` sem decisão de domínio.
 
-## 8. Roadmap acordado — ordem actualizada
+## 8. Próximos gates
 
-Estado nesta revisão: `1J-API.1` e `1L-DEC.0` estão implementadas/aprovadas; Organizations, Works, Editions e a cadeia de inventário físico estão migradas. Os restantes grupos de tenancy continuam pendentes.
-
-### Próximas iterações
-
-1. `1J-FLUTTER.1` — proteger a `CoverCache` contra respostas tardias de pedidos
-	iniciados antes do logout ou mudança de geração de sessão.
-
-2. `1L-FLUTTER.0` — selector de organização e invalidação de estado scoped;
-	dependência de contrato e fora do repositório `folio-api`.
-
-3. `1K-API.0` — contrato de listagem, pesquisa e ordenação da biblioteca.
-
-4. `1K-API.1` — pesquisa local PostgreSQL.
-
-5. `1K-FLUTTER.0` — paginação/infinite loading; dependência de contrato.
-
-6. `1K-FLUTTER.1` — pesquisa e ordenação; dependência de contrato.
-
-7. `1L-API.1` — memberships, convites e roles.
-
-8. `1L-FLUTTER.1` — gestão de membros; dependência de contrato.
-
-9. `1M` — captura, qualidade catalográfica, tarefas de revisão e auditoria como
-	 conceitos separados.
+1. Convergir documentação e contrato entre API e app.
+2. Preparar futuramente uma base isolada e descartável, mediante aprovação.
+3. Executar contract/integration tests e smoke app→API nessa base.
+4. Não declarar Phase 7 concluída antes desse gate.
+5. Decidir depois o próximo domínio; pesquisa, memberships, captura, auditoria,
+   storage/queue distribuídos e restante hardening mantêm-se futuros.
 
 ## 9. Não-objectivos
 

@@ -1,125 +1,121 @@
-# Folio App — Agent Guidance
+# Folio API — Agent Guidance
 
-## Greenfield e ausência de compatibilidade obrigatória
+## Âmbito e fontes normativas
 
-Este repositório pertence a um produto em fase inicial. O código existente é apenas o estado actual do trabalho, não uma obrigação arquitectural.
+Este guia aplica-se exclusivamente a `folio-api`, um backend NestJS 12,
+TypeScript ESM, Prisma 7 e PostgreSQL, com testes Vitest.
 
-Antes de preservar uma API, campo, migration, fallback ou comportamento, pergunta se existe uma razão real de produto. Se não existir, podes alterá-lo ou removê-lo.
+Antes de alterar comportamento, ler:
 
-A base de dados de desenvolvimento pode ser resetada. Breaking changes coordenadas entre `folio-api` e `folio-app` são permitidas.
+- `CONTEXT.md`, fonte operacional do estado actual;
+- `folio_architecture.md`, direcção e riscos arquitecturais;
+- `prisma/schema.prisma` e migrations relevantes;
+- decisões em `docs/decisions/`;
+- DTOs, controllers, services e testes da capacidade afectada.
 
-Não criar dívida técnica transitória para proteger:
+Quando documentação histórica contradiz código, schema, testes ou uma decisão
+aprovada mais recente, não preservar o comportamento antigo por compatibilidade.
+Actualizar a documentação activa quando o contrato mudar.
 
-- dados de teste;
-- consumidores inexistentes;
-- contratos internos provisórios;
-- implementações que contradizem a arquitectura aprovada.
+## Greenfield e compatibilidade
 
-Quando uma decisão nova substituir uma decisão antiga, actualizar schema, código, testes, migrations e documentação para representar apenas o desenho novo.
+O produto está numa fase greenfield controlada. Código, fixtures e contratos
+internos provisórios não justificam aliases, payloads duplos, rotas legacy,
+fallbacks tenant ou migrations de compatibilidade.
 
-## Project context
+Não reintroduzir `Contributor`, `WorkContributor` ou `EditionContributor`.
+Participações usam exclusivamente `Agent + Contribution`.
 
-- Read `CONTEXT.md` before changing application behavior. It is the source of truth for the current Flutter app, API surface, data model, development assumptions, limitations, and planned architecture.
-- Treat `CONTEXT.md` as a distinction between implemented behavior and future direction. Do not implement future decisions unless the task explicitly requests them.
-- This is a Flutter/Dart client using Material 3, Riverpod, Dio, go_router and flutter_secure_storage.
-- Application code lives in `lib/`; tests live in `test/`; platform-specific configuration lives under `android/`, `ios/`, `web/`, `windows/`, `linux/`, `macos/`.
-- The backend lives in the sibling repository `../folio-api`; do not duplicate backend decisions or implementation here.
+Não assumir que uma migration versionada foi aplicada a qualquer base. Alterar
+schema exige uma migration revista; nunca executar reset ou migration sem
+autorização explícita e confirmação do ambiente.
 
-## Scope and architecture
+## Organização, tenancy e autorização
 
-- The Flutter app communicates exclusively with the Folio API. Never contact PORBASE or other bibliographic sources directly.
-- Use `--dart-define=API_BASE_URL=...` for configuration; never hardcode production URLs, tokens or credentials.
-- Do not use `dart:io` in shared code. Platform-specific integrations must live behind injectable interfaces and conditional imports.
-- Prefer injectable interfaces and local fakes in tests. The UI must not contain bibliographic, authorization or persistence rules.
+`Organization` é a única fronteira de tenancy. O JWT identifica o utilizador,
+não uma Organization activa.
 
-## Code conventions
+- Operações root ou ambíguas exigem `X-Folio-Organization-Id` explícito.
+- Criações filhas derivam Organization do parent persistido.
+- Operações sobre recursos existentes derivam Organization do recurso.
+- Um header numa operação derivada é apenas uma verificação de consistência.
+- `organizationId` no body, query ou JWT nunca é autoridade de tenant.
+- Não seleccionar silenciosamente a primeira membership, a mais antiga ou uma
+  Organization `OWNER`; não agregar implicitamente todas as memberships.
+- Membership, role e autorização de domínio são sempre validadas no backend.
 
-- Use Material 3.
-- Organize by feature in `lib/features/`.
-- Keep cross-cutting code in `lib/core/`.
-- Keep pages, state, API and models separate.
-- Use Riverpod for state management.
-- Use go_router for navigation.
-- Use Dio for HTTP.
-- Use flutter_secure_storage only for tokens.
-- Never log access tokens or credentials.
-- Use `--dart-define=API_BASE_URL=...` for configuration.
-- Handle loading, error and empty states explicitly.
-- Create adaptive widgets; do not duplicate apps for Web and mobile.
-- The current authentication provider composition lives in `lib/features/auth/presentation/auth_controller.dart`; maintain a single composition pattern when adding features.
+As cadeias canónicas são:
 
-## Bibliographic model and profile mappers
+```text
+Catalogue: Work → Edition
+Physical inventory: Library → Location → Holding → Item
+Participation: Agent + Contribution
+```
 
-- Treat the persisted Folio bibliographic domain as canonical; do not model Prisma as UNIMARC, MARC 21, MARCXchange, MARCXML or ISO 2709.
-- Keep the pipeline `canonical Folio model → profile mapper → MarcRecord → serializer → output format`.
-- Keep imports separate: `external payload → parser → MarcRecord → profile import mapper → preview → explicit confirmation → persistence`.
-- Preserve literals, order, repetition, indicators and supported unknown parts where applicable; never invent bibliographic values silently.
-- Mappers must expose structured warnings, unmapped fields and potentially lossy conversions. Local export uses persisted Folio data, not provider `rawContent`.
-- Keep MARCXchange and MARCXML as separate serializers/endpoints. Do not implement organization-level profile selection or automatic profile conversion unless explicitly requested.
+Holding liga Edition e Location da mesma Organization. Item pertence apenas a
+Holding. Contribution aponta para exactamente um Work ou Edition, e Agent e
+alvo têm de pertencer à mesma Organization.
 
-## Agents and Contributions
+## Contratos HTTP e validação
 
-- Do not treat `Agent.displayName` as an authority-controlled preferred form.
-- `Agent` is scoped to Organization; validate Agent/target Organization equality in every Contribution write.
-- A Contribution targets exactly one Work or Edition; preserve the SQL XOR invariant.
-- The manual `POST /contributions` DTO must not accept client-controlled source, normalized name, 7XX tag, indicators or source parts; the server assigns `MANUAL`.
-- PORBASE parsing and persistence preserve supported 7XX tags, indicators, source-part order, repeated codes and literal values.
-- Catalogue import is a separate confirmation contract: it accepts client-edited Contribution tags, indicators and source parts, while the server assigns `PORBASE`. These fields are not verified against `rawContent`; do not describe them as authenticated source metadata or redesign this boundary without an explicit decision.
-- Use only canonical `Agent + Contribution`; never merge or fall back to legacy `Contributor` sets. The legacy Contributor models/routes/projections are removed.
-- Do not infer Work versus Edition scope from a 7XX tag, `$4`, or role text.
-- Keep authority control and other 7XX families out of scope unless explicitly requested.
+- Manter controllers finos e regras em services/use cases testáveis.
+- Usar DTOs de classe e `class-validator`; validar estruturas nested com
+  `@ValidateNested` e `@Type`.
+- Preservar o envelope estável
+  `{ statusCode, error, code, message, details? }`.
+- Não usar mensagens humanas como contrato nem inferir códigos pelo texto.
+- Não devolver mensagens, stacks, Prisma metadata, SQL, paths ou segredos em
+  respostas de produção.
+- Usar `NestJS Logger`; nunca registar passwords, tokens, cookies,
+  authorization headers, secrets ou `DATABASE_URL`.
+- Não aceitar proveniência enviada pelo cliente como autenticada. Na confirmação
+  PORBASE, campos editáveis não são prova de correspondência com `rawContent`.
 
-## Internationalization and error codes
+External Identifiers usam binding imutável `entityType` + `entityId`; o backend
+actual permite alterar `authority` e `value`. A Organization deriva do alvo na
+criação e do identifier persistido nas operações por ID.
 
-- Do not add new user-facing hardcoded strings in Flutter; add localization keys.
-- Use generated `AppLocalizations` and ARB files in `lib/l10n/` for every Flutter UI message. The supported product locales are `pt-PT` and `en`; use the supported device locale with `pt-PT` fallback. Do not add a language picker or persisted locale preference unless explicitly requested.
-- API errors consumed by clients must use stable `code` values; do not make UI logic depend on English exception messages.
-- Parse `{ statusCode, error, code, message, details? }` through the central Flutter API-error helper. Map known codes to feature failure enums, use HTTP status only when code is absent, and never branch on or display API human-readable error messages as the localization contract.
-- PORBASE warnings may include stable codes; localize known warning codes while preserving original/normalized bibliographic values verbatim. Unknown or legacy warning codes may use the existing safe fallback.
-- Treat publicationDate as bibliographic text, not a DateTime for UI formatting.
-- Localize only UI labels around MARC/UNIMARC values; preserve tags, subfield codes and bibliographic values verbatim. Format system event dates/times and numbers with the active locale only when those UI values are introduced.
+## Prisma e migrations
 
-## Organization and security
+- Reutilizar `PrismaService` e transacções existentes.
+- Preservar constraints SQL, cascades e invariantes cross-model.
+- Rever efeitos `Cascade`, `Restrict`, `SetNull` e cleanup polimórfico antes de
+  alterar deletes.
+- Não editar migrations aplicadas como atalho; criar uma migration própria
+  quando uma alteração de schema for aprovada.
+- Nunca executar `migrate`, `db push`, seed ou consultas a bases sem autorização
+  explícita para essa tarefa.
 
-- Keep responsibilities separated: `*Api` knows endpoints/payloads, `*Repository` handles persistence and error translation, and controllers/pages coordinate state and presentation.
-- Prefer injectable interfaces and local fakes in tests; use `test/features/auth/` as reference for Riverpod, HTTP, persistence and parsing.
-- The Flutter app communicates only with the Folio API, never directly with PORBASE.
-- Do not expose `passwordHash` in the UI: always present "Palavra-passe".
-- Do not persist bibliographic imports without explicit user confirmation.
-- Never add tokens, credentials or production URLs to code, logs, tests or version control.
+## Testes e validação
 
-## Backend logging and error handling
+Testes unitários ficam junto dos módulos em `src/**/*.spec.ts`; testes HTTP/e2e
+ficam em `test/**/*.e2e-spec.ts`. Usar mocks/fakes quando o comportamento não
+exige PostgreSQL. Constraints e migrations só ficam provadas por testes contra
+uma base isolada apropriada.
 
-- Use NestJS `Logger` for server-side logging; do not add `console.log`, `console.warn` or `console.error` for application diagnostics.
-- Route unhandled HTTP errors through the global `ApiExceptionFilter`; preserve the stable `{ statusCode, error, code, message, details? }` contract and do not expose raw exception messages, stacks, Prisma metadata, SQL, filesystem paths or environment values in production.
-- Log unhandled server errors with the HTTP method, request path, status, exception name and stack trace. Do not log complete request bodies by default.
-- Before logging request context, redact at minimum passwords, tokens, authorization headers, cookies, client secrets and `DATABASE_URL`; use `safe-error-diagnostics.ts` or an equivalent central sanitizer.
-- Never log access tokens, refresh tokens, passwords, credentials or secrets, including in tests and temporary debugging code.
-- Response diagnostics are opt-in only: `ERROR_DETAILS_IN_RESPONSE=true` is effective only with `NODE_ENV=development`; malformed or missing values and every other environment must remain sanitized.
-- Add new error mappings to the central error handling path and preserve existing stable error codes unless a contract change is explicitly approved.
-
-## State and tooling
-
-- Before validating the app, confirm that the Flutter/Dart SDK is available in the environment.
-- When the project exists, validate changes with `dart format .`, `flutter analyze` and `flutter test`.
-- For explorations without intent to edit, prefer `dart format --output=none --set-exit-if-changed .`.
-- After Flutter commands that may regenerate artifacts, check `git status`, especially under `*/flutter/` in platforms.
-- If a change alters endpoints, architecture, structure or limitations, update `CONTEXT.md` rather than creating duplicate documentation.
-
-## Before finishing
-
-Run before concluding code changes:
+Para alterações de código, executar o menor conjunto relevante e, quando o
+âmbito permitir:
 
 ```bash
-dart format .
-flutter analyze
-flutter test
+npx prisma validate --schema prisma/schema.prisma
+npx tsc -p tsconfig.build.json --noEmit --pretty false --incremental false
+npm test -- --run --no-file-parallelism <paths>
+npm run build
+npm run lint
 git diff --check
 ```
 
-Update `CONTEXT.md` if altering:
+Não executar `test:e2e` se depender de uma base ou serviço não aprovado para a
+tarefa. Alterações exclusivamente documentais não exigem npm, Prisma ou testes;
+usar `git diff --check`.
 
-- endpoints used;
-- app structure;
-- architecture decisions;
-- known limitations.
+## Antes de concluir
+
+- Confirmar que nenhum campo tenant concorrente foi introduzido.
+- Confirmar que root e derived routes mantêm a fonte de contexto correcta.
+- Distinguir implementação local, integração validada, smoke pendente,
+  hardening futuro e decisão de produto.
+- Não declarar migrations aplicadas, fases concluídas ou ausência de dívida sem
+  evidência correspondente.
+- Actualizar `CONTEXT.md` quando mudarem endpoints, modelo, configuração,
+  limitações ou estado de validação.
