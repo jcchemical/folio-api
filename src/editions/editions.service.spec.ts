@@ -43,6 +43,8 @@ function createService(role: OrganizationRole | null) {
       findUnique: vi.fn().mockResolvedValue(edition),
       delete: vi.fn().mockResolvedValue(edition),
     },
+    holding: { findMany: vi.fn().mockResolvedValue([]) },
+    item: { findMany: vi.fn().mockResolvedValue([]) },
     externalIdentifier: { deleteMany: vi.fn() },
     $transaction: vi.fn((callback: (client: unknown) => unknown) =>
       callback(prisma),

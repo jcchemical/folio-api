@@ -1,6 +1,7 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import type { ExecutionContext } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { Prisma } from '@prisma/client';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { ApiExceptionFilter } from '../src/common/api-exception.filter.js';
@@ -170,6 +171,7 @@ function makeInventory() {
       findUnique: async ({
         where,
       }: {
+        select?: { id: true };
         where: {
           userId_organizationId: { userId: string; organizationId: string };
         };
@@ -213,18 +215,42 @@ function makeInventory() {
         where: { id: string };
         data: Partial<Row>;
       }) => Object.assign(libraries.get(where.id)!, data),
-      delete: async ({ where }: { where: { id: string } }) =>
-        libraries.get(where.id)!,
+      delete: async ({ where }: { where: { id: string } }) => {
+        const childLocations = [...locations.values()].filter(
+          (row) => row.libraryId === where.id,
+        );
+        if (
+          childLocations.some((location) =>
+            [...holdings.values()].some(
+              (holding) => holding.locationId === location.id,
+            ),
+          )
+        ) {
+          throw new Prisma.PrismaClientKnownRequestError(
+            'The operation violates a related resource reference.',
+            { code: 'P2003', clientVersion: 'test' },
+          );
+        }
+        for (const location of childLocations) locations.delete(location.id);
+        return libraries.get(where.id)!;
+      },
     },
     location: {
       findMany: async ({
         where,
       }: {
-        where: { library: { organizationId: string } };
-      }) =>
-        [...locations.values()].filter(
-          (row) => row.library?.organizationId === where.library.organizationId,
-        ),
+        where: { library?: { organizationId: string }; libraryId?: string };
+      }) => {
+        if (where.libraryId) {
+          return [...locations.values()]
+            .filter((row) => row.libraryId === where.libraryId)
+            .map(({ id }) => ({ id }));
+        }
+        return [...locations.values()].filter(
+          (row) =>
+            row.library?.organizationId === where.library!.organizationId,
+        );
+      },
       findUnique: async ({ where }: { where: { id: string } }) =>
         locations.get(where.id) ?? null,
       create: async ({
@@ -247,8 +273,18 @@ function makeInventory() {
         where: { id: string };
         data: Partial<Row>;
       }) => Object.assign(locations.get(where.id)!, data),
-      delete: async ({ where }: { where: { id: string } }) =>
-        locations.get(where.id)!,
+      delete: async ({ where }: { where: { id: string } }) => {
+        const hasHoldings = [...holdings.values()].some(
+          (row) => row.locationId === where.id,
+        );
+        if (hasHoldings) {
+          throw new Prisma.PrismaClientKnownRequestError(
+            'The operation violates a related resource reference.',
+            { code: 'P2003', clientVersion: 'test' },
+          );
+        }
+        return locations.get(where.id)!;
+      },
     },
     work: {
       findUnique: async ({ where }: { where: { id: string } }) =>
@@ -259,25 +295,51 @@ function makeInventory() {
         editions.get(where.id) ?? null,
     },
     holding: {
+      findFirst: async ({ where }: { where: { locationId: string } }) => {
+        const row = [...holdings.values()].find(
+          (holding) => holding.locationId === where.locationId,
+        );
+        return row ? { id: row.id } : null;
+      },
       findMany: async ({
+        select,
         where,
       }: {
+        select?: { id: true };
         where: {
-          edition: { work: { organizationId: string } };
-          location: { library: { organizationId: string } };
-          editionId?: string;
+          edition?: { work: { organizationId: string } };
+          location?: { library: { organizationId: string } };
+          editionId?: string | { in: string[] };
           locationId?: string;
         };
-      }) =>
-        [...holdings.values()].filter(
+      }) => {
+        if (select?.id && where.locationId) {
+          return [...holdings.values()]
+            .filter((row) => row.locationId === where.locationId)
+            .map(({ id }) => ({ id }));
+        }
+        if (select?.id && where.editionId) {
+          const editionIds =
+            typeof where.editionId === 'string'
+              ? [where.editionId]
+              : where.editionId.in;
+          return [...holdings.values()]
+            .filter((row) => editionIds.includes(row.editionId))
+            .map(({ id }) => ({ id }));
+        }
+        return [...holdings.values()].filter(
           (row) =>
             row.edition?.work?.organizationId ===
-              where.edition.work.organizationId &&
+              where.edition?.work.organizationId &&
             row.location?.library?.organizationId ===
-              where.location.library.organizationId &&
-            (!where.editionId || row.editionId === where.editionId) &&
+              where.location?.library.organizationId &&
+            (!where.editionId ||
+              (typeof where.editionId === 'string'
+                ? row.editionId === where.editionId
+                : where.editionId.in.includes(row.editionId))) &&
             (!where.locationId || row.locationId === where.locationId),
-        ),
+        );
+      },
       findUnique: async ({ where }: { where: { id: string } }) =>
         holdings.get(where.id) ?? null,
       create: async ({
@@ -312,22 +374,35 @@ function makeInventory() {
     },
     item: {
       findMany: async ({
+        select,
         where,
       }: {
+        select?: { id: true };
         where: {
-          holding: {
+          holding?: {
             edition: { work: { organizationId: string } };
             location: { library: { organizationId: string } };
           };
+          holdingId?: string | { in: string[] };
         };
-      }) =>
-        [...items.values()].filter(
+      }) => {
+        if (select?.id && where.holdingId) {
+          const holdingIds =
+            typeof where.holdingId === 'string'
+              ? [where.holdingId]
+              : where.holdingId.in;
+          return [...items.values()]
+            .filter((row) => holdingIds.includes(row.holdingId!))
+            .map(({ id }) => ({ id }));
+        }
+        return [...items.values()].filter(
           (row) =>
             row.holding?.edition?.work?.organizationId ===
-              where.holding.edition.work.organizationId &&
+              where.holding?.edition.work.organizationId &&
             row.holding?.location?.library?.organizationId ===
-              where.holding.location.library.organizationId,
-        ),
+              where.holding?.location.library.organizationId,
+        );
+      },
       findUnique: async ({ where }: { where: { id: string } }) =>
         items.get(where.id) ?? null,
       create: async ({
@@ -491,7 +566,10 @@ describe('Physical inventory routes (e2e)', () => {
     await request(app.getHttpServer())
       .delete(`/libraries/${libraryAId}`)
       .set(header, orgA)
-      .expect(200);
+      .expect(409)
+      .expect(({ body }) =>
+        expect(body.code).toBe('CONFLICT_FOREIGN_KEY_REFERENCE'),
+      );
     userId = 'user-b';
     await request(app.getHttpServer())
       .get('/libraries')
@@ -605,7 +683,10 @@ describe('Physical inventory routes (e2e)', () => {
     await request(app.getHttpServer())
       .delete(`/locations/${locationAId}`)
       .set(header, orgA)
-      .expect(200);
+      .expect(409)
+      .expect(({ body }) =>
+        expect(body.code).toBe('CONFLICT_FOREIGN_KEY_REFERENCE'),
+      );
     const before = inventory.locations.size;
     await request(app.getHttpServer())
       .post('/locations')

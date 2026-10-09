@@ -23,6 +23,27 @@ const holdingA = `c${'6'.repeat(24)}`;
 const holdingB = `c${'h'.repeat(24)}`;
 const itemA = `c${'7'.repeat(24)}`;
 const itemB = `c${'i'.repeat(24)}`;
+const cascadeWork = `c${'p'.repeat(24)}`;
+const cascadeEdition = `c${'q'.repeat(24)}`;
+const cascadeHolding = `c${'r'.repeat(24)}`;
+const cascadeItem = `c${'s'.repeat(24)}`;
+const cascadeLibrary = `c${'t'.repeat(24)}`;
+const cascadeLocation = `c${'u'.repeat(24)}`;
+const cascadeHoldingLocation = `c${'y'.repeat(24)}`;
+const restrictedLibrary = `c${'z'.repeat(24)}`;
+const restrictedLocation = `c${'v'.repeat(24)}`;
+const restrictedHolding = `c${'w'.repeat(24)}`;
+const restrictedItem = `c${'x'.repeat(24)}`;
+const restrictedLibraryIdentifier = `c${'z'.repeat(23)}0`;
+const cascadeWorkIdentifier = `c${'p'.repeat(23)}q`;
+const cascadeEditionIdentifier = `c${'q'.repeat(23)}r`;
+const cascadeHoldingIdentifier = `c${'r'.repeat(23)}s`;
+const cascadeItemIdentifier = `c${'s'.repeat(23)}t`;
+const cascadeLibraryIdentifier = `c${'t'.repeat(23)}u`;
+const cascadeLocationIdentifier = `c${'u'.repeat(23)}v`;
+const restrictedLocationIdentifier = `c${'v'.repeat(23)}w`;
+const restrictedHoldingIdentifier = `c${'w'.repeat(23)}x`;
+const restrictedItemIdentifier = `c${'x'.repeat(23)}y`;
 const workIdentifierA = `c${'8'.repeat(24)}`;
 const editionIdentifierA = `c${'9'.repeat(24)}`;
 const libraryIdentifierA = `c${'0'.repeat(24)}`;
@@ -40,6 +61,11 @@ type EntityRecord = {
   id: string;
   organizationId: string;
   relatedOrganizationId?: string;
+  workId?: string;
+  editionId?: string;
+  holdingId?: string;
+  libraryId?: string;
+  locationId?: string;
 };
 type IdentifierRecord = {
   id: string;
@@ -73,6 +99,63 @@ function makeState() {
     ['Item', itemB, orgB],
   ]) {
     entities.set(`${type}:${id}`, { entityType: type, id, organizationId });
+  }
+  const cascadeEntities: EntityRecord[] = [
+    { entityType: 'Work', id: cascadeWork, organizationId: orgA },
+    {
+      entityType: 'Edition',
+      id: cascadeEdition,
+      organizationId: orgA,
+      workId: cascadeWork,
+    },
+    {
+      entityType: 'Holding',
+      id: cascadeHolding,
+      organizationId: orgA,
+      editionId: cascadeEdition,
+      locationId: cascadeHoldingLocation,
+    },
+    {
+      entityType: 'Item',
+      id: cascadeItem,
+      organizationId: orgA,
+      holdingId: cascadeHolding,
+    },
+    { entityType: 'Library', id: cascadeLibrary, organizationId: orgA },
+    {
+      entityType: 'Location',
+      id: cascadeLocation,
+      organizationId: orgA,
+      libraryId: cascadeLibrary,
+    },
+    {
+      entityType: 'Location',
+      id: cascadeHoldingLocation,
+      organizationId: orgA,
+    },
+    { entityType: 'Library', id: restrictedLibrary, organizationId: orgA },
+    {
+      entityType: 'Location',
+      id: restrictedLocation,
+      organizationId: orgA,
+      libraryId: restrictedLibrary,
+    },
+    {
+      entityType: 'Holding',
+      id: restrictedHolding,
+      organizationId: orgA,
+      editionId: editionA,
+      locationId: restrictedLocation,
+    },
+    {
+      entityType: 'Item',
+      id: restrictedItem,
+      organizationId: orgA,
+      holdingId: restrictedHolding,
+    },
+  ];
+  for (const entity of cascadeEntities) {
+    entities.set(`${entity.entityType}:${entity.id}`, entity);
   }
   const identifiers = new Map<string, IdentifierRecord>([
     [
@@ -155,6 +238,48 @@ function makeState() {
     return { organizationId: entity.organizationId };
   }
 
+  function deleteEntity(entityType: string, entityId: string): EntityRecord {
+    const entity = entities.get(`${entityType}:${entityId}`);
+    if (!entity)
+      throw new Error(`Missing test entity ${entityType}:${entityId}`);
+
+    const cascadeChildren: Record<
+      string,
+      { childType: string; key: keyof EntityRecord }
+    > = {
+      Work: { childType: 'Edition', key: 'workId' },
+      Edition: { childType: 'Holding', key: 'editionId' },
+      Holding: { childType: 'Item', key: 'holdingId' },
+      Library: { childType: 'Location', key: 'libraryId' },
+    };
+    if (entityType === 'Location') {
+      const hasHoldings = [...entities.values()].some(
+        (candidate) =>
+          candidate.entityType === 'Holding' &&
+          candidate.locationId === entityId,
+      );
+      if (hasHoldings) {
+        throw new Prisma.PrismaClientKnownRequestError(
+          'The operation violates a related resource reference.',
+          { code: 'P2003', clientVersion: 'test' },
+        );
+      }
+    }
+    const relation = cascadeChildren[entityType];
+    if (relation) {
+      const children = [...entities.values()].filter(
+        (candidate) =>
+          candidate.entityType === relation.childType &&
+          candidate[relation.key] === entityId,
+      );
+      for (const child of children) {
+        deleteEntity(child.entityType, child.id);
+      }
+    }
+    entities.delete(`${entityType}:${entityId}`);
+    return entity;
+  }
+
   const entityModels = Object.fromEntries(
     (
       [
@@ -170,11 +295,37 @@ function makeState() {
       {
         findUnique: async ({ where }: { where: { id: string } }) =>
           entityOrganization(entityType, where.id),
-        delete: async ({ where }: { where: { id: string } }) => {
-          const entity = entities.get(`${entityType}:${where.id}`)!;
-          entities.delete(`${entityType}:${where.id}`);
-          return entity;
+        findMany: async ({
+          where,
+        }: {
+          where: Record<string, string | { in: string[] }>;
+        }) =>
+          [...entities.values()]
+            .filter(
+              (entity) =>
+                entity.entityType === entityType &&
+                Object.entries(where).every(([key, expected]) =>
+                  typeof expected === 'string'
+                    ? entity[key as keyof EntityRecord] === expected
+                    : expected.in.includes(
+                        entity[key as keyof EntityRecord] as string,
+                      ),
+                ),
+            )
+            .map(({ id }) => ({ id })),
+        findFirst: async ({ where }: { where: Record<string, string> }) => {
+          const entity = [...entities.values()].find(
+            (candidate) =>
+              candidate.entityType === entityType &&
+              Object.entries(where).every(
+                ([key, expected]) =>
+                  candidate[key as keyof EntityRecord] === expected,
+              ),
+          );
+          return entity ? { id: entity.id } : null;
         },
+        delete: async ({ where }: { where: { id: string } }) =>
+          deleteEntity(entityType, where.id),
       },
     ]),
   ) as Record<
@@ -298,14 +449,18 @@ function makeState() {
       deleteMany: async ({
         where,
       }: {
-        where: { entityType: string; entityId: string };
+        where: {
+          entityType: string;
+          entityId: string | { in: string[] };
+        };
       }) => {
         let count = 0;
         for (const [id, row] of identifiers) {
-          if (
-            row.entityType === where.entityType &&
-            row.entityId === where.entityId
-          ) {
+          const matchesEntityId =
+            typeof where.entityId === 'string'
+              ? row.entityId === where.entityId
+              : where.entityId.in.includes(row.entityId);
+          if (row.entityType === where.entityType && matchesEntityId) {
             identifiers.delete(id);
             count += 1;
           }
@@ -677,6 +832,175 @@ describe('External Identifiers organization context (e2e)', () => {
         );
     },
   );
+
+  it.each([
+    {
+      name: 'Work → Edition → Holding → Item',
+      path: `/works/${cascadeWork}`,
+      removedEntities: [
+        ['Work', cascadeWork],
+        ['Edition', cascadeEdition],
+        ['Holding', cascadeHolding],
+        ['Item', cascadeItem],
+      ],
+      removedIdentifiers: [
+        cascadeWorkIdentifier,
+        cascadeEditionIdentifier,
+        cascadeHoldingIdentifier,
+        cascadeItemIdentifier,
+      ],
+    },
+    {
+      name: 'Edition → Holding → Item',
+      path: `/editions/${cascadeEdition}`,
+      removedEntities: [
+        ['Edition', cascadeEdition],
+        ['Holding', cascadeHolding],
+        ['Item', cascadeItem],
+      ],
+      removedIdentifiers: [
+        cascadeEditionIdentifier,
+        cascadeHoldingIdentifier,
+        cascadeItemIdentifier,
+      ],
+    },
+    {
+      name: 'Holding → Item',
+      path: `/holdings/${cascadeHolding}`,
+      removedEntities: [
+        ['Holding', cascadeHolding],
+        ['Item', cascadeItem],
+      ],
+      removedIdentifiers: [cascadeHoldingIdentifier, cascadeItemIdentifier],
+    },
+    {
+      name: 'Library → Location',
+      path: `/libraries/${cascadeLibrary}`,
+      removedEntities: [
+        ['Library', cascadeLibrary],
+        ['Location', cascadeLocation],
+      ],
+      removedIdentifiers: [cascadeLibraryIdentifier, cascadeLocationIdentifier],
+    },
+    {
+      name: 'Location without Holdings',
+      path: `/locations/${cascadeLocation}`,
+      removedEntities: [['Location', cascadeLocation]],
+      removedIdentifiers: [cascadeLocationIdentifier],
+    },
+  ])(
+    'removes descendant identifiers for $name',
+    async ({ path, removedEntities, removedIdentifiers }) => {
+      removedEntities.forEach(([entityType, entityId], index) => {
+        const identifierId = removedIdentifiers[index];
+        state.identifiers.set(
+          identifierId,
+          makeIdentifier(
+            identifierId,
+            entityType,
+            entityId,
+            orgA,
+            `cascade-${index}`,
+            index + 1,
+          ),
+        );
+      });
+      await request(app.getHttpServer())
+        .delete(path)
+        .set(header, orgA)
+        .expect(200);
+
+      for (const [entityType, entityId] of removedEntities) {
+        expect(state.entities.has(`${entityType}:${entityId}`)).toBe(false);
+      }
+      for (const identifierId of removedIdentifiers) {
+        expect(state.identifiers.has(identifierId)).toBe(false);
+      }
+      expect(state.identifiers.has(workIdentifierB)).toBe(true);
+      expect(state.entities.has(`Work:${workB}`)).toBe(true);
+      await request(app.getHttpServer())
+        .get(`/external-identifiers/${removedIdentifiers[0]}`)
+        .set(header, orgA)
+        .expect(404)
+        .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+    },
+  );
+
+  it('preserves Location, Holding, Item and all identifiers when Restrict blocks deletion', async () => {
+    for (const [index, [entityType, entityId, identifierId]] of [
+      ['Library', restrictedLibrary, restrictedLibraryIdentifier],
+      ['Location', restrictedLocation, restrictedLocationIdentifier],
+      ['Holding', restrictedHolding, restrictedHoldingIdentifier],
+      ['Item', restrictedItem, restrictedItemIdentifier],
+    ].entries()) {
+      state.identifiers.set(
+        identifierId,
+        makeIdentifier(
+          identifierId,
+          entityType,
+          entityId,
+          orgA,
+          `restricted-${index}`,
+          index + 1,
+        ),
+      );
+    }
+    await request(app.getHttpServer())
+      .delete(`/libraries/${restrictedLibrary}`)
+      .set(header, orgA)
+      .expect(409)
+      .expect(({ body }) =>
+        expect(body.code).toBe('CONFLICT_FOREIGN_KEY_REFERENCE'),
+      );
+    for (const [entityType, entityId] of [
+      ['Library', restrictedLibrary],
+      ['Location', restrictedLocation],
+      ['Holding', restrictedHolding],
+      ['Item', restrictedItem],
+    ]) {
+      expect(state.entities.has(`${entityType}:${entityId}`)).toBe(true);
+    }
+    for (const identifierId of [
+      restrictedLibraryIdentifier,
+      restrictedLocationIdentifier,
+      restrictedHoldingIdentifier,
+      restrictedItemIdentifier,
+    ]) {
+      expect(state.identifiers.has(identifierId)).toBe(true);
+      await request(app.getHttpServer())
+        .get(`/external-identifiers/${identifierId}`)
+        .set(header, orgA)
+        .expect(200);
+    }
+
+    await request(app.getHttpServer())
+      .delete(`/locations/${restrictedLocation}`)
+      .set(header, orgA)
+      .expect(409)
+      .expect(({ body }) =>
+        expect(body.code).toBe('CONFLICT_FOREIGN_KEY_REFERENCE'),
+      );
+
+    for (const [entityType, entityId] of [
+      ['Location', restrictedLocation],
+      ['Holding', restrictedHolding],
+      ['Item', restrictedItem],
+    ]) {
+      expect(state.entities.has(`${entityType}:${entityId}`)).toBe(true);
+    }
+    for (const identifierId of [
+      restrictedLibraryIdentifier,
+      restrictedLocationIdentifier,
+      restrictedHoldingIdentifier,
+      restrictedItemIdentifier,
+    ]) {
+      expect(state.identifiers.has(identifierId)).toBe(true);
+      await request(app.getHttpServer())
+        .get(`/external-identifiers/${identifierId}`)
+        .set(header, orgA)
+        .expect(200);
+    }
+  });
 
   it('rejects tenant body fields and safely rejects inconsistent Holding ownership', async () => {
     userId = 'user-a';

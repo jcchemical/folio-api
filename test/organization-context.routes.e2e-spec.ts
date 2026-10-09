@@ -201,6 +201,8 @@ describe('Organization context routes (e2e)', () => {
           },
         }),
       externalIdentifier: { deleteMany: async () => ({ count: 0 }) },
+      holding: { findMany: async () => [] },
+      item: { findMany: async () => [] },
       $transaction: async (callback: (client: unknown) => unknown) =>
         callback(prisma),
       $connect: async () => undefined,

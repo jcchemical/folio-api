@@ -89,11 +89,12 @@ Selector, paginação e superfícies de Agents/Contributions e External Identifi
 existem no cliente, mas smoke real app→API continua pendente.
 
 External Identifiers (`Work`, `Edition`, `Library`, `Location`, `Holding`,
-`Item`) não têm FK polimórfica. Cada `remove` directo das seis entidades limpa
-os identifiers do próprio alvo na mesma transacção. Isto não prova cleanup de
-identifiers de descendentes removidos por cascatas Work→Edition→Holding→Item ou
-Library→Location; esse lifecycle continua dívida de integridade a validar numa
-base isolada.
+`Item`) não têm FK polimórfica. Cada delete limpa, na mesma transacção, os
+identifiers do alvo e dos descendentes removidos por
+Work→Edition→Holding→Item, Edition→Holding→Item, Holding→Item e
+Library→Location. `Location→Holding` mantém `Restrict`; se houver Holdings,
+nenhum identifier é limpo e o delete falha. Os testes fake verificam fluxo e
+rollback, mas não provam constraints/cascades reais de PostgreSQL.
 
 PORBASE aceita variantes de pesquisa no DTO, mas implementa só ISBN. O preview não persiste. A confirmação envia o payload editável completo e não usa snapshot server-side nem repesquisa. Campos de metadata de contribuições (`sourceTag`, indicadores e source parts) continuam aceites no DTO de confirmação; a origem é marcada pelo servidor, mas a estrutura de origem apresentada pelo cliente não é autenticada contra o raw record. A rota manual de Contribution tem validação mais estrita. Esta fronteira merece decisão de segurança própria.
 

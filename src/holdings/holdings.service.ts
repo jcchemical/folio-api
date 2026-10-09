@@ -9,6 +9,7 @@ import {
 import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { requireHoldingOrganization } from './holding-ownership.js';
+import { deleteExternalIdentifiers } from '../external-identifiers/external-identifier-cleanup.js';
 import type {
   CreateHoldingDto,
   HoldingListQueryDto,
@@ -154,9 +155,14 @@ export class HoldingsService {
       OrganizationRole.STAFF,
     );
     return this.prisma.$transaction(async (tx) => {
-      await tx.externalIdentifier.deleteMany({
-        where: { entityType: 'Holding', entityId: id },
+      const items = await tx.item.findMany({
+        where: { holdingId: id },
+        select: { id: true },
       });
+      const itemIds = items.map(({ id: itemId }) => itemId);
+
+      await deleteExternalIdentifiers(tx, 'Holding', [id]);
+      await deleteExternalIdentifiers(tx, 'Item', itemIds);
       return tx.holding.delete({ where: { id } });
     });
   }

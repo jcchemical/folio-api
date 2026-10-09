@@ -12,6 +12,7 @@ import type { OrganizationHeaderValue } from '../organizations/organization-cont
 import type { PhysicalDescriptionInput } from '../editions/dto/physical-description.dto.js';
 import type { PublicationStatementInput } from '../editions/dto/publication-statement.dto.js';
 import { EditionOutputDto } from '../editions/dto/edition-output.dto.js';
+import { deleteExternalIdentifiers } from '../external-identifiers/external-identifier-cleanup.js';
 import {
   derivePublicationProjection,
   normalizePublicationDateLiteral,
@@ -260,9 +261,32 @@ export class WorksService {
     });
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.externalIdentifier.deleteMany({
-        where: { entityType: 'Work', entityId: id },
+      const editions = await tx.edition.findMany({
+        where: { workId: id },
+        select: { id: true },
       });
+      const editionIds = editions.map(({ id: editionId }) => editionId);
+
+      const holdings = editionIds.length
+        ? await tx.holding.findMany({
+            where: { editionId: { in: editionIds } },
+            select: { id: true },
+          })
+        : [];
+      const holdingIds = holdings.map(({ id: holdingId }) => holdingId);
+
+      const items = holdingIds.length
+        ? await tx.item.findMany({
+            where: { holdingId: { in: holdingIds } },
+            select: { id: true },
+          })
+        : [];
+      const itemIds = items.map(({ id: itemId }) => itemId);
+
+      await deleteExternalIdentifiers(tx, 'Work', [id]);
+      await deleteExternalIdentifiers(tx, 'Edition', editionIds);
+      await deleteExternalIdentifiers(tx, 'Holding', holdingIds);
+      await deleteExternalIdentifiers(tx, 'Item', itemIds);
       return tx.work.delete({
         where: { id },
         include: { organization: true, editions: true },

@@ -12,6 +12,7 @@ import {
 } from '../organizations/organization-context.resolver.js';
 import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { deleteExternalIdentifiers } from '../external-identifiers/external-identifier-cleanup.js';
 import type { CreateLibraryDto, UpdateLibraryDto } from './dto/library.dto.js';
 
 @Injectable()
@@ -110,9 +111,14 @@ export class LibrariesService {
       requiredRole: OrganizationRole.STAFF,
     });
     return this.prisma.$transaction(async (tx) => {
-      await tx.externalIdentifier.deleteMany({
-        where: { entityType: 'Library', entityId: id },
+      const locations = await tx.location.findMany({
+        where: { libraryId: id },
+        select: { id: true },
       });
+      const locationIds = locations.map(({ id: locationId }) => locationId);
+
+      await deleteExternalIdentifiers(tx, 'Library', [id]);
+      await deleteExternalIdentifiers(tx, 'Location', locationIds);
       return tx.library.delete({ where: { id } });
     });
   }

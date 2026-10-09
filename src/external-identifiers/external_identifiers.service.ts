@@ -14,14 +14,13 @@ import {
 } from '../organizations/organization-context.resolver.js';
 import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 import { requireHoldingOrganization } from '../holdings/holding-ownership.js';
+import type { ExternalIdentifierEntityType } from './external-identifier-cleanup.js';
+export type { ExternalIdentifierEntityType } from './external-identifier-cleanup.js';
 import type {
   CreateExternalIdentifierDto,
   ExternalIdentifierListQueryDto,
   UpdateExternalIdentifierDto,
 } from './dto/external-identifier.dto.js';
-
-export type ExternalIdentifierEntityType =
-  'Work' | 'Edition' | 'Library' | 'Location' | 'Holding' | 'Item';
 
 export const EXTERNAL_IDENTIFIER_ENTITY_TYPES: ExternalIdentifierEntityType[] =
   ['Work', 'Edition', 'Library', 'Location', 'Holding', 'Item'];

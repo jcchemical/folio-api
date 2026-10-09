@@ -13,6 +13,7 @@ import {
 } from '../organizations/organization-context.resolver.js';
 import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 import { requireHoldingOrganization } from '../holdings/holding-ownership.js';
+import { deleteExternalIdentifiers } from '../external-identifiers/external-identifier-cleanup.js';
 
 export interface CreateItemInput {
   label?: string | null;
@@ -141,9 +142,7 @@ export class ItemsService {
       OrganizationRole.STAFF,
     );
     return this.prisma.$transaction(async (tx) => {
-      await tx.externalIdentifier.deleteMany({
-        where: { entityType: 'Item', entityId: id },
-      });
+      await deleteExternalIdentifiers(tx, 'Item', [id]);
       return tx.item.delete({ where: { id }, include: itemRelations });
     });
   }

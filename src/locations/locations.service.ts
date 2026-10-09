@@ -12,6 +12,7 @@ import {
 } from '../organizations/organization-context.resolver.js';
 import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { deleteExternalIdentifiers } from '../external-identifiers/external-identifier-cleanup.js';
 import type {
   CreateLocationDto,
   UpdateLocationDto,
@@ -128,9 +129,19 @@ export class LocationsService {
       requiredRole: OrganizationRole.STAFF,
     });
     return this.prisma.$transaction(async (tx) => {
-      await tx.externalIdentifier.deleteMany({
-        where: { entityType: 'Location', entityId: id },
+      const holding = await tx.holding.findFirst({
+        where: { locationId: id },
+        select: { id: true },
       });
+      if (holding) {
+        throw new ApiException(
+          HttpStatus.CONFLICT,
+          API_ERROR_CODES.FOREIGN_KEY_CONFLICT,
+          'The operation violates a related resource reference.',
+        );
+      }
+
+      await deleteExternalIdentifiers(tx, 'Location', [id]);
       return tx.location.delete({ where: { id } });
     });
   }

@@ -11,6 +11,7 @@ import { OrganizationContextResolver } from '../organizations/organization-conte
 import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 import { OrganizationRole } from '@prisma/client';
 import { EditionOutputDto } from './dto/edition-output.dto.js';
+import { deleteExternalIdentifiers } from '../external-identifiers/external-identifier-cleanup.js';
 import {
   derivePublicationProjection,
   normalizePublicationDateLiteral,
@@ -369,9 +370,22 @@ export class EditionsService {
       requiredRole: OrganizationRole.STAFF,
     });
     return this.prisma.$transaction(async (tx) => {
-      await tx.externalIdentifier.deleteMany({
-        where: { entityType: 'Edition', entityId: id },
+      const holdings = await tx.holding.findMany({
+        where: { editionId: id },
+        select: { id: true },
       });
+      const holdingIds = holdings.map(({ id: holdingId }) => holdingId);
+      const items = holdingIds.length
+        ? await tx.item.findMany({
+            where: { holdingId: { in: holdingIds } },
+            select: { id: true },
+          })
+        : [];
+      const itemIds = items.map(({ id: itemId }) => itemId);
+
+      await deleteExternalIdentifiers(tx, 'Edition', [id]);
+      await deleteExternalIdentifiers(tx, 'Holding', holdingIds);
+      await deleteExternalIdentifiers(tx, 'Item', itemIds);
       return tx.edition.delete({ where: { id } });
     });
   }
