@@ -1,5 +1,11 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsInt, IsNotEmpty, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { IsBibliographicDate } from '../../common/bibliographic-date.js';
 import { PhysicalDescriptionDto } from './physical-description.dto.js';
@@ -36,7 +42,11 @@ export class CreateEditionDto {
   @IsBibliographicDate()
   publicationDate?: string | null;
 
-  @ApiPropertyOptional({ type: [PublicationStatementDto], description: 'Canonical UNIMARC 210 statements. Scalar publication fields are ignored when this list is non-empty.' })
+  @ApiPropertyOptional({
+    type: [PublicationStatementDto],
+    description:
+      'Canonical UNIMARC 210 statements. Scalar publication fields are ignored when this list is non-empty.',
+  })
   @IsOptional()
   @ValidateNested({ each: true })
   @Type(() => PublicationStatementDto)
@@ -57,12 +67,9 @@ export class CreateEditionDto {
   @IsString()
   format?: string | null;
 
-  @ApiPropertyOptional({ nullable: true })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
   @ApiPropertyOptional({ type: [PhysicalDescriptionDto] })
   @IsOptional()
+  @IsArray()
   @ValidateNested({ each: true })
   @Type(() => PhysicalDescriptionDto)
   physicalDescriptions?: PhysicalDescriptionDto[];
