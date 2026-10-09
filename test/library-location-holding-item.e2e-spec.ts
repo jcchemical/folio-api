@@ -161,7 +161,7 @@ function makeInventory() {
     { userId: 'user-c', organizationId: orgA, role: 'STAFF' },
   ];
 
-  const prisma = {
+  const prisma: Record<string, any> = {
     organization: {
       findUnique: async ({ where }: { where: { id: string } }) =>
         orgs.get(where.id) ?? null,
@@ -358,6 +358,9 @@ function makeInventory() {
       delete: async ({ where }: { where: { id: string } }) =>
         items.get(where.id)!,
     },
+    externalIdentifier: { deleteMany: async () => ({ count: 0 }) },
+    $transaction: async (callback: (client: unknown) => unknown) =>
+      callback(prisma),
     $connect: async () => undefined,
     $disconnect: async () => undefined,
   };

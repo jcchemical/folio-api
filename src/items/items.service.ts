@@ -140,7 +140,12 @@ export class ItemsService {
       item.holding,
       OrganizationRole.STAFF,
     );
-    return this.prisma.item.delete({ where: { id }, include: itemRelations });
+    return this.prisma.$transaction(async (tx) => {
+      await tx.externalIdentifier.deleteMany({
+        where: { entityType: 'Item', entityId: id },
+      });
+      return tx.item.delete({ where: { id }, include: itemRelations });
+    });
   }
 
   private async requireItem(id: string) {

@@ -127,7 +127,12 @@ export class LocationsService {
       derivedOrganizationId: location.library.organizationId,
       requiredRole: OrganizationRole.STAFF,
     });
-    return this.prisma.location.delete({ where: { id } });
+    return this.prisma.$transaction(async (tx) => {
+      await tx.externalIdentifier.deleteMany({
+        where: { entityType: 'Location', entityId: id },
+      });
+      return tx.location.delete({ where: { id } });
+    });
   }
 }
 

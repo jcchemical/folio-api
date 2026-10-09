@@ -82,7 +82,7 @@ describe('Organization context routes (e2e)', () => {
       editions: [],
       contributions: [],
     });
-    const prisma = {
+    const prisma: Record<string, any> = {
       organization: {
         findUnique: async ({ where }: { where: { id: string } }) =>
           organization(where.id),
@@ -200,6 +200,9 @@ describe('Organization context routes (e2e)', () => {
             findUniqueOrThrow: () => prisma.edition.findUniqueOrThrow(),
           },
         }),
+      externalIdentifier: { deleteMany: async () => ({ count: 0 }) },
+      $transaction: async (callback: (client: unknown) => unknown) =>
+        callback(prisma),
       $connect: async () => undefined,
       $disconnect: async () => undefined,
     };

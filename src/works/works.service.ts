@@ -259,9 +259,14 @@ export class WorksService {
       requiredRole: OrganizationRole.STAFF,
     });
 
-    return this.prisma.work.delete({
-      where: { id },
-      include: { organization: true, editions: true },
+    return this.prisma.$transaction(async (tx) => {
+      await tx.externalIdentifier.deleteMany({
+        where: { entityType: 'Work', entityId: id },
+      });
+      return tx.work.delete({
+        where: { id },
+        include: { organization: true, editions: true },
+      });
     });
   }
 }

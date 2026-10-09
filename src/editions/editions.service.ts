@@ -368,7 +368,12 @@ export class EditionsService {
       derivedOrganizationId: edition.work.organizationId,
       requiredRole: OrganizationRole.STAFF,
     });
-    return this.prisma.edition.delete({ where: { id } });
+    return this.prisma.$transaction(async (tx) => {
+      await tx.externalIdentifier.deleteMany({
+        where: { entityType: 'Edition', entityId: id },
+      });
+      return tx.edition.delete({ where: { id } });
+    });
   }
 
   private async assertEditionWriteAccess(

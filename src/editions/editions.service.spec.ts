@@ -43,6 +43,10 @@ function createService(role: OrganizationRole | null) {
       findUnique: vi.fn().mockResolvedValue(edition),
       delete: vi.fn().mockResolvedValue(edition),
     },
+    externalIdentifier: { deleteMany: vi.fn() },
+    $transaction: vi.fn((callback: (client: unknown) => unknown) =>
+      callback(prisma),
+    ),
   } as unknown as PrismaService;
   const contexts = createContexts(role);
 

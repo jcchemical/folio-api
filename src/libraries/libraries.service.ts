@@ -109,7 +109,12 @@ export class LibrariesService {
       derivedOrganizationId: library.organizationId,
       requiredRole: OrganizationRole.STAFF,
     });
-    return this.prisma.library.delete({ where: { id } });
+    return this.prisma.$transaction(async (tx) => {
+      await tx.externalIdentifier.deleteMany({
+        where: { entityType: 'Library', entityId: id },
+      });
+      return tx.library.delete({ where: { id } });
+    });
   }
 }
 

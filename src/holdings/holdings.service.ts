@@ -153,7 +153,12 @@ export class HoldingsService {
       holding,
       OrganizationRole.STAFF,
     );
-    return this.prisma.holding.delete({ where: { id } });
+    return this.prisma.$transaction(async (tx) => {
+      await tx.externalIdentifier.deleteMany({
+        where: { entityType: 'Holding', entityId: id },
+      });
+      return tx.holding.delete({ where: { id } });
+    });
   }
 
   private async resolveHoldingOrganization(

@@ -155,33 +155,36 @@ function makeState() {
     return { organizationId: entity.organizationId };
   }
 
-  const entityModels = {
-    work: {
-      findUnique: async ({ where }: { where: { id: string } }) =>
-        entityOrganization('Work', where.id),
-    },
-    edition: {
-      findUnique: async ({ where }: { where: { id: string } }) =>
-        entityOrganization('Edition', where.id),
-    },
-    library: {
-      findUnique: async ({ where }: { where: { id: string } }) =>
-        entityOrganization('Library', where.id),
-    },
-    location: {
-      findUnique: async ({ where }: { where: { id: string } }) =>
-        entityOrganization('Location', where.id),
-    },
-    holding: {
-      findUnique: async ({ where }: { where: { id: string } }) =>
-        entityOrganization('Holding', where.id),
-    },
-    item: {
-      findUnique: async ({ where }: { where: { id: string } }) =>
-        entityOrganization('Item', where.id),
-    },
-  };
-  const prisma = {
+  const entityModels = Object.fromEntries(
+    (
+      [
+        ['work', 'Work'],
+        ['edition', 'Edition'],
+        ['library', 'Library'],
+        ['location', 'Location'],
+        ['holding', 'Holding'],
+        ['item', 'Item'],
+      ] as const
+    ).map(([model, entityType]) => [
+      model,
+      {
+        findUnique: async ({ where }: { where: { id: string } }) =>
+          entityOrganization(entityType, where.id),
+        delete: async ({ where }: { where: { id: string } }) => {
+          const entity = entities.get(`${entityType}:${where.id}`)!;
+          entities.delete(`${entityType}:${where.id}`);
+          return entity;
+        },
+      },
+    ]),
+  ) as Record<
+    'work' | 'edition' | 'library' | 'location' | 'holding' | 'item',
+    {
+      findUnique: (args: { where: { id: string } }) => Promise<unknown>;
+      delete: (args: { where: { id: string } }) => Promise<unknown>;
+    }
+  >;
+  const prisma: Record<string, any> = {
     organization: {
       findUnique: async ({ where }: { where: { id: string } }) =>
         organizations.get(where.id) ?? null,
@@ -292,6 +295,38 @@ function makeState() {
         identifiers.delete(where.id);
         return row;
       },
+      deleteMany: async ({
+        where,
+      }: {
+        where: { entityType: string; entityId: string };
+      }) => {
+        let count = 0;
+        for (const [id, row] of identifiers) {
+          if (
+            row.entityType === where.entityType &&
+            row.entityId === where.entityId
+          ) {
+            identifiers.delete(id);
+            count += 1;
+          }
+        }
+        return { count };
+      },
+    },
+    $transaction: async (
+      callback: (client: Record<string, unknown>) => Promise<unknown>,
+    ) => {
+      const identifierSnapshot = new Map(identifiers);
+      const entitySnapshot = new Map(entities);
+      try {
+        return await callback(prisma);
+      } catch (error) {
+        identifiers.clear();
+        identifierSnapshot.forEach((row, id) => identifiers.set(id, row));
+        entities.clear();
+        entitySnapshot.forEach((row, id) => entities.set(id, row));
+        throw error;
+      }
     },
     $connect: async () => undefined,
     $disconnect: async () => undefined,
@@ -571,6 +606,77 @@ describe('External Identifiers organization context (e2e)', () => {
       );
     expect(state.identifiers.size).toBe(before + 1);
   });
+
+  it.each([
+    ['Work', 'works', workA],
+    ['Edition', 'editions', editionA],
+    ['Library', 'libraries', libraryA],
+    ['Location', 'locations', locationA],
+    ['Holding', 'holdings', holdingA],
+    ['Item', 'items', itemA],
+  ] as const)(
+    'removes %s External Identifiers in the same transaction as the entity',
+    async (entityType, path, entityId) => {
+      const created = await request(app.getHttpServer())
+        .post('/external-identifiers')
+        .set(header, orgA)
+        .send({ entityType, entityId, authority: 'local', value: 'cleanup-1' })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post('/external-identifiers')
+        .set(header, orgA)
+        .send({ entityType, entityId, authority: 'doi', value: 'cleanup-2' })
+        .expect(201);
+      const survivorsBefore = [...state.identifiers.values()].filter(
+        (row) => row.entityType !== entityType || row.entityId !== entityId,
+      ).length;
+
+      const ownedBefore = [...state.identifiers.values()].filter(
+        (row) => row.entityType === entityType && row.entityId === entityId,
+      ).length;
+
+      userId = 'user-b';
+      await request(app.getHttpServer())
+        .delete(`/${path}/${entityId}`)
+        .set(header, orgB)
+        .expect(({ status }) => expect([403, 404, 409]).toContain(status));
+      expect(
+        [...state.identifiers.values()].filter(
+          (row) => row.entityType === entityType && row.entityId === entityId,
+        ),
+      ).toHaveLength(ownedBefore);
+
+      userId = 'user-a';
+      await request(app.getHttpServer())
+        .delete(`/${path}/${entityId}`)
+        .set(header, orgA)
+        .expect(200);
+
+      expect(state.entities.has(`${entityType}:${entityId}`)).toBe(false);
+      expect(
+        [...state.identifiers.values()].filter(
+          (row) => row.entityType === entityType && row.entityId === entityId,
+        ),
+      ).toHaveLength(0);
+      expect(state.identifiers.size).toBe(survivorsBefore);
+      await request(app.getHttpServer())
+        .get(`/external-identifiers/${created.body.id}`)
+        .set(header, orgA)
+        .expect(404)
+        .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+      await request(app.getHttpServer())
+        .get('/external-identifiers')
+        .set(header, orgB)
+        .expect(200)
+        .expect(({ body }) =>
+          expect(body.items).toHaveLength(
+            [...state.identifiers.values()].filter(
+              (row) => row.organizationId === orgB,
+            ).length,
+          ),
+        );
+    },
+  );
 
   it('rejects tenant body fields and safely rejects inconsistent Holding ownership', async () => {
     userId = 'user-a';
