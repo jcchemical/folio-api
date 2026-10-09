@@ -23,7 +23,6 @@ ALTER TABLE "ExternalIdentifier"
     ALTER COLUMN "authority" SET NOT NULL,
     ALTER COLUMN "organizationId" SET NOT NULL,
     ALTER COLUMN "type" DROP NOT NULL,
-    ALTER COLUMN "value" DROP NOT NULL,
     ALTER COLUMN "editionId" DROP NOT NULL;
 
 ALTER TABLE "ExternalIdentifier"

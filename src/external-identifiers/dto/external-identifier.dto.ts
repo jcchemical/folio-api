@@ -8,7 +8,6 @@ import {
 } from 'class-validator';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 import {
-  EXTERNAL_IDENTIFIER_AUTHORITIES,
   EXTERNAL_IDENTIFIER_ENTITY_TYPES,
   type ExternalIdentifierEntityType,
 } from '../external_identifiers.service.js';
@@ -25,9 +24,10 @@ export class CreateExternalIdentifierDto {
   @Matches(/\S/)
   entityId!: string;
 
-  @ApiProperty({ enum: EXTERNAL_IDENTIFIER_AUTHORITIES, example: 'isbn-13' })
+  @ApiProperty({ example: 'isbn-13' })
   @IsString()
-  @IsIn(EXTERNAL_IDENTIFIER_AUTHORITIES)
+  @IsNotEmpty()
+  @Matches(/\S/)
   authority!: string;
 
   @ApiProperty({ example: '9789898236005' })
@@ -38,10 +38,11 @@ export class CreateExternalIdentifierDto {
 }
 
 export class UpdateExternalIdentifierDto {
-  @ApiPropertyOptional({ enum: EXTERNAL_IDENTIFIER_AUTHORITIES })
+  @ApiPropertyOptional({ example: 'isbn-13' })
   @IsOptional()
   @IsString()
-  @IsIn(EXTERNAL_IDENTIFIER_AUTHORITIES)
+  @IsNotEmpty()
+  @Matches(/\S/)
   authority?: string;
 
   @ApiPropertyOptional({ example: '9789898236005' })
@@ -66,10 +67,11 @@ export class ExternalIdentifierListQueryDto extends PaginationQueryDto {
   @Matches(/\S/)
   entityId?: string;
 
-  @ApiPropertyOptional({ enum: EXTERNAL_IDENTIFIER_AUTHORITIES })
+  @ApiPropertyOptional({ example: 'isbn-13' })
   @IsOptional()
   @IsString()
-  @IsIn(EXTERNAL_IDENTIFIER_AUTHORITIES)
+  @IsNotEmpty()
+  @Matches(/\S/)
   authority?: string;
 }
 
@@ -83,7 +85,7 @@ export class ExternalIdentifierDto {
   @ApiProperty()
   entityId!: string;
 
-  @ApiProperty({ enum: EXTERNAL_IDENTIFIER_AUTHORITIES })
+  @ApiProperty({ example: 'isbn-13' })
   authority!: string;
 
   @ApiProperty()

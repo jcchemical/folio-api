@@ -8,11 +8,11 @@ import {
 } from './external-identifier.dto.js';
 
 describe('External Identifier DTOs', () => {
-  it('accepts only supported entity types and excludes tenant authority', async () => {
+  it('accepts the supported entity types, free-form authority names, and excludes tenant authority', async () => {
     const valid = plainToInstance(CreateExternalIdentifierDto, {
       entityType: 'Edition',
       entityId: 'c123456789012345678901234',
-      authority: 'isbn-13',
+      authority: 'publisher.example/authority',
       value: '9780000000001',
     });
     expect(await validate(valid, { whitelist: true })).toEqual([]);
@@ -20,7 +20,7 @@ describe('External Identifier DTOs', () => {
     const forged = plainToInstance(CreateExternalIdentifierDto, {
       entityType: 'Edition',
       entityId: 'c123456789012345678901234',
-      authority: 'isbn-13',
+      authority: 'publisher.example/authority',
       value: '9780000000001',
       organizationId: 'forged-org',
     });
@@ -35,6 +35,14 @@ describe('External Identifier DTOs', () => {
       value: '9780000000001',
     });
     expect(await validate(unsupported)).not.toEqual([]);
+
+    const blankAuthority = plainToInstance(CreateExternalIdentifierDto, {
+      entityType: 'Edition',
+      entityId: 'c123456789012345678901234',
+      authority: '   ',
+      value: '9780000000001',
+    });
+    expect(await validate(blankAuthority)).not.toEqual([]);
   });
 
   it('permits changing authority or value but not the entity binding', async () => {

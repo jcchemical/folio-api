@@ -14,14 +14,24 @@ const orgB = `c${'b'.repeat(24)}`;
 const workA = `c${'1'.repeat(24)}`;
 const workB = `c${'2'.repeat(24)}`;
 const editionA = `c${'3'.repeat(24)}`;
+const editionB = `c${'e'.repeat(24)}`;
 const libraryA = `c${'4'.repeat(24)}`;
+const libraryB = `c${'f'.repeat(24)}`;
 const locationA = `c${'5'.repeat(24)}`;
+const locationB = `c${'g'.repeat(24)}`;
 const holdingA = `c${'6'.repeat(24)}`;
+const holdingB = `c${'h'.repeat(24)}`;
 const itemA = `c${'7'.repeat(24)}`;
+const itemB = `c${'i'.repeat(24)}`;
 const workIdentifierA = `c${'8'.repeat(24)}`;
 const editionIdentifierA = `c${'9'.repeat(24)}`;
 const libraryIdentifierA = `c${'0'.repeat(24)}`;
 const workIdentifierB = `c${'d'.repeat(24)}`;
+const editionIdentifierB = `c${'j'.repeat(24)}`;
+const libraryIdentifierB = `c${'k'.repeat(24)}`;
+const locationIdentifierB = `c${'l'.repeat(24)}`;
+const holdingIdentifierB = `c${'m'.repeat(24)}`;
+const itemIdentifierB = `c${'n'.repeat(24)}`;
 const header = 'X-Folio-Organization-Id';
 
 type OrganizationRecord = { id: string; name: string };
@@ -52,10 +62,15 @@ function makeState() {
     ['Work', workA, orgA],
     ['Work', workB, orgB],
     ['Edition', editionA, orgA],
+    ['Edition', editionB, orgB],
     ['Library', libraryA, orgA],
+    ['Library', libraryB, orgB],
     ['Location', locationA, orgA],
+    ['Location', locationB, orgB],
     ['Holding', holdingA, orgA],
+    ['Holding', holdingB, orgB],
     ['Item', itemA, orgA],
+    ['Item', itemB, orgB],
   ]) {
     entities.set(`${type}:${id}`, { entityType: type, id, organizationId });
   }
@@ -75,6 +90,26 @@ function makeState() {
     [
       workIdentifierB,
       makeIdentifier(workIdentifierB, 'Work', workB, orgB, 'd', 1),
+    ],
+    [
+      editionIdentifierB,
+      makeIdentifier(editionIdentifierB, 'Edition', editionB, orgB, 'e', 2),
+    ],
+    [
+      libraryIdentifierB,
+      makeIdentifier(libraryIdentifierB, 'Library', libraryB, orgB, 'f', 3),
+    ],
+    [
+      locationIdentifierB,
+      makeIdentifier(locationIdentifierB, 'Location', locationB, orgB, 'g', 4),
+    ],
+    [
+      holdingIdentifierB,
+      makeIdentifier(holdingIdentifierB, 'Holding', holdingB, orgB, 'h', 5),
+    ],
+    [
+      itemIdentifierB,
+      makeIdentifier(itemIdentifierB, 'Item', itemB, orgB, 'i', 6),
     ],
   ]);
   const memberships = [
@@ -371,11 +406,21 @@ describe('External Identifiers organization context (e2e)', () => {
       .get('/external-identifiers')
       .set(header, orgB)
       .expect(200)
-      .expect(({ body }) =>
+      .expect(({ body }) => {
         expect(body.items.map((row: IdentifierRecord) => row.id)).toEqual([
+          itemIdentifierB,
+          holdingIdentifierB,
+          locationIdentifierB,
+          libraryIdentifierB,
+          editionIdentifierB,
           workIdentifierB,
-        ]),
-      );
+        ]);
+        expect(
+          body.items.every(
+            (row: IdentifierRecord) => row.organizationId === orgB,
+          ),
+        ).toBe(true);
+      });
     await request(app.getHttpServer())
       .get('/external-identifiers')
       .set(header, orgA)
@@ -422,7 +467,7 @@ describe('External Identifiers organization context (e2e)', () => {
           });
         });
     }
-    expect(state.identifiers.size).toBe(10);
+    expect(state.identifiers.size).toBe(15);
   });
 
   it('masks non-member reads, enforces write roles, and mutates only after authorization', async () => {
@@ -492,6 +537,18 @@ describe('External Identifiers organization context (e2e)', () => {
       .send({
         entityType: 'Work',
         entityId: workA,
+        authority: 'doi',
+        value: 'same-entity-different-authority',
+      })
+      .expect(201);
+    expect(state.identifiers.size).toBe(before + 1);
+
+    await request(app.getHttpServer())
+      .post('/external-identifiers')
+      .set(header, orgA)
+      .send({
+        entityType: 'Work',
+        entityId: workA,
         authority: 'oclc',
         value: 'value-a',
       })
@@ -512,7 +569,7 @@ describe('External Identifiers organization context (e2e)', () => {
       .expect(({ body }) =>
         expect(body.code).toBe('ORGANIZATION_CONTEXT_CONFLICT'),
       );
-    expect(state.identifiers.size).toBe(before);
+    expect(state.identifiers.size).toBe(before + 1);
   });
 
   it('rejects tenant body fields and safely rejects inconsistent Holding ownership', async () => {

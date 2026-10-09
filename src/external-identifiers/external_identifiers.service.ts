@@ -26,19 +26,6 @@ export type ExternalIdentifierEntityType =
 export const EXTERNAL_IDENTIFIER_ENTITY_TYPES: ExternalIdentifierEntityType[] =
   ['Work', 'Edition', 'Library', 'Location', 'Holding', 'Item'];
 
-export const EXTERNAL_IDENTIFIER_AUTHORITIES = [
-  'isbn-13',
-  'isbn-10',
-  'issn',
-  'doi',
-  'lccn',
-  'oclc',
-  'viaf',
-  'isni',
-  'wikidata',
-  'local',
-] as const;
-
 type EntityOrganizations = {
   organizationId: string;
   relatedOrganizationId?: string;
@@ -288,7 +275,7 @@ function holdingOwnership(holding: {
 }
 
 function validateIdentifier(authority: string, value: string): void {
-  if (!EXTERNAL_IDENTIFIER_AUTHORITIES.some((item) => item === authority)) {
+  if (typeof authority !== 'string' || !authority.trim()) {
     throw invalidRequestData('The External Identifier authority is invalid.');
   }
   if (typeof value !== 'string' || !value.trim()) {
