@@ -67,3 +67,4 @@ folio_architecture.md
 Guia evolutivo do modelo canónico bibliográfico.md
 porbase_corpus.xml
 *.tsbuildinfo
+.env.smoke

@@ -3,6 +3,8 @@
 > Última revisão documental: 2026-10-09.
 > Este documento descreve o código e schema presentes no repositório nessa data. A existência de uma migration no repositório não prova que esteja aplicada num ambiente concreto.
 
+Roadmap cross-cutting: ver `folio-app/docs/ROADMAP.md`
+
 ## Como ler este documento
 
 Os estados são explícitos:
