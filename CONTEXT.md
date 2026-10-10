@@ -194,13 +194,15 @@ Catálogo externo, capas e exportação:
   `If-None-Match`.
 - `GET /exports/marcxchange/edition/:editionId` — export local MARCXchange;
   Organization deriva de `Edition → Work`; header opcional só confirma igualdade;
-  membership Reader+ é obrigatória. Edition ausente ou sem membership devolve
-  `RESOURCE_NOT_FOUND` para não revelar existência cross-tenant; membro com
-  header divergente recebe `ORGANIZATION_CONTEXT_CONFLICT`. Serializa XML em
-  memória, sem ficheiro/job, e não usa `rawContent`.
+  membership Reader+ é obrigatória. Edition/Record ausente ou sem membership
+  devolve `RESOURCE_NOT_FOUND` para não revelar existência cross-tenant; membro
+  com header divergente recebe `ORGANIZATION_CONTEXT_CONFLICT`. Mapeia os
+  campos canónicos da Edition para MARC21 e serializa XML em memória, sem
+  ficheiro/job; exige um BibliographicRecord associado, mas não lê o seu
+  `rawContent`.
 - `/docs` — Swagger UI.
 
-Não existem rotas antigas específicas PORBASE para pesquisa/import. Não existe endpoint MARCXML, ISO 2709, exportação de `rawContent` ou pesquisa local de catálogo.
+Não existem rotas antigas específicas PORBASE para pesquisa/import. Não existe endpoint MARCXML, ISO 2709, resposta do campo `rawContent` sem serialização ou pesquisa local de catálogo.
 
 ## Catálogo e integração PORBASE
 
@@ -270,9 +272,9 @@ MARCXchange e MARCXML são serializers/endpoints separados. O export actual é a
 - PORBASE parser/preview extrai títulos, responsabilidade, línguas, publicação, descrição física, série, declarações de edição, notas, classificações, identificadores, contribuições e campos não mapeados dos campos actualmente suportados.
 - Cobertura concreta do parser: `001`, `003`, `010$a`, `021$a/$b`, `035$a`, `101$a/$c`, `102$a`, `200$a/$b/$d/$e/$f/$g/$h/$i`, `205$a/$b/$f`, `210$a..$g`, `215` completo, `225$a/$e/$v/$x`, títulos variantes de `500`, `510–545` e `560` (`$a/$e`), notas `300/317/320/327/328/330$a`, classificações `675/676/680/686`, contribuições `700–713` e identificadores de origem `003/021/035`. `856` é tratado pelo extractor de candidatos de capa (`$u`, com `$q/$y/$z` como metadados auxiliares), não como mapeamento bibliográfico canónico.
 - Confirmação de importação persiste muitas dessas estruturas numa transacção. `UnmappedSourceField` é recalculado no servidor a partir do `rawContent` confirmado, best-effort.
-- Import grava contribuições canónicas PORBASE; leituras de Work/Edition e export lêem apenas Contributions canónicas, preservando source parts persistidas quando suportadas.
+- Import grava contribuições canónicas PORBASE; leituras de Work/Edition e export usam estruturas canónicas, preservando source parts de contribuições quando suportadas. Export não lê raw nem campos não mapeados do provider.
 - `EditionsService` lê as estruturas canónicas para Edition e mapeia `coverUrl`; `WorksService` inclui Editions aninhadas sem projectar `coverUrl`.
-- Export local usa relações estruturadas suportadas, com fallback escalar/legado quando aplicável; mapper produz warnings, mas o endpoint actual devolve apenas XML.
+- O export MARCXchange consome o modelo canónico de Edition e serializa o perfil MARC21; campos de provider ficam confinados ao raw e aos dados não mapeados.
 
 ### Limitações de integração canónica
 
@@ -327,9 +329,9 @@ Retries usam `nextAttemptAt` e backoff de 1 min, 5 min, 15 min e 1 h; o fallback
 
 ## Exportação
 
-`GET /exports/marcxchange/edition/:editionId` exige JWT, permite CUID e UUID, deriva Organization por `Edition → Work`, compara o header opcional via `OrganizationContextResolver` e valida membership (Reader+). Edições ausentes e acesso sem membership devolvem o mesmo `RESOURCE_NOT_FOUND`, sem revelar existência cross-tenant; para membros, header divergente devolve `ORGANIZATION_CONTEXT_CONFLICT`. Só depois de resolver contexto carrega o grafo, com filtro pela organização derivada, e usa o mapper UNIMARC e serializer MARCXchange. Não lê `BibliographicRecord.rawContent`, Records, Covers ou assets.
+`GET /exports/marcxchange/edition/:editionId` exige JWT, permite CUID e UUID, deriva Organization por `Edition → Work`, compara o header opcional via `OrganizationContextResolver` e valida membership (Reader+). Edições sem acesso, inexistentes ou sem Bibliographic Record associado devolvem `RESOURCE_NOT_FOUND`; para membros, header divergente devolve `ORGANIZATION_CONTEXT_CONFLICT`. Após resolver contexto, consulta apenas o ID do Record mais recente como requisito de existência e carrega Edition e relações canónicas com filtro pela Organization derivada. Nunca selecciona nem serializa `BibliographicRecord.rawContent` ou campos não mapeados de provider.
 
-O endpoint devolve apenas XML em memória (`application/xml; charset=utf-8`) como attachment `folio-{editionId}.marcxchange.xml`; não cria ficheiro temporário nem job. Warnings do mapper não são persistidos nem expostos. Não existem endpoints MARCXML, ISO 2709, root/batch export ou exportação original. O mapper preserva fallbacks de campos escalares quando relações canónicas estão vazias e produz warnings internos; não há fallback Contributor nem por `Agent.displayName`.
+O perfil inicial converte o subconjunto canónico suportado para MARC21/MARCXchange — por exemplo, títulos para 245, ISBN para 020, contribuições pessoais para 100/700 e corporativas para 110/710 — e omite dados sem mapeamento aprovado. A resposta é XML (`application/xml; charset=utf-8`) em memória como attachment `folio-{editionId}.marcxchange.xml`; não cria ficheiro temporário nem job. `rawContent` permanece preservado no BibliographicRecord para auditoria/reprocessamento; o export descreve o modelo Folio curado e não afirma autenticidade de conteúdo upstream (DEC-02, DEC-06). Não existem endpoints MARCXML, ISO 2709, root/batch export ou exportação do raw.
 
 ## Paginação, performance e throttling
 

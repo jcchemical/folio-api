@@ -9,10 +9,13 @@ import { validateMarcRecord } from '../marc-record.validation.js';
 export const MARCXCHANGE_NAMESPACE = 'info:lc/xmlns/marcxchange-v2';
 
 /**
- * Serializes the intermediate MarcRecord as the MARCXchange variant used by
- * PORBASE. This is deliberately not the Library of Congress MARCXML format.
+ * Serializes an intermediate MarcRecord in MARCXchange, not Library of
+ * Congress MARCXML.
  */
-export function serializeMarcXchange(record: MarcRecord): string {
+export function serializeMarcXchange(
+  record: MarcRecord,
+  format: 'Unimarc' | 'MARC21' = 'Unimarc',
+): string {
   validateMarcRecord(record);
 
   const controlFields = record.controlFields
@@ -23,7 +26,7 @@ export function serializeMarcXchange(record: MarcRecord): string {
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<collection xmlns="${MARCXCHANGE_NAMESPACE}">`,
-    '  <record format="Unimarc" type="bibliographic">',
+    `  <record format="${format}" type="bibliographic">`,
     `    <leader>${escapeText(record.leader)}</leader>`,
     indent(controlFields, 4),
     indent(dataFields, 4),
@@ -70,7 +73,5 @@ function escapeText(value: string): string {
 }
 
 function escapeAttribute(value: string): string {
-  return escapeText(value)
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&apos;');
+  return escapeText(value).replaceAll('"', '&quot;').replaceAll("'", '&apos;');
 }

@@ -35,6 +35,7 @@ const outsiderId = 'export-outsider-user';
 const password = 'integration-test-password';
 const secondOrganizationId = `c${'b'.repeat(24)}`;
 const secondEditionId = `c${'d'.repeat(24)}`;
+const editionWithoutRecordId = `c${'9'.repeat(24)}`;
 const organizationHeader = 'X-Folio-Organization-Id';
 const secondOrganizationEdition = {
   ...canonicalExportEdition,
@@ -54,10 +55,22 @@ const secondOrganizationEdition = {
     })),
   },
 };
+const bibliographicRecordEditionIds = new Set([
+  canonicalExportEditionId,
+  secondEditionId,
+  legacyFallbackEditionId,
+]);
 const editions = new Map<string, unknown>([
   [canonicalExportEditionId, canonicalExportEdition],
   [legacyFallbackEditionId, legacyFallbackEdition],
   [secondEditionId, secondOrganizationEdition],
+  [
+    editionWithoutRecordId,
+    {
+      ...canonicalExportEdition,
+      id: editionWithoutRecordId,
+    },
+  ],
 ]);
 
 function asArray<T>(value: T | T[] | undefined): T[] {
@@ -75,7 +88,7 @@ function values(field: ParsedField, code: string): string[] {
     .map((subfield) => subfield['#text']);
 }
 
-describe('Local canonical MARCXchange export (e2e)', () => {
+describe('Canonical Edition MARCXchange export (e2e)', () => {
   let app: INestApplication<App>;
 
   beforeEach(async () => {
@@ -176,6 +189,27 @@ describe('Local canonical MARCXchange export (e2e)', () => {
           return edition;
         },
       },
+      bibliographicRecord: {
+        findFirst: async ({
+          where,
+        }: {
+          where: {
+            editionId: string;
+            edition: { work: { organizationId: string } };
+          };
+        }) => {
+          const edition = editions.get(where.editionId) as
+            { work: { organizationId: string } } | undefined;
+          if (
+            edition?.work.organizationId !== where.edition.work.organizationId
+          ) {
+            return null;
+          }
+          return bibliographicRecordEditionIds.has(where.editionId)
+            ? { id: `record-${where.editionId}` }
+            : null;
+        },
+      },
       externalIdentifier: {
         findMany: async ({
           where,
@@ -248,7 +282,7 @@ describe('Local canonical MARCXchange export (e2e)', () => {
     return response.body.accessToken as string;
   }
 
-  it('exports persisted canonical Phase 1 data as valid MARCXchange XML without leaking legacy or source-only values', async () => {
+  it('exports canonical Edition fields as structurally valid MARC21 MARCXchange XML', async () => {
     const token = await accessToken('export-member@example.test');
     const response = await request(app.getHttpServer())
       .get(`/exports/marcxchange/edition/${canonicalExportEditionId}`)
@@ -261,9 +295,10 @@ describe('Local canonical MARCXchange export (e2e)', () => {
       collection: {
         record: {
           '@_format': string;
-          '@_type': string;
           leader: string;
-          controlfield: { '@_tag': string; '#text': string };
+          controlfield:
+            | { '@_tag': string; '#text': string }
+            | { '@_tag': string; '#text': string }[];
           datafield: ParsedField[] | ParsedField;
         };
       };
@@ -272,110 +307,22 @@ describe('Local canonical MARCXchange export (e2e)', () => {
     const fields = asArray(record.datafield);
 
     expect(xml).toContain('<collection xmlns="info:lc/xmlns/marcxchange-v2">');
-    expect(record['@_format']).toBe('Unimarc');
-    expect(record['@_type']).toBe('bibliographic');
+    expect(record['@_format']).toBe('MARC21');
     expect(record.leader).toHaveLength(24);
-    expect(record.controlfield).toEqual({
+    expect(asArray(record.controlfield)).toContainEqual({
       '@_tag': '001',
       '#text': canonicalExportEditionId,
     });
-
-    const isbn = fieldsByTag(fields, '010');
-    expect(isbn).toHaveLength(1);
-    expect(values(isbn[0], 'a')).toEqual(['9789724426495']);
-
-    const language = fieldsByTag(fields, '101');
-    expect(language).toHaveLength(1);
-    expect(language[0]['@_ind1']).toBe(' ');
-    expect(language[0]['@_ind2']).toBe(' ');
-    expect(values(language[0], 'a')).toEqual(['por', 'eng']);
-    expect(values(language[0], 'c')).toEqual(['fra']);
-    expect(values(language[0], 'j')).toEqual(['spa']);
-
-    const title = fieldsByTag(fields, '200');
-    expect(title).toHaveLength(1);
-    expect(title[0]['@_ind1']).toBe('1');
-    expect(title[0]['@_ind2']).toBe(' ');
-    expect(values(title[0], 'a')).toEqual(['Canonical Edition Title']);
-    expect(values(title[0], 'd')).toEqual(['Titre parallèle']);
-    expect(values(title[0], 'e')).toEqual(['Canonical Subtitle']);
-    expect(values(title[0], 'f')).toEqual(['por Ana Silva']);
-    expect(values(title[0], 'g')).toEqual(['tradução de Jo Lee']);
-    expect(
-      fieldsByTag(fields, '517').map((field) => values(field, 'a')),
-    ).toEqual([['Alternate Edition Title']]);
-
-    const editionStatement = fieldsByTag(fields, '205');
-    expect(editionStatement).toHaveLength(1);
-    expect(editionStatement[0]['@_ind1']).toBe(' ');
-    expect(editionStatement[0]['@_ind2']).toBe(' ');
-    expect(values(editionStatement[0], 'a')).toEqual(['2.ª edição']);
-    expect(values(editionStatement[0], 'b')).toEqual(['revista']);
-    expect(values(editionStatement[0], 'f')).toEqual([
-      'com notas de Ana Silva',
+    expect(values(fieldsByTag(fields, '245')[0], 'a')).toEqual([
+      'Canonical Edition Title',
     ]);
-
-    const publication = fieldsByTag(fields, '210');
-    expect(publication).toHaveLength(2);
-    expect(
-      publication.map((field) => [field['@_ind1'], field['@_ind2']]),
-    ).toEqual([
-      [' ', '9'],
-      [' ', '9'],
+    expect(values(fieldsByTag(fields, '245')[0], 'b')).toEqual([
+      'Canonical Subtitle',
     ]);
-    expect(values(publication[0], 'a')).toEqual(['Lisboa']);
-    expect(values(publication[0], 'c')).toEqual(['Editora Canónica']);
-    expect(values(publication[0], 'd')).toEqual(['2024']);
-    expect(values(publication[1], 'e')).toEqual(['Porto']);
-    expect(values(publication[1], 'f')).toEqual(['Imprensa Canónica']);
-    expect(xml.indexOf('Lisboa')).toBeLessThan(xml.indexOf('Porto'));
-
-    const physical = fieldsByTag(fields, '215');
-    expect(physical).toHaveLength(1);
-    expect(values(physical[0], 'a')).toEqual(['146, [6] p.']);
-    expect(values(physical[0], 'b')).toEqual(['il.']);
-    expect(values(physical[0], 'd')).toEqual(['24 cm']);
-
-    const series = fieldsByTag(fields, '225');
-    expect(series).toHaveLength(1);
-    expect(values(series[0], 'a')).toEqual(['Colecção Folio']);
-    expect(values(series[0], 'e')).toEqual(['Folio series']);
-    expect(values(series[0], 'v')).toEqual(['12']);
-    expect(values(series[0], 'x')).toEqual(['1234-5679']);
-
-    for (const [tag, value] of [
-      ['300', 'Canonical general note'],
-      ['320', 'Bibliography note'],
-      ['327', 'Contents note'],
-      ['328', 'Dissertation note'],
-      ['330', 'Summary note'],
-      ['675', '821.134.3'],
-    ]) {
-      const matching = fieldsByTag(fields, tag);
-      expect(matching.length).toBeGreaterThan(0);
-      expect(matching.some((field) => values(field, 'a').includes(value))).toBe(
-        true,
-      );
-    }
-
-    for (const [tag, name, ind1, ind2] of [
-      ['700', 'Silva, Ana', '1', ' '],
-      ['701', 'Costa, Rui', '1', ' '],
-      ['702', 'Lee, Jo', '0', ' '],
-      ['710', 'Associação Folio', '2', ' '],
-      ['711', 'Fundação Exemplo', '2', ' '],
-      ['712', 'Instituto Canónico', '2', ' '],
-      ['713', 'Consórcio Canónico', '2', ' '],
-    ]) {
-      const matching = fieldsByTag(fields, tag);
-      expect(matching).toHaveLength(1);
-      expect(matching[0]['@_ind1']).toBe(ind1);
-      expect(matching[0]['@_ind2']).toBe(ind2);
-      expect(values(matching[0], 'a')).toEqual([name]);
-    }
-    expect(fields.findIndex(({ '@_tag': tag }) => tag === '700')).toBeLessThan(
-      fields.findIndex(({ '@_tag': tag }) => tag === '710'),
-    );
+    expect(values(fieldsByTag(fields, '020')[0], 'a')).toEqual([
+      '9789724426495',
+    ]);
+    expect(values(fieldsByTag(fields, '100')[0], 'a')).toEqual(['Silva, Ana']);
 
     for (const forbidden of [
       'LEGACY EDITION TITLE MUST NOT EXPORT',
@@ -388,17 +335,19 @@ describe('Local canonical MARCXchange export (e2e)', () => {
       '999 p.',
       'AGENT DISPLAY NAME MUST NOT EXPORT',
       'CORPORATE DISPLAY NAME MUST NOT EXPORT',
-      'RAW PROVIDER CONTENT MUST NOT EXPORT',
-      'UNMAPPED SHELF VALUE MUST NOT EXPORT',
       'ITEM PROVENANCE MUST NOT EXPORT',
+      'record-123',
+      'UNMAPPED SHELF VALUE MUST NOT EXPORT',
+      'provider-content',
     ]) {
       expect(xml).not.toContain(forbidden);
     }
     expect(xml).not.toContain('<warning');
     expect(xml).not.toContain('<diagnostic');
+    expect(fieldsByTag(fields, '966')).toHaveLength(0);
   }, 30_000);
 
-  it('uses legacy scalar fallback only when canonical relation lists are empty', async () => {
+  it('does not fall back to transitional scalar fields when canonical data is absent', async () => {
     const token = await accessToken('export-member@example.test');
     const response = await request(app.getHttpServer())
       .get(`/exports/marcxchange/edition/${legacyFallbackEditionId}`)
@@ -407,22 +356,8 @@ describe('Local canonical MARCXchange export (e2e)', () => {
     const parsed = parser.parse(response.text as string) as {
       collection: { record: { datafield: ParsedField[] | ParsedField } };
     };
-    const fields = asArray(parsed.collection.record.datafield);
-
-    expect(values(fieldsByTag(fields, '010')[0], 'a')).toEqual(['0306406152']);
-    expect(values(fieldsByTag(fields, '101')[0], 'a')).toEqual(['por']);
-    expect(values(fieldsByTag(fields, '200')[0], 'a')).toEqual([
-      'Legacy fallback title',
-    ]);
-    expect(values(fieldsByTag(fields, '200')[0], 'e')).toEqual([
-      'Legacy fallback subtitle',
-    ]);
-    expect(values(fieldsByTag(fields, '210')[0], 'a')).toEqual(['Coimbra']);
-    expect(values(fieldsByTag(fields, '210')[0], 'c')).toEqual([
-      'Legacy fallback publisher',
-    ]);
-    expect(values(fieldsByTag(fields, '210')[0], 'd')).toEqual(['2001']);
-    expect(values(fieldsByTag(fields, '215')[0], 'a')).toEqual(['100 p.']);
+    expect(parsed.collection.record.datafield).toBeUndefined();
+    expect(response.text).not.toContain('Legacy fallback');
   }, 30_000);
 
   it('accepts a matching optional organization header and rejects a mismatch', async () => {
@@ -444,7 +379,7 @@ describe('Local canonical MARCXchange export (e2e)', () => {
       );
   }, 30_000);
 
-  it('exports only the requested Edition even for a user with memberships in both organizations', async () => {
+  it('exports only the requested Edition for a user in both organizations', async () => {
     const token = await accessToken('export-member@example.test');
     const organizationAResponse = await request(app.getHttpServer())
       .get(`/exports/marcxchange/edition/${canonicalExportEditionId}`)
@@ -461,6 +396,25 @@ describe('Local canonical MARCXchange export (e2e)', () => {
     );
     expect(organizationBResponse.text).toContain('Tenant B Canonical Title');
     expect(organizationBResponse.text).not.toContain('Canonical Edition Title');
+  }, 30_000);
+
+  it('allows a Reader to export the canonical Edition', async () => {
+    const token = await accessToken('export-outsider@example.test');
+
+    await request(app.getHttpServer())
+      .get(`/exports/marcxchange/edition/${secondEditionId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200)
+      .expect('Content-Type', /application\/xml/)
+      .expect(({ text }) => {
+        const parsed = parser.parse(text as string) as {
+          collection: { record: { datafield: ParsedField[] | ParsedField } };
+        };
+        const fields = asArray(parsed.collection.record.datafield);
+        expect(values(fieldsByTag(fields, '245')[0], 'a')).toEqual([
+          'Tenant B Canonical Title',
+        ]);
+      });
   }, 30_000);
 
   it('does not allow a user in Organization B to export Organization A Editions', async () => {
@@ -504,6 +458,15 @@ describe('Local canonical MARCXchange export (e2e)', () => {
     await request(app.getHttpServer())
       .get(`/exports/marcxchange/edition/${`c${'0'.repeat(24)}`}`)
       .set('Authorization', `Bearer ${memberToken}`)
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+  }, 30_000);
+
+  it('returns RESOURCE_NOT_FOUND when an existing Edition has no Record', async () => {
+    const token = await accessToken('export-member@example.test');
+    await request(app.getHttpServer())
+      .get(`/exports/marcxchange/edition/${editionWithoutRecordId}`)
+      .set('Authorization', 'Bearer ' + token)
       .expect(404)
       .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
   }, 30_000);

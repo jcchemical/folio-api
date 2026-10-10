@@ -66,9 +66,9 @@ export class ExportsController {
       'Optional consistency check; Organization is derived from Edition → Work.',
   })
   @ApiOperation({
-    summary: 'Export a local Edition as MARCXchange XML',
+    summary: 'Export an Edition as canonical MARC21 MARCXchange XML',
     description:
-      'The export is scoped to the persisted Edition → Work organization. If X-Folio-Organization-Id is supplied, it must match.',
+      'Maps canonical Edition fields to MARC21 and serializes them as MARCXchange. The associated Bibliographic Record must exist, but raw provider content is not exported.',
   })
   @ApiOkResponse({ description: 'MARCXchange XML export' })
   @ApiBadRequestResponse({ description: 'The edition ID is invalid.' })
@@ -78,7 +78,7 @@ export class ExportsController {
   })
   @ApiNotFoundResponse({
     description:
-      'Edition not found or not accessible to the authenticated user.',
+      'Edition or Bibliographic Record not found, or Edition not accessible to the authenticated user.',
   })
   async exportEdition(
     @Param('editionId', EditionIdValidationPipe) editionId: string,

@@ -10,11 +10,8 @@ import {
   responseWithCode,
 } from '../common/api-errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import {
-  mapLocalEditionToUnimarc,
-  type UnimarcLocalEditionInput,
-} from '../bibliography/mappers/unimarc-local.mapper.js';
-import { serializeMarcXchange } from '../bibliography/serializers/marcxchange.serializer.js';
+import type { UnimarcLocalEditionInput } from '../bibliography/mappers/unimarc-local.mapper.js';
+import { serializeCanonicalEditionMarcXchange } from '../bibliography/serializers/canonical-edition-marcxchange.serializer.js';
 import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
 import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
 
@@ -44,6 +41,18 @@ export class ExportsService {
       headerValue,
       derivedOrganizationId: target.work.organizationId,
     });
+
+    const record = await this.prisma.bibliographicRecord.findFirst({
+      where: {
+        editionId,
+        edition: {
+          work: { organizationId: target.work.organizationId },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (!record) throw resourceNotFound();
 
     const edition = await this.prisma.edition.findUnique({
       where: {
@@ -98,8 +107,8 @@ export class ExportsService {
         },
       },
     });
-
     if (!edition) throw resourceNotFound();
+
     const identifiers = await this.prisma.externalIdentifier.findMany({
       where: {
         entityType: 'Edition',
@@ -109,56 +118,35 @@ export class ExportsService {
       orderBy: [{ id: 'asc' }],
     });
 
+    const canonicalEdition: UnimarcLocalEditionInput = {
+      id: edition.id,
+      titles: edition.titles,
+      responsibilityStatements: edition.responsibilityStatements,
+      languages: edition.languages,
+      editionStatements: edition.editionStatements,
+      series: edition.series,
+      notes: edition.notes,
+      classifications: edition.classifications,
+      contributions: edition.contributions,
+      physicalDescriptions: edition.physicalDescriptions,
+      publicationStatements: edition.publicationStatements,
+      work: {
+        titles: edition.work.titles,
+        notes: edition.work.notes,
+        contributions: edition.work.contributions,
+      },
+      externalIdentifiers: identifiers.map((identifier) => ({
+        type: identifier.authority.toUpperCase(),
+        value: identifier.value,
+      })),
+    };
+
     try {
-      const legacyProjection = {
-        edition: {
-          title: edition.title,
-          subtitle: edition.subtitle,
-          isbn10: edition.isbn10,
-          isbn13: edition.isbn13,
-          publisher: edition.publisher,
-          publicationDate: edition.publicationDate,
-          publicationPlace: edition.publicationPlace,
-          language: edition.language,
-          pageCount: edition.pageCount,
-        },
-        work: { title: edition.work.title },
-      };
-
-      const localEdition: UnimarcLocalEditionInput = {
-        id: edition.id,
-        ...legacyProjection.edition,
-        legacyProjection,
-        titles: edition.titles,
-        responsibilityStatements: edition.responsibilityStatements,
-        languages: edition.languages,
-        editionStatements: edition.editionStatements,
-        series: edition.series,
-        notes: edition.notes,
-        classifications: edition.classifications,
-        contributions: edition.contributions,
-        physicalDescriptions: edition.physicalDescriptions,
-        publicationStatements: edition.publicationStatements,
-        work: {
-          titles: edition.work.titles,
-          notes: edition.work.notes,
-          contributions: edition.work.contributions,
-        },
-        externalIdentifiers: identifiers.map((identifier) => ({
-          type: identifier.authority.toUpperCase(),
-          value: identifier.value,
-        })),
-      };
-
-      const mapping = mapLocalEditionToUnimarc(localEdition);
-      return serializeMarcXchange(mapping.record);
+      return serializeCanonicalEditionMarcXchange(canonicalEdition);
     } catch (error: unknown) {
-      if (error instanceof InternalServerErrorException) {
-        throw error;
-      }
-
+      if (error instanceof InternalServerErrorException) throw error;
       throw new InternalServerErrorException(
-        'Could not serialize the local edition as MARCXchange',
+        'Could not serialize the canonical Edition as MARCXchange',
       );
     }
   }
