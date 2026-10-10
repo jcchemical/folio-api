@@ -97,6 +97,19 @@ export class ContributionsController {
     @Body() body: UpdateContributionDto,
     @Req() request: Request,
   ) {
+    forbidRequestFields(request.body, [
+      'organizationId',
+      'workId',
+      'editionId',
+      'agentId',
+      'source',
+      'sourceTag',
+      'indicator1',
+      'indicator2',
+      'sourceParts',
+      'authorityId',
+      'relationshipCodeScheme',
+    ]);
     return this.contributionsService.update(
       id,
       this.userId(request),
@@ -139,6 +152,16 @@ export class ContributionsController {
   })
   @ApiCreatedResponse()
   create(@Body() body: CreateContributionDto, @Req() request: Request) {
+    forbidRequestFields(request.body, [
+      'organizationId',
+      'source',
+      'sourceTag',
+      'indicator1',
+      'indicator2',
+      'sourceParts',
+      'authorityId',
+      'relationshipCodeScheme',
+    ]);
     return this.contributionsService.createManual(
       (request.user as AuthenticatedUser).id,
       body,
