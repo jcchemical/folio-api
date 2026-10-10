@@ -8,6 +8,7 @@ import {
   Query,
   Req,
   UseGuards,
+  HttpStatus,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -23,6 +24,7 @@ import {
 import type { Request } from 'express';
 import type { AuthenticatedUser } from '../auth/auth.types.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
+import { API_ERROR_CODES, ApiException } from '../common/api-errors.js';
 import { forbidRequestFields } from '../common/forbid-request-fields.js';
 import { FOLIO_ORGANIZATION_HEADER } from '../organizations/organization-context.resolver.js';
 import {
@@ -77,6 +79,7 @@ export class WorkItemsController {
   @ApiForbiddenResponse({ description: 'STAFF membership is required.' })
   create(@Body() body: CreateWorkItemDto, @Req() request: Request) {
     forbidRequestFields(request.body, [...IMMUTABLE_FIELDS, 'status']);
+    forbidUnknownRequestFields(request.body, ['rawValue']);
     return this.service.create(
       this.userId(request),
       request.headers[FOLIO_ORGANIZATION_HEADER],
@@ -113,6 +116,7 @@ export class WorkItemsController {
     @Req() request: Request,
   ) {
     forbidRequestFields(request.body, [...IMMUTABLE_FIELDS, 'rawValue']);
+    forbidUnknownRequestFields(request.body, ['status']);
     return this.service.transition(
       id,
       this.userId(request),
@@ -124,4 +128,22 @@ export class WorkItemsController {
   private userId(request: Request): string {
     return (request.user as AuthenticatedUser).id;
   }
+}
+
+function forbidUnknownRequestFields(
+  body: unknown,
+  allowedFields: readonly string[],
+): void {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return;
+  const unexpected = Object.keys(body).filter(
+    (field) => !allowedFields.includes(field),
+  );
+  if (!unexpected.length) return;
+
+  throw new ApiException(
+    HttpStatus.BAD_REQUEST,
+    API_ERROR_CODES.VALIDATION_INVALID_BODY,
+    'Request validation failed.',
+    { messages: unexpected.map((field) => `${field} is not allowed.`) },
+  );
 }

@@ -66,7 +66,7 @@ Módulos/capacidades actuais incluem:
 
 `WorksModule` agrega actualmente controllers e services de várias entidades do catálogo. Esta organização é válida no monólito actual; a evolução para módulos por capacidade é uma direcção, não uma refactorização já concluída.
 
-`WorkItemsModule` é um novo módulo introduzido em M3a que suporta o fluxo de captura: entidade `WorkItem` separada de `Item`, máquina de transições de estados declarada, e endpoints read-only de list/create/detail/transition com autorização STAFF.
+`WorkItem` é uma entidade de processo de captura, separada de `Item`, `Edition` e `BibliographicRecord`. Em M3a, `WorkItemsModule` fornece leitura, criação manual e transição de estado; não fornece CRUD geral.
 
 Imports relativos TypeScript seguem ESM e usam extensão `.js`.
 
@@ -378,7 +378,7 @@ Os comandos são procedimentos de validação, não afirmação de que foram cor
 ## Limitações conhecidas consolidadas
 
 1. A migração do contexto é parcial: Organizations/Works/Editions/Libraries/Locations/Holdings/Items, catalogue import, `POST /contributions`, leitura de Bibliographic Records/Covers, export por Edition e captura (`WorkItem`) usam contexto explícito ou derivado. `getDefaultOrganization()` permanece apenas usado pelo onboarding pessoal.
-2. Sem gestão de memberships/convites/roles, branches, Campus, ServicePoint, auditoria ou circulação; Item não representa empréstimos nem estado de circulação. O CRUD de Agents e Contributions (list/get/PATCH/DELETE) está implementado no backend e tem cliente/UI no `folio-app`; a validação de integração e smoke app→API continua pendente. Agents continuam sem merge/autoridade. WorkItem suporta apenas criação MANUAL de teste e transition de estado; scan (M3b) e fila de revisão (M3c) estão planeados.
+2. Sem gestão de memberships/convites/roles, branches, Campus, ServicePoint, auditoria ou circulação; Item não representa empréstimos nem estado de circulação. O CRUD de Agents e Contributions (list/get/PATCH/DELETE) está implementado no backend e tem cliente/UI no `folio-app`; a validação de integração e smoke app→API continua pendente. Agents continuam sem merge/autoridade. WorkItem suporta leitura, criação MANUAL e transição de estado; scan, match, fila e curadoria não estão implementados.
 3. Confirmação de import sem preview snapshot; campos de contribuição de origem do import são editáveis pelo cliente.
 4. CRUD regular de Work/Edition ainda não mantém sempre relações de títulos/línguas canónicas; `$h/$i` parseados não são persistidos estruturadamente.
 5. Proveniência de Records limitada; não há snapshot do preview nem versionamento/hash do raw record.
@@ -386,7 +386,7 @@ Os comandos são procedimentos de validação, não afirmação de que foram cor
 7. Hosts do fetcher devem ser configurados; sem variável a allowlist é vazia e o allowlist exacto pode não incluir todos os hosts aceites pelo extractor.
 8. Storage S3, queue, rate-limit distribuído, request ID e redacção de mensagem/stack de excepções não existem.
 9. Migração `20260907180000_refine_bibliographic_model` declara-se como alvo de reset deliberado de desenvolvimento e executa `DROP TABLE PhysicalDescription`; confirmar estado/impacto do ambiente antes de aplicar migrations. Migrations versionadas não demonstram estado de aplicação remota.
-10. WorkItem é entidade separada de Item com ciclo de vida próprio; relação a Item é opcional (matchedItemId pode ser null). Transições de estado são IDENTIFIED/NEEDS_REVIEW/VALIDATED, declaradas e testáveis. STAFF pode criar (MANUAL/NEEDS_REVIEW) e transitar. READER tem acesso read-only. Captura (source=SCAN) e matching automático (M3b) ainda não implementados.
+10. WorkItem é entidade de processo de captura separada de Item, Edition e BibliographicRecord; a relação opcional a Item usa `matchedItemId`. M3a não implementa scan, match, fila, curadoria, edição geral nem eliminação de WorkItems. M3b deve garantir que qualquer Item associado pertence à mesma Organization do WorkItem.
 
 ## Próximos gates
 
@@ -403,7 +403,15 @@ External Identifiers e Agents/Contributions. Isto não fecha a integração:
 5. tratar pesquisa local, gestão de memberships, captura (M3b), fila (M3c), auditoria e
    hardening distribuído como trabalho futuro sujeito a decisão própria.
 
-M3a — WorkItem — está implementado: modelo, máquina de estados (IDENTIFIED/NEEDS_REVIEW/VALIDATED), endpoints (GET/POST list, GET detail, PATCH transition), contexto derivado, autorização STAFF/READER, isolamento Organization. Migration aplicada a folio_smoke. M3b (scan) e M3c (fila) estão planeados como extensões sem redesign.
+M3a — WorkItem — está implementado com isolamento por Organization e estes contratos:
+
+- `GET /work-items` requer JWT e `X-Folio-Organization-Id`; aceita `cursor`, `limit` e filtro opcional `status`; `limit` tem default 25 e máximo 100; devolve `{ items, nextCursor, hasMore }`. READER ou superior pode listar.
+- `POST /work-items` requer JWT, `X-Folio-Organization-Id` e STAFF, ADMIN ou OWNER; aceita exclusivamente `{ "rawValue": string }` e rejeita propriedades desconhecidas. Cria sempre `source=MANUAL`, `status=NEEDS_REVIEW`, `matchedItemId=null`; deriva Organization do contexto e `createdById` do JWT.
+- `GET /work-items/:id` requer JWT, deriva Organization do WorkItem persistido e permite header opcional apenas como verificação de consistência; READER ou superior pode ler.
+- `PATCH /work-items/:id/status` requer JWT, deriva Organization do WorkItem persistido e exige STAFF, ADMIN ou OWNER; aceita exclusivamente `{ "status": WorkItemStatus }` e rejeita propriedades desconhecidas. A actualização é condicionada por `id`, `organizationId` e estado anterior; transição inválida ou perda do compare-and-set devolve HTTP 409 `WORK_ITEM_TRANSITION_INVALID`.
+- Transições: `IDENTIFIED → VALIDATED | NEEDS_REVIEW`, `NEEDS_REVIEW → VALIDATED`; `VALIDATED` é terminal e auto-transições são inválidas.
+
+A migration M3a foi criada para `folio_smoke`; esta documentação não afirma que esteja aplicada em qualquer base concreta. M3b (scan/match) e M3c (fila) permanecem trabalho futuro.
 
 Direcção futura de pesquisa local: pesquisa Folio distinta de providers externos; extensão controlada de `GET /works`; PostgreSQL full-text (`tsvector`, ranking e GIN), cursor compatível com ordenação; trigramas só com justificação medida. Sem Elasticsearch/Redis nesta fase.
 

@@ -153,6 +153,55 @@ describe('WorkItems (e2e fake with real JWT guard)', () => {
     expect(second.body.items[0].organizationId).toBe(workItemOrgA);
   });
 
+  it('uses the default page size and returns the standard pagination shape', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/work-items')
+      .auth(tokens.reader, { type: 'bearer' })
+      .set(header, workItemOrgA)
+      .expect(200);
+
+    expect(state.prisma.workItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 26 }),
+    );
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        items: expect.any(Array),
+        nextCursor: null,
+        hasMore: false,
+      }),
+    );
+  });
+
+  it('rejects a page size above the maximum before listing', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/work-items?limit=101')
+      .auth(tokens.reader, { type: 'bearer' })
+      .set(header, workItemOrgA)
+      .expect(400);
+
+    expect(response.body.code).toBe('VALIDATION_INVALID_BODY');
+    expect(state.prisma.workItem.findMany).not.toHaveBeenCalled();
+  });
+
+  it('accepts the maximum page size', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/work-items?limit=100')
+      .auth(tokens.reader, { type: 'bearer' })
+      .set(header, workItemOrgA)
+      .expect(200);
+
+    expect(state.prisma.workItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 101 }),
+    );
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        items: expect.any(Array),
+        nextCursor: null,
+        hasMore: false,
+      }),
+    );
+  });
+
   it('requires root context and refuses non-member root selection', async () => {
     const missing = await request(app.getHttpServer())
       .get('/work-items')
@@ -170,6 +219,25 @@ describe('WorkItems (e2e fake with real JWT guard)', () => {
       .set(header, workItemOrgB)
       .expect(403);
     expect(forbidden.body.code).toBe('ORGANIZATION_MEMBERSHIP_REQUIRED');
+  });
+
+  it('rejects malformed Organization headers on root list and create routes', async () => {
+    const list = await request(app.getHttpServer())
+      .get('/work-items')
+      .auth(tokens.reader, { type: 'bearer' })
+      .set(header, 'malformed')
+      .expect(400);
+    expect(list.body.code).toBe('ORGANIZATION_ID_INVALID');
+
+    const create = await request(app.getHttpServer())
+      .post('/work-items')
+      .auth(tokens.staff, { type: 'bearer' })
+      .set(header, 'malformed')
+      .send({ rawValue: 'x' })
+      .expect(400);
+    expect(create.body.code).toBe('ORGANIZATION_ID_INVALID');
+    expect(state.prisma.workItem.findMany).not.toHaveBeenCalled();
+    expect(state.prisma.workItem.create).not.toHaveBeenCalled();
   });
 
   it('allows Reader reads but blocks creation and transitions', async () => {
@@ -235,6 +303,18 @@ describe('WorkItems (e2e fake with real JWT guard)', () => {
         .expect(400);
       expect(invalid.body.code).toBe('ORGANIZATION_ID_INVALID');
     }
+  });
+
+  it('rejects a mismatching Organization header on a transition', async () => {
+    const response = await request(app.getHttpServer())
+      .patch(`/work-items/${identifiedWorkItemId}/status`)
+      .auth(tokens.multi, { type: 'bearer' })
+      .set(header, workItemOrgB)
+      .send({ status: 'VALIDATED' })
+      .expect(409);
+
+    expect(response.body.code).toBe('ORGANIZATION_CONTEXT_CONFLICT');
+    expect(state.prisma.workItem.updateManyAndReturn).not.toHaveBeenCalled();
   });
 
   it('supports the identified review path and refuses invalid/terminal transitions', async () => {
@@ -304,20 +384,6 @@ describe('WorkItems (e2e fake with real JWT guard)', () => {
         .expect(400);
       expect(response.body.code).toBe('VALIDATION_INVALID_BODY');
     }
-    for (const field of [
-      'organizationId',
-      'createdById',
-      'source',
-      'status',
-      'matchedItemId',
-    ]) {
-      await request(app.getHttpServer())
-        .post('/work-items')
-        .auth(tokens.staff, { type: 'bearer' })
-        .set(header, workItemOrgA)
-        .send({ rawValue: 'x', [field]: 'forged' })
-        .expect(400);
-    }
     for (const query of [
       'status=UNKNOWN',
       'limit=0',
@@ -333,4 +399,93 @@ describe('WorkItems (e2e fake with real JWT guard)', () => {
     expect(state.prisma.workItem.create).not.toHaveBeenCalled();
     expect(state.prisma.workItem.updateManyAndReturn).not.toHaveBeenCalled();
   });
+
+  it.each([
+    'id',
+    'organizationId',
+    'source',
+    'status',
+    'matchedItemId',
+    'createdById',
+    'createdAt',
+    'updatedAt',
+    'matchedItem',
+    'organization',
+    'createdBy',
+  ])('rejects POST field %s without writing', async (field) => {
+    const response = await request(app.getHttpServer())
+      .post('/work-items')
+      .auth(tokens.staff, { type: 'bearer' })
+      .set(header, workItemOrgA)
+      .send({ rawValue: 'x', [field]: 'forged' })
+      .expect(400);
+
+    expect(response.body.code).toBe('VALIDATION_INVALID_BODY');
+    expect(state.prisma.workItem.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown POST property without writing', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/work-items')
+      .auth(tokens.staff, { type: 'bearer' })
+      .set(header, workItemOrgA)
+      .send({ rawValue: 'x', extra: 'y' })
+      .expect(400);
+
+    expect(response.body.code).toBe('VALIDATION_INVALID_BODY');
+    expect(state.prisma.workItem.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'rawValue',
+    'source',
+    'matchedItemId',
+    'createdById',
+    'organizationId',
+    'id',
+    'createdAt',
+    'updatedAt',
+    'matchedItem',
+    'organization',
+    'createdBy',
+  ])('rejects PATCH field %s without updating', async (field) => {
+    const response = await request(app.getHttpServer())
+      .patch(`/work-items/${identifiedWorkItemId}/status`)
+      .auth(tokens.staff, { type: 'bearer' })
+      .send({ status: 'VALIDATED', [field]: 'forged' })
+      .expect(400);
+
+    expect(response.body.code).toBe('VALIDATION_INVALID_BODY');
+    expect(state.prisma.workItem.updateManyAndReturn).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown PATCH property without updating', async () => {
+    const response = await request(app.getHttpServer())
+      .patch(`/work-items/${identifiedWorkItemId}/status`)
+      .auth(tokens.staff, { type: 'bearer' })
+      .send({ status: 'VALIDATED', extra: 'y' })
+      .expect(400);
+
+    expect(response.body.code).toBe('VALIDATION_INVALID_BODY');
+    expect(state.prisma.workItem.updateManyAndReturn).not.toHaveBeenCalled();
+  });
+
+  it.each(['admin', 'owner'])(
+    'allows %s to create a manual WorkItem',
+    async (user) => {
+      const response = await request(app.getHttpServer())
+        .post('/work-items')
+        .auth(tokens[user], { type: 'bearer' })
+        .set(header, workItemOrgA)
+        .send({ rawValue: `${user}-capture` })
+        .expect(201);
+
+      expect(response.body).toMatchObject({
+        source: 'MANUAL',
+        status: 'NEEDS_REVIEW',
+        matchedItemId: null,
+        createdById: user,
+      });
+    },
+  );
 });
