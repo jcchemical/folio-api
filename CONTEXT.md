@@ -176,6 +176,12 @@ Organizações e catálogo local:
   `BibliographicRecord → Edition → Work`; header opcional só confirma igualdade
   e a leitura requer membership. Não há root list nem rotas próprias de escrita;
   Records são criados pela confirmação de importação de catálogo.
+- `GET /editions/:id/record` — devolve o Record mais recente da Edition,
+  projectando `id`, `editionId`, `source`, `sourceId`, `importedAt`, `remoteId`,
+  `format` e proveniência `pipeline-only`; não devolve `rawContent`. Edition sem
+  Record produz `RESOURCE_NOT_FOUND`. A Organization deriva de Edition → Work;
+  o header opcional só confirma igualdade e qualquer membership pode ler. A
+  proveniência PORBASE identifica o pipeline de ingestão, não um snapshot upstream.
 - `GET /editions/:id/cover` — lê a capa activa; Organization deriva de
   `Edition → Work`; header opcional só confirma igualdade; leitura requer
   membership. Responde com bytes de imagem ou 304 para `If-None-Match` válido.
@@ -273,9 +279,10 @@ MARCXchange e MARCXML são serializers/endpoints separados. O export actual é a
 - CRUD normal de Work/Edition ainda escreve os campos escalares; não mantém sempre `WorkTitle`, `EditionTitle` ou `EditionLanguage`. Assim, a fonte canónica por estrutura está integrada mais completamente no import/export do que nas operações gerais de escrita.
 - Parser/DTO de título reconhece `200$h/$i` como `partNumber`/`partName`, mas o schema `WorkTitle`/`EditionTitle` não tem esses campos e a persistência não os grava estruturadamente. O raw original permanece disponível.
 - `BibliographicNote` suporta alvos Work e Edition no schema; o fluxo actual de import oferece notas na Edition, não um contrato completo de nota de Work.
-- A camada de proveniência não tem ainda versões/histórico de aquisição, hash do raw, encoding, versão do parser ou gestão de múltiplos snapshots.
-- `GET /bibliographic-records/:id` é a única rota pública de Record; não há
-  listagem root, criação, atualização ou remoção fora da confirmação de import.
+- A camada de proveniência não tem ainda versões/histórico de aquisição, hash do raw, encoding, versão do parser ou gestão de múltiplos snapshots. `GET /editions/:id/record` expõe apenas fonte/pipeline e timestamp de importação, sem afirmar snapshot upstream.
+- `GET /bibliographic-records/:id` e `GET /editions/:id/record` são rotas
+  read-only de Record; não há listagem root, criação, atualização ou remoção
+  fora da confirmação de import.
 - O perfil PORBASE é subconjunto: não implica implementação semântica de todo UNIMARC, authority control, MARC 21 ou preservação de todo campo desconhecido como conceito canónico.
 
 ## Capas e ficheiros

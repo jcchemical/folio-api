@@ -3,6 +3,7 @@ import { API_ERROR_CODES, ApiException } from '../common/api-errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { OrganizationContextResolver } from '../organizations/organization-context.resolver.js';
 import type { OrganizationHeaderValue } from '../organizations/organization-context.resolver.js';
+import { EditionRecordOutputDto } from './dto/edition-record-output.dto.js';
 
 @Injectable()
 export class BibliographicRecordsService {
@@ -52,6 +53,42 @@ export class BibliographicRecordsService {
       where: { editionId },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async findForEdition(
+    userId: string,
+    editionId: string,
+    headerValue?: OrganizationHeaderValue,
+  ): Promise<EditionRecordOutputDto> {
+    const edition = await this.prisma.edition.findUnique({
+      where: { id: editionId },
+      include: { work: true },
+    });
+    if (!edition) throw resourceNotFound('Edition');
+    if (!edition.work?.organizationId) throw resourceNotFound('Edition Work');
+
+    await this.contexts.resolveDerivedContext({
+      userId,
+      headerValue,
+      derivedOrganizationId: edition.work.organizationId,
+    });
+
+    const record = await this.prisma.bibliographicRecord.findFirst({
+      where: { editionId },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        editionId: true,
+        source: true,
+        sourceId: true,
+        createdAt: true,
+        remoteId: true,
+        format: true,
+      },
+    });
+    if (!record) throw resourceNotFound('Bibliographic record');
+
+    return new EditionRecordOutputDto(record);
   }
 }
 

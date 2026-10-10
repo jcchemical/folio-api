@@ -38,6 +38,8 @@ import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 import { THROTTLE_TTL_MS } from '../common/throttling.config.js';
 import { EditionCoverService } from './edition-cover.service.js';
 import { FOLIO_ORGANIZATION_HEADER } from '../organizations/organization-context.resolver.js';
+import { BibliographicRecordsService } from '../bibliographic-records/bibliographic_records.service.js';
+import { EditionRecordOutputDto } from '../bibliographic-records/dto/edition-record-output.dto.js';
 
 @ApiTags('editions')
 @ApiBearerAuth()
@@ -47,6 +49,7 @@ export class EditionsController {
   constructor(
     private readonly editionsService: EditionsService,
     private readonly editionCoverService: EditionCoverService,
+    private readonly bibliographicRecordsService: BibliographicRecordsService,
   ) {}
 
   @Get()
@@ -72,6 +75,39 @@ export class EditionsController {
     return this.editionsService.findById(
       id,
       this.getUserId(request),
+      request.headers[FOLIO_ORGANIZATION_HEADER],
+    );
+  }
+
+  @Get(':id/record')
+  @ApiHeader({
+    name: FOLIO_ORGANIZATION_HEADER,
+    required: false,
+    description:
+      'Optional consistency check; Organization is derived from Edition → Work.',
+  })
+  @ApiOperation({
+    summary: 'Read the Bibliographic Record associated with an Edition',
+    description:
+      'Organization is derived from Edition → Work. A supplied X-Folio-Organization-Id must match. The response contains declared provenance and excludes raw source content.',
+  })
+  @ApiOkResponse({ type: EditionRecordOutputDto })
+  @ApiBadRequestResponse({
+    description: 'The organization header is invalid.',
+  })
+  @ApiForbiddenResponse({
+    description: 'Membership in the Edition organization is required.',
+  })
+  @ApiNotFoundResponse({
+    description: 'The Edition or its Bibliographic Record was not found.',
+  })
+  getRecord(
+    @Param('id') id: string,
+    @Req() request: Request,
+  ): Promise<EditionRecordOutputDto> {
+    return this.bibliographicRecordsService.findForEdition(
+      this.getUserId(request),
+      id,
       request.headers[FOLIO_ORGANIZATION_HEADER],
     );
   }

@@ -12,6 +12,9 @@ const organizationA = `c${'a'.repeat(24)}`;
 const organizationB = `c${'b'.repeat(24)}`;
 const recordAId = `c${'1'.repeat(24)}`;
 const recordBId = `c${'2'.repeat(24)}`;
+const editionAId = `c${'3'.repeat(24)}`;
+const editionBId = `c${'5'.repeat(24)}`;
+const editionWithoutRecordId = `c${'7'.repeat(24)}`;
 const header = 'X-Folio-Organization-Id';
 
 describe('Bibliographic Record route (e2e)', () => {
@@ -29,12 +32,15 @@ describe('Bibliographic Record route (e2e)', () => {
         recordAId,
         {
           id: recordAId,
-          editionId: `c${'3'.repeat(24)}`,
+          editionId: editionAId,
           format: 'MARC_TEXT',
           rawContent: '200 $a Tenant A title',
           source: 'PORBASE',
+          sourceId: 'porbase',
+          remoteId: 'remote-a',
+          createdAt: new Date('2026-10-01T12:00:00.000Z'),
           edition: {
-            id: `c${'3'.repeat(24)}`,
+            id: editionAId,
             work: { id: `c${'4'.repeat(24)}`, organizationId: organizationA },
           },
         },
@@ -43,15 +49,26 @@ describe('Bibliographic Record route (e2e)', () => {
         recordBId,
         {
           id: recordBId,
-          editionId: `c${'5'.repeat(24)}`,
+          editionId: editionBId,
           format: 'MARC_TEXT',
           rawContent: '200 $a Tenant B title',
           source: 'PORBASE',
+          sourceId: 'porbase',
+          remoteId: 'remote-b',
+          createdAt: new Date('2026-10-02T12:00:00.000Z'),
           edition: {
-            id: `c${'5'.repeat(24)}`,
+            id: editionBId,
             work: { id: `c${'6'.repeat(24)}`, organizationId: organizationB },
           },
         },
+      ],
+    ]);
+    const editions = new Map([
+      [editionAId, { id: editionAId, work: { organizationId: organizationA } }],
+      [editionBId, { id: editionBId, work: { organizationId: organizationB } }],
+      [
+        editionWithoutRecordId,
+        { id: editionWithoutRecordId, work: { organizationId: organizationA } },
       ],
     ]);
     const memberships = [
@@ -90,6 +107,18 @@ describe('Bibliographic Record route (e2e)', () => {
       bibliographicRecord: {
         findUnique: async ({ where }: { where: { id: string } }) =>
           records.get(where.id) ?? null,
+        findFirst: async ({
+          where,
+        }: {
+          where: { editionId: string };
+        }) =>
+          [...records.values()].find(
+            (record) => record.editionId === where.editionId,
+          ) ?? null,
+      },
+      edition: {
+        findUnique: async ({ where }: { where: { id: string } }) =>
+          editions.get(where.id) ?? null,
       },
       $connect: async () => undefined,
       $disconnect: async () => undefined,
@@ -157,5 +186,67 @@ describe('Bibliographic Record route (e2e)', () => {
       .get(`/bibliographic-records/${`c${'9'.repeat(24)}`}`)
       .expect(404)
       .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+  });
+
+  it('reads a Record for an Edition without exposing raw source content', async () => {
+    const response = await request(app.getHttpServer())
+      .get(`/editions/${editionAId}/record`)
+      .expect(200);
+
+    expect(response.body).toEqual({
+      id: recordAId,
+      editionId: editionAId,
+      source: 'PORBASE',
+      sourceId: 'porbase',
+      importedAt: '2026-10-01T12:00:00.000Z',
+      remoteId: 'remote-a',
+      format: 'MARC_TEXT',
+      provenance: {
+        pipeline: 'PORBASE',
+        auditability: 'pipeline-only',
+        note: 'Source identifies the ingestion pipeline; no upstream snapshot is retained.',
+      },
+    });
+    expect(response.body).not.toHaveProperty('rawContent');
+  });
+
+  it('allows a Reader to fetch the Record without an Organization header', async () => {
+    currentUserId = 'user-b';
+
+    await request(app.getHttpServer())
+      .get(`/editions/${editionBId}/record`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.id).toBe(recordBId);
+        expect(body.editionId).toBe(editionBId);
+      });
+  });
+
+  it('rejects a mismatching Organization header', async () => {
+    await request(app.getHttpServer())
+      .get(`/editions/${editionAId}/record`)
+      .set(header, organizationB)
+      .expect(409)
+      .expect(({ body }) =>
+        expect(body.code).toBe('ORGANIZATION_CONTEXT_CONFLICT'),
+      );
+  });
+
+  it('returns a stable 404 when an Edition has no Record', async () => {
+    await request(app.getHttpServer())
+      .get(`/editions/${editionWithoutRecordId}/record`)
+      .expect(404)
+      .expect(({ body }) => expect(body.code).toBe('RESOURCE_NOT_FOUND'));
+  });
+
+  it('does not expose a Record to a user outside its Organization', async () => {
+    currentUserId = 'user-b';
+
+    await request(app.getHttpServer())
+      .get(`/editions/${editionAId}/record`)
+      .expect(403)
+      .expect(({ body }) =>
+        expect(body.code).toBe('ORGANIZATION_MEMBERSHIP_REQUIRED'),
+      );
   });
 });

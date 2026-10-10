@@ -10,10 +10,16 @@ const userId = 'user-1';
 const organizationId = 'organization-1';
 const work = { id: 'work-1', organizationId };
 const edition = { id: 'edition-1', work };
+const importedAt = new Date('2026-10-01T12:00:00.000Z');
 const record = {
   id: 'record-1',
   editionId: edition.id,
   edition,
+  source: 'PORBASE',
+  sourceId: 'porbase',
+  createdAt: importedAt,
+  remoteId: 'remote-1',
+  format: 'MARC_TEXT',
   rawContent: '<record />',
 };
 
@@ -25,6 +31,7 @@ function createService(
     bibliographicRecord: {
       findUnique: vi.fn().mockResolvedValue(recordResult),
       findMany: vi.fn().mockResolvedValue([record]),
+      findFirst: vi.fn().mockResolvedValue(recordResult),
     },
     edition: {
       findUnique: vi.fn().mockResolvedValue(editionResult),
@@ -126,6 +133,91 @@ describe('BibliographicRecordsService.findByEdition', () => {
     expect(prisma.bibliographicRecord.findMany).toHaveBeenCalledWith({
       where: { editionId: edition.id },
       orderBy: { createdAt: 'desc' },
+    });
+  });
+
+  describe('BibliographicRecordsService.findForEdition', () => {
+    it('returns the latest Record with declared provenance and no raw content', async () => {
+      const { prisma, contexts, service } = createService();
+
+      const output = await service.findForEdition(userId, edition.id);
+      expect(output).toMatchObject({
+        id: record.id,
+        editionId: edition.id,
+        source: 'PORBASE',
+        sourceId: 'porbase',
+        importedAt,
+        remoteId: 'remote-1',
+        format: 'MARC_TEXT',
+        provenance: {
+          pipeline: 'PORBASE',
+          auditability: 'pipeline-only',
+          note: 'Source identifies the ingestion pipeline; no upstream snapshot is retained.',
+        },
+      });
+      expect(prisma.bibliographicRecord.findFirst).toHaveBeenCalledWith({
+        where: { editionId: edition.id },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          editionId: true,
+          source: true,
+          sourceId: true,
+          createdAt: true,
+          remoteId: true,
+          format: true,
+        },
+      });
+      expect(contexts.resolveDerivedContext).toHaveBeenCalledWith({
+        userId,
+        headerValue: undefined,
+        derivedOrganizationId: organizationId,
+      });
+      expect(output).not.toHaveProperty('rawContent');
+    });
+
+    it('does not read a Record when Organization membership is missing', async () => {
+      const { prisma, contexts, service } = createService();
+      vi.mocked(contexts.resolveDerivedContext).mockRejectedValueOnce(
+        new ApiException(
+          HttpStatus.FORBIDDEN,
+          API_ERROR_CODES.ORGANIZATION_MEMBERSHIP_REQUIRED,
+          'You do not have access to this organization.',
+        ),
+      );
+
+      await expect(
+        service.findForEdition('external-user', edition.id),
+      ).rejects.toMatchObject({
+        status: HttpStatus.FORBIDDEN,
+        response: { code: API_ERROR_CODES.ORGANIZATION_MEMBERSHIP_REQUIRED },
+      });
+      expect(prisma.bibliographicRecord.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('returns a stable 404 when the Edition has no Record', async () => {
+      const { prisma, service } = createService(null);
+
+      await expect(
+        service.findForEdition(userId, edition.id),
+      ).rejects.toMatchObject({
+        status: HttpStatus.NOT_FOUND,
+        response: { code: API_ERROR_CODES.RESOURCE_NOT_FOUND },
+      });
+      expect(prisma.bibliographicRecord.findFirst).toHaveBeenCalled();
+    });
+
+    it('returns a stable 404 when the Edition does not exist', async () => {
+      const { contexts, prisma, service } = createService(record, null);
+
+      await expect(
+        service.findForEdition(userId, 'missing-edition'),
+      ).rejects.toMatchObject({
+        status: HttpStatus.NOT_FOUND,
+        response: { code: API_ERROR_CODES.RESOURCE_NOT_FOUND },
+      });
+      expect(contexts.resolveDerivedContext).not.toHaveBeenCalled();
+      expect(prisma.bibliographicRecord.findFirst).not.toHaveBeenCalled();
     });
   });
 

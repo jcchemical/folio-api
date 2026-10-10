@@ -13,6 +13,7 @@ import { WorksService } from '../works/works.service.js';
 import { EditionCoverService } from './edition-cover.service.js';
 import { EditionsController } from './editions.controller.js';
 import { EditionsService } from './editions.service.js';
+import { BibliographicRecordsService } from '../bibliographic-records/bibliographic_records.service.js';
 
 const physicalDescriptions = [
   {
@@ -47,6 +48,7 @@ describe('Physical Description route validation', () => {
         { provide: EditionsService, useValue: editionsService },
         { provide: WorksService, useValue: worksService },
         { provide: EditionCoverService, useValue: {} },
+        { provide: BibliographicRecordsService, useValue: {} },
       ],
     })
       .overrideGuard(JwtAuthGuard)
