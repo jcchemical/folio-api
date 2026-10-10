@@ -17,6 +17,7 @@ import { AppService } from './app.service.js';
 import { THROTTLE_LIMIT, THROTTLE_TTL_MS } from './common/throttling.config.js';
 import { AgentsModule } from './agents/agents.module.js';
 import { ExternalIdentifiersModule } from './external-identifiers/external-identifiers.module.js';
+import { WorkItemsModule } from './work-items/work-items.module.js';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { ExternalIdentifiersModule } from './external-identifiers/external-ident
     HoldingsModule,
     ExternalIdentifiersModule,
     AgentsModule,
+    WorkItemsModule,
   ],
   controllers: [AppController],
   providers: [

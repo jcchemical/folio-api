@@ -42,6 +42,7 @@ model Organization {
   agents      Agent[]
   coverAssets CoverAsset[]
   externalIdentifiers ExternalIdentifier[]
+  workItems           WorkItem[]
 }
 
 model User {
@@ -54,7 +55,8 @@ model User {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  memberships OrganizationMembership[]
+  memberships      OrganizationMembership[]
+  workItemsCreated WorkItem[]                @relation("WorkItemCreatedBy")
 
   @@index([createdAt, id])
 }
@@ -601,10 +603,39 @@ model Item {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  holdingId String
-  holding   Holding @relation(fields: [holdingId], references: [id], onDelete: Cascade)
+  holdingId        String
+  holding          Holding    @relation(fields: [holdingId], references: [id], onDelete: Cascade)
+  workItemsMatched WorkItem[] @relation("WorkItemMatchedItem")
 
   @@index([holdingId, createdAt, id])
+}
+
+enum WorkItemStatus {
+  IDENTIFIED
+  NEEDS_REVIEW
+  VALIDATED
+}
+
+enum WorkItemSource {
+  SCAN
+  MANUAL
+}
+
+model WorkItem {
+  id             String         @id @default(cuid())
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  source         WorkItemSource
+  rawValue       String
+  matchedItemId  String?
+  matchedItem    Item?           @relation("WorkItemMatchedItem", fields: [matchedItemId], references: [id])
+  status         WorkItemStatus @default(NEEDS_REVIEW)
+  createdById    String
+  createdBy      User           @relation("WorkItemCreatedBy", fields: [createdById], references: [id])
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([organizationId, status])
 }
 
 model Holding {
