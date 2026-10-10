@@ -1,6 +1,6 @@
 # Contexto de desenvolvimento — Folio API
 
-> Última revisão documental: 2026-10-09.
+> Última revisão documental: 2026-10-10.
 > Este documento descreve o código e schema presentes no repositório nessa data. A existência de uma migration no repositório não prova que esteja aplicada num ambiente concreto.
 
 Roadmap cross-cutting: ver `folio-app/docs/ROADMAP.md`
@@ -66,7 +66,7 @@ Módulos/capacidades actuais incluem:
 
 `WorksModule` agrega actualmente controllers e services de várias entidades do catálogo. Esta organização é válida no monólito actual; a evolução para módulos por capacidade é uma direcção, não uma refactorização já concluída.
 
-`WorkItem` é uma entidade de processo de captura, separada de `Item`, `Edition` e `BibliographicRecord`. Em M3a, `WorkItemsModule` fornece leitura, criação manual e transição de estado; não fornece CRUD geral.
+`WorkItem` é uma entidade de processo de captura, separada de `Item`, `Edition` e `BibliographicRecord`. `WorkItemsModule` fornece captura manual ou scan, leitura, transição de estado e associação/desassociação manual a Item existente; não fornece CRUD geral nem fila/UI de curadoria.
 
 Imports relativos TypeScript seguem ESM e usam extensão `.js`.
 
@@ -378,7 +378,7 @@ Os comandos são procedimentos de validação, não afirmação de que foram cor
 ## Limitações conhecidas consolidadas
 
 1. A migração do contexto é parcial: Organizations/Works/Editions/Libraries/Locations/Holdings/Items, catalogue import, `POST /contributions`, leitura de Bibliographic Records/Covers, export por Edition e captura (`WorkItem`) usam contexto explícito ou derivado. `getDefaultOrganization()` permanece apenas usado pelo onboarding pessoal.
-2. Sem gestão de memberships/convites/roles, branches, Campus, ServicePoint, auditoria ou circulação; Item não representa empréstimos nem estado de circulação. O CRUD de Agents e Contributions (list/get/PATCH/DELETE) está implementado no backend e tem cliente/UI no `folio-app`; a validação de integração e smoke app→API continua pendente. Agents continuam sem merge/autoridade. WorkItem suporta leitura, criação MANUAL e transição de estado; scan, match, fila e curadoria não estão implementados.
+2. Sem gestão de memberships/convites/roles, branches, Campus, ServicePoint, auditoria ou circulação; Item não representa empréstimos nem estado de circulação. O CRUD de Agents e Contributions (list/get/PATCH/DELETE) está implementado no backend e tem cliente/UI no `folio-app`; a validação de integração e smoke app→API continua pendente. Agents continuam sem merge/autoridade. WorkItem suporta captura por scan, match/unmatch manual a Item existente, leitura e transição de estado; não há fila dedicada nem UI de curadoria.
 3. Confirmação de import sem preview snapshot; campos de contribuição de origem do import são editáveis pelo cliente.
 4. CRUD regular de Work/Edition ainda não mantém sempre relações de títulos/línguas canónicas; `$h/$i` parseados não são persistidos estruturadamente.
 5. Proveniência de Records limitada; não há snapshot do preview nem versionamento/hash do raw record.
@@ -386,7 +386,7 @@ Os comandos são procedimentos de validação, não afirmação de que foram cor
 7. Hosts do fetcher devem ser configurados; sem variável a allowlist é vazia e o allowlist exacto pode não incluir todos os hosts aceites pelo extractor.
 8. Storage S3, queue, rate-limit distribuído, request ID e redacção de mensagem/stack de excepções não existem.
 9. Migração `20260907180000_refine_bibliographic_model` declara-se como alvo de reset deliberado de desenvolvimento e executa `DROP TABLE PhysicalDescription`; confirmar estado/impacto do ambiente antes de aplicar migrations. Migrations versionadas não demonstram estado de aplicação remota.
-10. WorkItem é entidade de processo de captura separada de Item, Edition e BibliographicRecord; a relação opcional a Item usa `matchedItemId`. M3a não implementa scan, match, fila, curadoria, edição geral nem eliminação de WorkItems. M3b deve garantir que qualquer Item associado pertence à mesma Organization do WorkItem.
+10. WorkItem é entidade de processo de captura separada de Item, Edition e BibliographicRecord; a relação opcional a Item usa `matchedItemId`. M3b não implementa fila dedicada, UI de curadoria, importação PORBASE a partir de WorkItem, criação automática de catálogo/inventário, edição geral, eliminação de WorkItems nem circulação. O enforcement da Organization comum entre WorkItem e Item é exclusivamente aplicacional, no service.
 
 ## Próximos gates
 
@@ -400,18 +400,36 @@ External Identifiers e Agents/Contributions. Isto não fecha a integração:
    aprovação explícita;
 3. validar contract/integration tests e smoke real app→API nessa base;
 4. só depois decidir o fecho da Phase 7 e o próximo domínio;
-5. tratar pesquisa local, gestão de memberships, captura (M3b), fila (M3c), auditoria e
-   hardening distribuído como trabalho futuro sujeito a decisão própria.
+5. tratar pesquisa local, gestão de memberships, fila/UI de curadoria (M3c),
+   auditoria e hardening distribuído como trabalho futuro sujeito a decisão própria.
 
-M3a — WorkItem — está implementado com isolamento por Organization e estes contratos:
+M3a/M3b — WorkItem — estão implementados com isolamento por Organization e estes contratos:
 
-- `GET /work-items` requer JWT e `X-Folio-Organization-Id`; aceita `cursor`, `limit` e filtro opcional `status`; `limit` tem default 25 e máximo 100; devolve `{ items, nextCursor, hasMore }`. READER ou superior pode listar.
+- `GET /work-items` requer JWT e `X-Folio-Organization-Id`; aceita `cursor`, `limit` e filtro opcional `status`; `limit` tem default 25 e máximo 100; devolve `{ items, nextCursor, hasMore }`. Os filtros `status=NEEDS_REVIEW` (capturas por identificar) e `status=IDENTIFIED` (propostas por validar) são isolados por Organization. READER ou superior pode listar; não existe uma fila dedicada nem UI de curadoria.
 - `POST /work-items` requer JWT, `X-Folio-Organization-Id` e STAFF, ADMIN ou OWNER; aceita exclusivamente `{ "rawValue": string }` e rejeita propriedades desconhecidas. Cria sempre `source=MANUAL`, `status=NEEDS_REVIEW`, `matchedItemId=null`; deriva Organization do contexto e `createdById` do JWT.
+- `POST /work-items/scan` requer JWT, `X-Folio-Organization-Id` e STAFF, ADMIN ou OWNER; aceita exclusivamente `{ "rawValue": string }`, rejeita propriedades desconhecidas e exige valor não vazio/não composto apenas por espaços. Preserva `rawValue` exactamente como recebido, cria `source=SCAN`, `status=NEEDS_REVIEW`, `matchedItemId=null`, Organization do contexto e `createdById` do JWT. Não faz lookup, parsing, normalização nem cria Item, Holding, Edition, Work, BibliographicRecord ou outros recursos.
 - `GET /work-items/:id` requer JWT, deriva Organization do WorkItem persistido e permite header opcional apenas como verificação de consistência; READER ou superior pode ler.
 - `PATCH /work-items/:id/status` requer JWT, deriva Organization do WorkItem persistido e exige STAFF, ADMIN ou OWNER; aceita exclusivamente `{ "status": WorkItemStatus }` e rejeita propriedades desconhecidas. A actualização é condicionada por `id`, `organizationId` e estado anterior; transição inválida ou perda do compare-and-set devolve HTTP 409 `WORK_ITEM_TRANSITION_INVALID`.
-- Transições: `IDENTIFIED → VALIDATED | NEEDS_REVIEW`, `NEEDS_REVIEW → VALIDATED`; `VALIDATED` é terminal e auto-transições são inválidas.
+- `PATCH /work-items/:id/match` requer JWT, deriva Organization do WorkItem e aceita header opcional apenas como consistência; exige STAFF, ADMIN ou OWNER e body exclusivamente `{ "itemId": string }`. O Item tem de existir e ambas as cadeias de ownership (`Item → Holding → Edition → Work → Organization` e `Holding → Location → Library → Organization`) têm de resultar na Organization do WorkItem. Match manual move `NEEDS_REVIEW` ou `IDENTIFIED` sem match para `IDENTIFIED`; não substitui match existente nem altera WorkItems `VALIDATED`. O CAS inclui id, Organization, estado anterior e `matchedItemId=null`. Item inexistente ou de outra Organization devolve 404 `RESOURCE_NOT_FOUND`; erros de estado devolvem 409 `WORK_ITEM_MATCH_ALREADY_PRESENT` ou `WORK_ITEM_MATCH_INVALID_STATE`.
+- `DELETE /work-items/:id/match` requer JWT, Organization derivada e STAFF, ADMIN ou OWNER; não aceita body. Com match presente e estado não terminal, CAS por id, Organization, estado anterior e match limpa `matchedItemId` e regressa a `NEEDS_REVIEW`. Sem match devolve 409 `WORK_ITEM_MATCH_NOT_PRESENT`; estado inválido/terminal devolve 409 `WORK_ITEM_MATCH_INVALID_STATE`. Não elimina o Item.
+- Semântica: `NEEDS_REVIEW` é uma captura ainda por identificar; `IDENTIFIED` representa identidade proposta/resolvida ainda por validar; `VALIDATED` significa validação humana concluída e é terminal. Match nesta fatia é manual, apenas para Item existente na mesma Organization; não valida a identificação. Para mover um WorkItem com match de volta a `NEEDS_REVIEW`, é necessário remover o match primeiro.
+- Códigos M3b: `WORK_ITEM_MATCH_NOT_PRESENT`, `WORK_ITEM_MATCH_ALREADY_PRESENT` e `WORK_ITEM_MATCH_INVALID_STATE`; erros de tenancy reutilizam `RESOURCE_NOT_FOUND`, `ORGANIZATION_CONTEXT_CONFLICT` e `ORGANIZATION_ROLE_INSUFFICIENT`.
 
-A migration M3a foi criada para `folio_smoke`; esta documentação não afirma que esteja aplicada em qualquer base concreta. M3b (scan/match) e M3c (fila) permanecem trabalho futuro.
+Barcode/rawValue é opaco: não há inferência de tipo, validação ISBN, normalização ou parsing. Pesquisa PORBASE não altera o estado; confirmação de importação PORBASE a partir de WorkItem é trabalho futuro. O enforcement de tenancy do match ocorre apenas no service; nenhuma base de dados foi tocada nesta fatia.
+
+### Follow-up M3b.1 — enforcement persistente de tenancy no match
+
+- **Estado:** planeado; não implementado.
+- **Objectivo:** garantir, ao nível da persistência, que um WorkItem só pode referenciar um Item da mesma Organization.
+- **Motivação:** a validação actual está no service e protege os endpoints M3b, mas não escritas directas à base de dados, seeds futuros, importações ou ferramentas administrativas.
+- **Âmbito previsto:**
+  1. Avaliar a melhor forma de representar a invariante no modelo Prisma.
+  2. Criar uma migration revista, apenas se necessário.
+  3. Implementar enforcement persistente — por exemplo, trigger/função SQL ou constraint adequada, conforme a solução técnica escolhida.
+  4. Adicionar testes de migration/integração para: match same-organization aceite; match cross-organization rejeitado; comportamento ao remover match; ausência de efeito em WorkItems sem match.
+  5. Aplicar a migration exclusivamente em `folio_smoke`, com o guard `database == folio_smoke && database != folio`.
+  6. Actualizar `schema.prisma`, `CONTEXT.md` e testes para representar apenas o desenho final.
+- **Restrições:** não aplicar em `folio`; não criar migration como ficheiro preparado fora de uma fatia própria; não introduzir drift entre `schema.prisma` e PostgreSQL; não implementar nesta fatia M3b.
 
 Direcção futura de pesquisa local: pesquisa Folio distinta de providers externos; extensão controlada de `GET /works`; PostgreSQL full-text (`tsvector`, ranking e GIN), cursor compatível com ordenação; trigramas só com justificação medida. Sem Elasticsearch/Redis nesta fase.
 
@@ -453,6 +471,6 @@ A iteração `1M` deve distinguir, sem um enum prematuramente aprovado:
 - Bootstrap/config: `src/main.ts`, `src/app.module.ts`, `src/common/`, `src/prisma/`.
 - Catálogo: `src/catalogues/`; export: `src/exports/` e `src/bibliography/`.
 - Capas: `src/storage/`, `src/editions/edition-cover.service.ts`.
-- Captura: `src/work-items/`, máquina de estados em `work-item-transitions.ts`, endpoints de list/create/detail/transition em `work-items.controller.ts`.
+- Captura e matching manual: `src/work-items/`, máquina de estados em `work-item-transitions.ts`, endpoints de list/create/scan/detail/transition/match/unmatch em `work-items.controller.ts`.
 - Testes de integração relevantes: `test/porbase-import.e2e-spec.ts`, `test/porbase-import-persistence.e2e-spec.ts`, `test/exports.e2e-spec.ts`, `test/edition-cover.e2e-spec.ts`, `test/work-items.e2e-spec.ts`.
 - CI: `.github/workflows/ci.yml`.

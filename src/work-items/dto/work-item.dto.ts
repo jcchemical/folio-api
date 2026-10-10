@@ -17,6 +17,16 @@ export class CreateWorkItemDto {
   rawValue!: string;
 }
 
+export class ScanWorkItemDto extends CreateWorkItemDto {}
+
+export class MatchWorkItemDto {
+  @ApiProperty({ example: 'c123456789012345678901234' })
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/\S/)
+  itemId!: string;
+}
+
 export class TransitionWorkItemDto {
   @ApiProperty({ enum: WorkItemStatus })
   @IsEnum(WorkItemStatus)

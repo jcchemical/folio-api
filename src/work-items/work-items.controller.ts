@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -29,6 +30,8 @@ import { forbidRequestFields } from '../common/forbid-request-fields.js';
 import { FOLIO_ORGANIZATION_HEADER } from '../organizations/organization-context.resolver.js';
 import {
   CreateWorkItemDto,
+  MatchWorkItemDto,
+  ScanWorkItemDto,
   TransitionWorkItemDto,
   WorkItemDto,
   WorkItemListQueryDto,
@@ -87,6 +90,25 @@ export class WorkItemsController {
     );
   }
 
+  @Post('scan')
+  @ApiOperation({
+    summary:
+      'Capture a raw scan value without resolving or creating catalog data',
+    description: 'STAFF+. The raw value is preserved exactly as submitted.',
+  })
+  @ApiHeader({ name: FOLIO_ORGANIZATION_HEADER, required: true })
+  @ApiCreatedResponse({ type: WorkItemDto })
+  @ApiForbiddenResponse({ description: 'STAFF membership is required.' })
+  scan(@Body() body: ScanWorkItemDto, @Req() request: Request) {
+    forbidRequestFields(request.body, IMMUTABLE_FIELDS);
+    forbidUnknownRequestFields(request.body, ['rawValue']);
+    return this.service.scan(
+      this.userId(request),
+      request.headers[FOLIO_ORGANIZATION_HEADER],
+      body,
+    );
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Read a WorkItem using its derived Organization' })
   @ApiHeader({ name: FOLIO_ORGANIZATION_HEADER, required: false })
@@ -121,6 +143,66 @@ export class WorkItemsController {
       id,
       this.userId(request),
       body.status,
+      request.headers[FOLIO_ORGANIZATION_HEADER],
+    );
+  }
+
+  @Patch(':id/match')
+  @ApiOperation({
+    summary: 'Manually match a WorkItem to an existing Item',
+    description:
+      'STAFF+. The Item must belong to the WorkItem Organization; match moves the WorkItem to IDENTIFIED.',
+  })
+  @ApiHeader({ name: FOLIO_ORGANIZATION_HEADER, required: false })
+  @ApiOkResponse({ type: WorkItemDto })
+  @ApiForbiddenResponse({ description: 'STAFF membership is required.' })
+  @ApiNotFoundResponse({ description: 'Resource missing or not accessible.' })
+  @ApiConflictResponse({
+    description:
+      'WORK_ITEM_MATCH_ALREADY_PRESENT, WORK_ITEM_MATCH_INVALID_STATE or ORGANIZATION_CONTEXT_CONFLICT.',
+  })
+  match(
+    @Param('id') id: string,
+    @Body() body: MatchWorkItemDto,
+    @Req() request: Request,
+  ) {
+    forbidRequestFields(request.body, [
+      ...IMMUTABLE_FIELDS,
+      'status',
+      'rawValue',
+    ]);
+    forbidUnknownRequestFields(request.body, ['itemId']);
+    return this.service.match(
+      id,
+      this.userId(request),
+      body.itemId,
+      request.headers[FOLIO_ORGANIZATION_HEADER],
+    );
+  }
+
+  @Delete(':id/match')
+  @ApiOperation({
+    summary: 'Remove a WorkItem match and return it to NEEDS_REVIEW',
+  })
+  @ApiHeader({ name: FOLIO_ORGANIZATION_HEADER, required: false })
+  @ApiOkResponse({ type: WorkItemDto })
+  @ApiForbiddenResponse({ description: 'STAFF membership is required.' })
+  @ApiNotFoundResponse({ description: 'Resource missing or not accessible.' })
+  @ApiConflictResponse({
+    description:
+      'WORK_ITEM_MATCH_NOT_PRESENT, WORK_ITEM_MATCH_INVALID_STATE or ORGANIZATION_CONTEXT_CONFLICT.',
+  })
+  unmatch(@Param('id') id: string, @Req() request: Request) {
+    forbidRequestFields(request.body, [
+      ...IMMUTABLE_FIELDS,
+      'status',
+      'rawValue',
+      'itemId',
+    ]);
+    forbidUnknownRequestFields(request.body, []);
+    return this.service.unmatch(
+      id,
+      this.userId(request),
       request.headers[FOLIO_ORGANIZATION_HEADER],
     );
   }

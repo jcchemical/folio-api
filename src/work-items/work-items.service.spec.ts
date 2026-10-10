@@ -40,7 +40,9 @@ describe('WorkItemsService', () => {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 2,
     });
-    const result = await service.list('staff', workItemOrgA);
+    const result = await service.list('staff', workItemOrgA, {
+      status: WorkItemStatus.IDENTIFIED,
+    });
     expect(result.items.map((row) => row.id)).toEqual([identifiedWorkItemId]);
   });
 
@@ -162,6 +164,11 @@ describe('WorkItemsService', () => {
   );
 
   it('supports IDENTIFIED -> NEEDS_REVIEW -> VALIDATED', async () => {
+    const identified = state.rows.get(identifiedWorkItemId)!;
+    state.rows.set(identifiedWorkItemId, {
+      ...identified,
+      matchedItemId: null,
+    });
     await service.transition(
       identifiedWorkItemId,
       'staff',

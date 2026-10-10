@@ -10,6 +10,10 @@ export const workItemOrgA = `c${'a'.repeat(24)}`;
 export const workItemOrgB = `c${'b'.repeat(24)}`;
 export const identifiedWorkItemId = `c${'1'.repeat(24)}`;
 export const foreignWorkItemId = `c${'2'.repeat(24)}`;
+export const matchingWorkItemId = `c${'4'.repeat(24)}`;
+export const validatedWorkItemId = `c${'5'.repeat(24)}`;
+export const itemOrgAId = `c${'6'.repeat(24)}`;
+export const itemOrgBId = `c${'7'.repeat(24)}`;
 
 export function makeWorkItemsPrisma() {
   const now = new Date('2026-10-10T12:00:00Z');
@@ -40,6 +44,56 @@ export function makeWorkItemsPrisma() {
         createdById: 'outsider',
         createdAt: now,
         updatedAt: now,
+      },
+    ],
+    [
+      matchingWorkItemId,
+      {
+        id: matchingWorkItemId,
+        organizationId: workItemOrgA,
+        source: WorkItemSource.SCAN,
+        rawValue: 'raw-match-candidate',
+        matchedItemId: null,
+        status: WorkItemStatus.NEEDS_REVIEW,
+        createdById: 'staff',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+    [
+      validatedWorkItemId,
+      {
+        id: validatedWorkItemId,
+        organizationId: workItemOrgA,
+        source: WorkItemSource.SCAN,
+        rawValue: 'validated-capture',
+        matchedItemId: itemOrgAId,
+        status: WorkItemStatus.VALIDATED,
+        createdById: 'staff',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+  ]);
+  const items = new Map([
+    [
+      itemOrgAId,
+      {
+        id: itemOrgAId,
+        holding: {
+          edition: { work: { organizationId: workItemOrgA } },
+          location: { library: { organizationId: workItemOrgA } },
+        },
+      },
+    ],
+    [
+      itemOrgBId,
+      {
+        id: itemOrgBId,
+        holding: {
+          edition: { work: { organizationId: workItemOrgB } },
+          location: { library: { organizationId: workItemOrgB } },
+        },
       },
     ],
   ]);
@@ -177,14 +231,24 @@ export function makeWorkItemsPrisma() {
           where,
           data,
         }: {
-          where: { id: string; organizationId: string; status: WorkItemStatus };
-          data: { status: WorkItemStatus };
+          where: {
+            id: string;
+            organizationId: string;
+            status: WorkItemStatus;
+            matchedItemId?: string | null;
+          };
+          data: {
+            status: WorkItemStatus;
+            matchedItemId?: string | null;
+          };
         }) => {
           const row = rows.get(where.id);
           if (
             !row ||
             row.organizationId !== where.organizationId ||
-            row.status !== where.status
+            row.status !== where.status ||
+            (where.matchedItemId !== undefined &&
+              row.matchedItemId !== where.matchedItemId)
           )
             return [];
           const updated = { ...row, ...data, updatedAt: new Date() };
@@ -193,6 +257,13 @@ export function makeWorkItemsPrisma() {
         },
       ),
     },
+    item: {
+      findUnique: vi.fn(
+        async ({ where }: { where: { id: string } }) =>
+          items.get(where.id) ?? null,
+      ),
+      create: vi.fn(),
+    },
   };
-  return { prisma, rows };
+  return { prisma, rows, items };
 }
